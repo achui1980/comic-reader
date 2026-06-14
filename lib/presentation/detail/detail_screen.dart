@@ -5,6 +5,7 @@ import 'package:get_it/get_it.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
+import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/app/router/routes.dart';
 import 'bloc/detail_cubit.dart';
 import 'bloc/detail_state.dart';
@@ -20,6 +21,7 @@ class DetailScreen extends StatelessWidget {
     return BlocProvider(
       create: (_) => DetailCubit(
         repository: GetIt.instance<MangaRepository>(),
+        favoritesStore: GetIt.instance<FavoritesStore>(),
         sourceId: sourceId,
         mangaId: mangaId,
       )..loadDetail(),

@@ -1,24 +1,30 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
+import 'package:comic_reader/data/local/favorites_store.dart';
 import 'detail_state.dart';
 
 class DetailCubit extends Cubit<DetailState> {
   final MangaRepository _repository;
+  final FavoritesStore _favoritesStore;
   final String sourceId;
   final String mangaId;
 
   DetailCubit({
     required MangaRepository repository,
+    required FavoritesStore favoritesStore,
     required this.sourceId,
     required this.mangaId,
   })  : _repository = repository,
+        _favoritesStore = favoritesStore,
         super(const DetailState());
 
   Future<void> loadDetail() async {
     emit(state.copyWith(status: DetailStatus.loading));
     try {
       final manga = await _repository.getMangaInfo(sourceId, mangaId);
-      emit(state.copyWith(status: DetailStatus.loaded, manga: manga));
+      final isFav = await _favoritesStore.isFavorite(sourceId, mangaId);
+      emit(state.copyWith(status: DetailStatus.loaded, manga: manga, isFavorite: isFav));
       await loadChapters();
     } catch (e) {
       emit(state.copyWith(status: DetailStatus.error, errorMessage: e.toString()));
@@ -61,8 +67,26 @@ class DetailCubit extends Cubit<DetailState> {
     emit(state.copyWith(chaptersReversed: !state.chaptersReversed));
   }
 
-  void toggleFavorite() {
-    emit(state.copyWith(isFavorite: !state.isFavorite));
-    // TODO: persist favorite to local storage
+  Future<void> toggleFavorite() async {
+    final manga = state.manga;
+    if (manga == null) return;
+
+    final willBeFavorite = !state.isFavorite;
+    emit(state.copyWith(isFavorite: willBeFavorite));
+
+    if (willBeFavorite) {
+      await _favoritesStore.add(MangaSummary(
+        id: manga.id,
+        sourceId: manga.sourceId,
+        title: manga.title,
+        coverUrl: manga.coverUrl,
+        author: manga.author,
+        latestChapter: manga.latestChapter,
+        updateTime: manga.updateTime,
+        headers: manga.headers,
+      ));
+    } else {
+      await _favoritesStore.remove(sourceId, mangaId);
+    }
   }
 }
