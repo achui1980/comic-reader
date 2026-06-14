@@ -1,6 +1,8 @@
 import 'package:get_it/get_it.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:comic_reader/data/remote/http_client.dart';
 import 'package:comic_reader/data/remote/source_interceptor.dart';
+import 'package:comic_reader/data/remote/cors_proxy_interceptor.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/data/sources/copy_manga.dart';
 import 'package:comic_reader/data/sources/manhuagui_mobile.dart';
@@ -31,6 +33,9 @@ void configureDependencies() {
   // HTTP Client
   final httpClient = HttpClient();
   httpClient.addInterceptor(SourceInterceptor());
+  if (kIsWeb) {
+    httpClient.addInterceptor(CorsProxyInterceptor());
+  }
   getIt.registerSingleton<HttpClient>(httpClient);
 
   // Source Registry
