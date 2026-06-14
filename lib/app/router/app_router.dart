@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:comic_reader/presentation/reader/reader_screen.dart';
 import 'routes.dart';
 
 /// Placeholder screen used during development
@@ -42,7 +43,14 @@ class AppRouter {
       GoRoute(
         path: AppRoutes.reader,
         builder: (context, state) {
-          return const _PlaceholderScreen(title: 'Reader');
+          final sourceId = state.pathParameters['sourceId'] ?? '';
+          final mangaId = state.pathParameters['mangaId'] ?? '';
+          final chapterId = state.pathParameters['chapterId'] ?? '';
+          return ReaderScreen(
+            sourceId: sourceId,
+            mangaId: mangaId,
+            chapterId: chapterId,
+          );
         },
       ),
       GoRoute(
