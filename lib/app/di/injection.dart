@@ -3,6 +3,8 @@ import 'package:comic_reader/data/remote/http_client.dart';
 import 'package:comic_reader/data/remote/source_interceptor.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/data/sources/copy_manga.dart';
+import 'package:comic_reader/data/sources/manhuagui_mobile.dart';
+import 'package:comic_reader/data/sources/jm_comic.dart';
 import 'package:comic_reader/data/repositories/manga_repository_impl.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
@@ -30,6 +32,8 @@ void configureDependencies() {
   // Source Registry
   final registry = SourceRegistry();
   registry.register(CopyManga());
+  registry.register(ManhuaGuiMobile());
+  registry.register(JmComic());
   getIt.registerSingleton<SourceRegistry>(registry);
 
   // Repository
