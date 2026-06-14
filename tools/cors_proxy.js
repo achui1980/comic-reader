@@ -14,6 +14,24 @@ const url = require('url');
 
 const PORT = 9090;
 
+// Upstream proxy support: reads HTTPS_PROXY / HTTP_PROXY from env
+const UPSTREAM_PROXY = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy;
+
+let proxyAgent = null;
+if (UPSTREAM_PROXY) {
+  try {
+    // Use Node's built-in undici ProxyAgent if available (Node 18+)
+    // Otherwise fall back to https-proxy-agent if installed
+    const { HttpsProxyAgent } = require('https-proxy-agent');
+    proxyAgent = new HttpsProxyAgent(UPSTREAM_PROXY);
+    console.log(`Using upstream proxy: ${UPSTREAM_PROXY}`);
+  } catch (e) {
+    console.log(`Warning: HTTPS_PROXY set to ${UPSTREAM_PROXY} but https-proxy-agent not installed.`);
+    console.log('Run: npm install https-proxy-agent');
+    console.log('Proceeding without upstream proxy...');
+  }
+}
+
 const server = http.createServer((req, res) => {
   // Handle preflight
   if (req.method === 'OPTIONS') {
@@ -71,6 +89,7 @@ const server = http.createServer((req, res) => {
       path: parsed.path,
       method: req.method,
       headers: headers,
+      agent: proxyAgent || undefined,
     },
     (proxyRes) => {
       // Add CORS headers to response

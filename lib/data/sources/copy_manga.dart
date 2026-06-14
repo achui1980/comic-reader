@@ -208,11 +208,18 @@ class CopyManga extends MangaSource {
     }).toList();
   }
 
+  static const Map<String, String> _defaultHeaders = {
+    'User-Agent': _userAgent,
+    'Referer': 'https://www.mangacopy.com',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+  };
+
   @override
   FetchConfig prepareMangaInfoFetch(String mangaId) {
     return FetchConfig(
       url: '$_baseUrl/comic/$mangaId',
-      headers: {'User-Agent': _userAgent},
+      headers: _defaultHeaders,
     );
   }
 
