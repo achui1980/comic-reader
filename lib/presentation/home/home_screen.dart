@@ -4,6 +4,7 @@ import 'package:get_it/get_it.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:comic_reader/app/router/routes.dart';
 import 'package:comic_reader/core/utils/responsive.dart';
+import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 
@@ -102,7 +103,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: CachedNetworkImage(
-                imageUrl: manga.coverUrl,
+                imageUrl: ImageProxy.url(manga.coverUrl),
                 httpHeaders: manga.headers,
                 fit: BoxFit.cover,
                 placeholder: (_, __) => Container(

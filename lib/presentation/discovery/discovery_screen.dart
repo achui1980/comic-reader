@@ -7,6 +7,7 @@ import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/core/utils/responsive.dart';
+import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/app/router/routes.dart';
 import 'bloc/discovery_cubit.dart';
 import 'bloc/discovery_state.dart';
@@ -206,7 +207,7 @@ class _MangaCard extends StatelessWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: CachedNetworkImage(
-                imageUrl: manga.coverUrl,
+                imageUrl: ImageProxy.url(manga.coverUrl),
                 httpHeaders: manga.headers,
                 fit: BoxFit.cover,
                 placeholder: (_, __) => Container(color: Colors.grey.shade200),

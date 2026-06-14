@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:extended_image/extended_image.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
+import 'package:comic_reader/core/utils/image_proxy.dart';
 
 /// Displays a single manga page image with loading and error states.
 class MangaImage extends StatelessWidget {
@@ -16,7 +17,7 @@ class MangaImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ExtendedImage.network(
-      image.url,
+      ImageProxy.url(image.url),
       fit: fit,
       cache: true,
       headers: image.headers,

@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
+import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/app/router/routes.dart';
 import 'bloc/detail_cubit.dart';
 import 'bloc/detail_state.dart';
@@ -93,7 +94,7 @@ class _DetailView extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             CachedNetworkImage(
-              imageUrl: manga.coverUrl,
+              imageUrl: ImageProxy.url(manga.coverUrl),
               httpHeaders: manga.headers,
               fit: BoxFit.cover,
             ),
