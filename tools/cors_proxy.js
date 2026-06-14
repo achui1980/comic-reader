@@ -3,6 +3,10 @@
 //
 // This proxies all requests and adds CORS headers so the Flutter web app
 // can make cross-origin requests to manga source APIs.
+//
+// Supports X-Proxy-* headers: the Flutter app moves browser-forbidden headers
+// (User-Agent, Referer) to X-Proxy-User-Agent / X-Proxy-Referer, and this
+// proxy restores them before forwarding.
 
 const http = require('http');
 const https = require('https');
@@ -34,12 +38,31 @@ const server = http.createServer((req, res) => {
   const parsed = url.parse(targetUrl);
   const client = parsed.protocol === 'https:' ? https : http;
 
-  // Forward headers, replacing host
+  // Forward headers, replacing host and restoring X-Proxy-* headers
   const headers = { ...req.headers };
   delete headers.host;
   delete headers.origin;
   delete headers.referer;
   headers.host = parsed.host;
+
+  // Restore X-Proxy-User-Agent as User-Agent
+  if (headers['x-proxy-user-agent']) {
+    headers['user-agent'] = headers['x-proxy-user-agent'];
+    delete headers['x-proxy-user-agent'];
+  }
+
+  // Restore X-Proxy-Referer as Referer
+  if (headers['x-proxy-referer']) {
+    headers['referer'] = headers['x-proxy-referer'];
+    delete headers['x-proxy-referer'];
+  }
+
+  // Remove other X-Proxy-* headers
+  for (const key of Object.keys(headers)) {
+    if (key.startsWith('x-proxy-')) {
+      delete headers[key];
+    }
+  }
 
   const proxyReq = client.request(
     {
@@ -78,5 +101,6 @@ server.listen(PORT, () => {
   console.log(`CORS proxy running at http://localhost:${PORT}`);
   console.log('Usage: http://localhost:' + PORT + '/https://api.mangacopy.com/...');
   console.log('');
+  console.log('Supports X-Proxy-User-Agent / X-Proxy-Referer header restoration');
   console.log('Run your Flutter web app with: flutter run -d chrome');
 });

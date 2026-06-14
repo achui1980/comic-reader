@@ -22,9 +22,9 @@ class CopyManga extends MangaSource {
     'webp': '1',
     'region': '1',
     'platform': '3',
-    'version': '2.3.1',
+    'version': '3.0.0',
     'accept': 'application/json',
-    'User-Agent': 'COPY/2.3.1',
+    'User-Agent': 'COPY/3.0.0',
   };
 
   static const Map<String, String> _imageHeaders = {
