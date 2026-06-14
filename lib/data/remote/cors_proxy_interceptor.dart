@@ -33,9 +33,14 @@ class CorsProxyInterceptor extends Interceptor {
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
     if (kIsWeb) {
-      // Prepend the CORS proxy URL
+      // Build the full original URL including query parameters
       final originalUrl = options.uri.toString();
+
+      // Replace path with proxied URL and clear queryParameters
+      // (they are already encoded in originalUrl)
       options.path = '$proxyBaseUrl$originalUrl';
+      options.queryParameters = {};
+      options.baseUrl = '';
 
       // Move forbidden headers to X-Proxy-* so the proxy can restore them.
       final toRemove = <String>[];

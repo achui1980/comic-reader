@@ -40,8 +40,8 @@ void configureDependencies() {
 
   // Source Registry
   final registry = SourceRegistry();
-  registry.register(CopyManga());
   registry.register(ManhuaGuiMobile());
+  registry.register(CopyManga());
   registry.register(JmComic());
   getIt.registerSingleton<SourceRegistry>(registry);
 
