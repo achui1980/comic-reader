@@ -1,31 +1,61 @@
+import 'package:comic_reader/core/utils/lz_string.dart';
+
 /// Dean Edwards JavaScript unpacker for packed/obfuscated JS.
 ///
 /// Handles scripts in the format:
 /// `eval(function(p,a,c,k,e,d){...}('data',radix,count,'keywords'.split('|'),0,{}))`
+/// Also handles ManhuaGui variant with hex-escaped method names and LZ-compressed keywords:
+/// `function(p,a,c,k,e,d){...}('data',radix,count,'lz_base64'['\x73\x70\x6c\x69\x63']('\x7c'),0,{})`
 class JsUnpacker {
+  /// Standard format: }('...',N,N,'...'.split('|')...)
   static final _packedPattern = RegExp(
     r"}\('(.*)',\s*(\d+),\s*(\d+),\s*'(.*?)'\s*\.split\('\|'\)",
+    dotAll: true,
+  );
+
+  /// ManhuaGui format with hex escapes:
+  /// }('...',N,N,'...'['\x73\x70\x6c\x69\x63']('\x7c'),0,{})
+  static final _packedPatternHex = RegExp(
+    r"}\('(.*)',\s*(\d+),\s*(\d+),\s*'(.*?)'\s*\[",
     dotAll: true,
   );
 
   /// Attempts to unpack a Dean Edwards packed JavaScript string.
   /// Returns the unpacked source or null if the input is not packed.
   static String? unpack(String scriptContent) {
-    final match = _packedPattern.firstMatch(scriptContent);
-    if (match == null) return null;
-
-    final payload = match.group(1)!;
-    final radix = int.parse(match.group(2)!);
-    final count = int.parse(match.group(3)!);
-    final keywords = match.group(4)!.split('|');
-
-    if (keywords.length != count) {
-      // Mismatch, try anyway with what we have
+    // Try standard format first
+    var match = _packedPattern.firstMatch(scriptContent);
+    if (match != null) {
+      final payload = match.group(1)!;
+      final radix = int.parse(match.group(2)!);
+      final keywords = match.group(4)!.split('|');
+      return _replaceWords(payload, radix, keywords);
     }
 
-    // Replace each word token with its keyword from the dictionary
-    final result = _replaceWords(payload, radix, keywords);
-    return result;
+    // Try ManhuaGui hex-escaped format
+    match = _packedPatternHex.firstMatch(scriptContent);
+    if (match != null) {
+      final payload = match.group(1)!;
+      final radix = int.parse(match.group(2)!);
+      final keywordsRaw = match.group(4)!;
+
+      // Keywords are LZ-String base64 compressed, then split by |
+      List<String> keywords;
+      if (keywordsRaw.contains('|')) {
+        keywords = keywordsRaw.split('|');
+      } else {
+        // LZ-String decompression
+        final decompressed = LZString.decompressFromBase64(keywordsRaw);
+        if (decompressed != null && decompressed.isNotEmpty) {
+          keywords = decompressed.split('|');
+        } else {
+          return null;
+        }
+      }
+      return _replaceWords(payload, radix, keywords);
+    }
+
+    return null;
   }
 
   /// Replace encoded word references with actual keywords.

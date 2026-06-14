@@ -75,6 +75,16 @@ const server = http.createServer((req, res) => {
     delete headers['x-proxy-referer'];
   }
 
+  // Auto-add Referer for known CDN hosts that require it
+  if (!headers['referer']) {
+    const host = parsed.hostname || '';
+    if (host.endsWith('.hamreus.com')) {
+      headers['referer'] = 'https://m.manhuagui.com';
+    } else if (host.includes('mangacopy') || host.includes('mangafunc') || host.includes('mangafunb')) {
+      headers['referer'] = 'https://www.mangacopy.com';
+    }
+  }
+
   // Remove other X-Proxy-* headers
   for (const key of Object.keys(headers)) {
     if (key.startsWith('x-proxy-')) {

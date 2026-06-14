@@ -32,6 +32,13 @@ class ManhuaGuiMobile extends MangaSource {
 
   final _random = Random();
 
+  /// Resolve a potentially relative URL to an absolute one
+  String _resolveUrl(String url) {
+    if (url.startsWith('http')) return url;
+    if (url.startsWith('//')) return 'https:$url';
+    return '$_baseUrl$url';
+  }
+
   @override
   String get id => sourceId;
 
@@ -179,7 +186,7 @@ class ManhuaGuiMobile extends MangaSource {
       final cover = imgEl?.attributes['data-src'] ??
           imgEl?.attributes['src'] ??
           '';
-      final fullCover = cover.startsWith('http') ? cover : '$_baseUrl$cover';
+      final fullCover = _resolveUrl(cover);
 
       final ddElements = item.querySelectorAll('dl > dd');
       String author = '';
@@ -252,7 +259,7 @@ class ManhuaGuiMobile extends MangaSource {
       final cover = imgEl?.attributes['data-src'] ??
           imgEl?.attributes['src'] ??
           '';
-      final fullCover = cover.startsWith('http') ? cover : '$_baseUrl$cover';
+      final fullCover = _resolveUrl(cover);
 
       final ddElements = item.querySelectorAll('dl > dd');
       String author = '';
@@ -320,7 +327,7 @@ class ManhuaGuiMobile extends MangaSource {
     final cover = coverEl?.attributes['data-src'] ??
         coverEl?.attributes['src'] ??
         '';
-    final fullCover = cover.startsWith('http') ? cover : '$_baseUrl$cover';
+    final fullCover = _resolveUrl(cover);
 
     // Metadata from cont-list dl
     final dlElements = document.querySelectorAll('div.cont-list dl');
@@ -384,6 +391,7 @@ class ManhuaGuiMobile extends MangaSource {
       tags: tags,
       status: status,
       updateTime: updateTime,
+      chapters: chapters,
     );
   }
 
@@ -453,7 +461,7 @@ class ManhuaGuiMobile extends MangaSource {
     }
 
     // Extract JSON data from SMH.reader({...}).preInit();
-    final readerPattern = RegExp(r'SMH\.reader\(({.*?})\)\.preInit', dotAll: true);
+    final readerPattern = RegExp(r'SMH\.reader\(({.*})\)\.preInit', dotAll: true);
     final readerMatch = readerPattern.firstMatch(unpacked);
 
     if (readerMatch == null) {
@@ -494,11 +502,12 @@ class ManhuaGuiMobile extends MangaSource {
 
     // Select CDN hostname and build image URLs
     final hostname = _selectCdnHost();
+    final imageHeaders = {'Referer': _baseUrl};
     final images = imagePaths.map((path) {
       final url = slParams.isNotEmpty
           ? 'https://$hostname.hamreus.com$path?$slParams'
           : 'https://$hostname.hamreus.com$path';
-      return ChapterImage(url: url);
+      return ChapterImage(url: url, headers: imageHeaders);
     }).toList();
 
     return ChapterResult(
@@ -507,7 +516,6 @@ class ManhuaGuiMobile extends MangaSource {
         mangaId: mangaId,
         title: chapterTitle,
         images: images,
-        headers: const {'Referer': _baseUrl},
       ),
     );
   }

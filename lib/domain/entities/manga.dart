@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:comic_reader/domain/entities/chapter.dart';
 
 enum MangaStatus { ongoing, completed, unknown }
 
@@ -39,6 +40,7 @@ class MangaDetail extends Equatable {
   final String? latestChapter;
   final String? updateTime;
   final Map<String, String>? headers;
+  final List<ChapterItem> chapters;
 
   const MangaDetail({
     required this.id,
@@ -52,8 +54,9 @@ class MangaDetail extends Equatable {
     this.latestChapter,
     this.updateTime,
     this.headers,
+    this.chapters = const [],
   });
 
   @override
-  List<Object?> get props => [id, sourceId, title, coverUrl, description, author, tags, status];
+  List<Object?> get props => [id, sourceId, title, coverUrl, description, author, tags, status, chapters];
 }

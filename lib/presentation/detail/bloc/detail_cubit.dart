@@ -34,6 +34,17 @@ class DetailCubit extends Cubit<DetailState> {
   Future<void> loadChapters() async {
     emit(state.copyWith(chaptersLoading: true));
     try {
+      // Some sources embed chapters directly in manga info (e.g., ManhuaGui)
+      if (state.manga != null && state.manga!.chapters.isNotEmpty) {
+        emit(state.copyWith(
+          chapters: state.manga!.chapters,
+          chaptersLoading: false,
+          canLoadMoreChapters: false,
+          chapterPage: 1,
+        ));
+        return;
+      }
+
       final result = await _repository.getChapterList(sourceId, mangaId, 1);
       emit(state.copyWith(
         chapters: result.chapters,
