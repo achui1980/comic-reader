@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:comic_reader/presentation/home/home_screen.dart';
+import 'package:comic_reader/presentation/discovery/discovery_screen.dart';
+import 'package:comic_reader/presentation/search/search_screen.dart';
+import 'package:comic_reader/presentation/detail/detail_screen.dart';
 import 'package:comic_reader/presentation/reader/reader_screen.dart';
 import 'routes.dart';
 
-/// Placeholder screen used during development
+/// Placeholder screen used during development for unfinished routes.
 class _PlaceholderScreen extends StatelessWidget {
   final String title;
   const _PlaceholderScreen({required this.title});
@@ -24,20 +28,23 @@ class AppRouter {
     routes: [
       GoRoute(
         path: AppRoutes.home,
-        builder: (context, state) => const _PlaceholderScreen(title: 'Home'),
+        builder: (context, state) => const HomeScreen(),
       ),
       GoRoute(
         path: AppRoutes.discovery,
-        builder: (context, state) => const _PlaceholderScreen(title: 'Discovery'),
+        builder: (context, state) => const DiscoveryScreen(),
       ),
       GoRoute(
         path: AppRoutes.search,
-        builder: (context, state) => const _PlaceholderScreen(title: 'Search'),
+        builder: (context, state) => const SearchScreen(),
       ),
       GoRoute(
         path: AppRoutes.detail,
         builder: (context, state) {
-          return const _PlaceholderScreen(title: 'Detail');
+          return DetailScreen(
+            sourceId: state.pathParameters['sourceId'] ?? '',
+            mangaId: state.pathParameters['mangaId'] ?? '',
+          );
         },
       ),
       GoRoute(
