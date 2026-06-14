@@ -1,39 +1,51 @@
-import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:comic_reader/presentation/home/home_screen.dart';
 import 'package:comic_reader/presentation/discovery/discovery_screen.dart';
 import 'package:comic_reader/presentation/search/search_screen.dart';
 import 'package:comic_reader/presentation/detail/detail_screen.dart';
 import 'package:comic_reader/presentation/reader/reader_screen.dart';
+import 'package:comic_reader/presentation/settings/settings_screen.dart';
+import 'package:comic_reader/presentation/shell/app_shell.dart';
 import 'routes.dart';
 
-/// Placeholder screen used during development for unfinished routes.
-class _PlaceholderScreen extends StatelessWidget {
-  final String title;
-  const _PlaceholderScreen({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: Center(child: Text(title)),
-    );
-  }
-}
-
-/// App router configuration using GoRouter.
+/// App router configuration using GoRouter with responsive shell layout.
 class AppRouter {
   static final GoRouter router = GoRouter(
     initialLocation: AppRoutes.home,
     routes: [
-      GoRoute(
-        path: AppRoutes.home,
-        builder: (context, state) => const HomeScreen(),
+      // Shell route for main navigation tabs
+      StatefulShellRoute.indexedStack(
+        builder: (context, state, navigationShell) {
+          return AppShell(navigationShell: navigationShell);
+        },
+        branches: [
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.home,
+                builder: (context, state) => const HomeScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.discovery,
+                builder: (context, state) => const DiscoveryScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
+                path: AppRoutes.settings,
+                builder: (context, state) => const SettingsScreen(),
+              ),
+            ],
+          ),
+        ],
       ),
-      GoRoute(
-        path: AppRoutes.discovery,
-        builder: (context, state) => const DiscoveryScreen(),
-      ),
+      // Non-shell routes (full-screen)
       GoRoute(
         path: AppRoutes.search,
         builder: (context, state) => const SearchScreen(),
@@ -59,10 +71,6 @@ class AppRouter {
             chapterId: chapterId,
           );
         },
-      ),
-      GoRoute(
-        path: AppRoutes.settings,
-        builder: (context, state) => const _PlaceholderScreen(title: 'Settings'),
       ),
     ],
   );

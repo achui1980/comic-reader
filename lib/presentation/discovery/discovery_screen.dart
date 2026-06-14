@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
+import 'package:comic_reader/core/utils/responsive.dart';
 import 'package:comic_reader/app/router/routes.dart';
 import 'bloc/discovery_cubit.dart';
 import 'bloc/discovery_state.dart';
@@ -40,11 +41,14 @@ class _DiscoveryView extends StatelessWidget {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          _buildFilterBar(context),
-          Expanded(child: _buildGrid(context)),
-        ],
+      body: Responsive.constrainedContent(
+        context: context,
+        child: Column(
+          children: [
+            _buildFilterBar(context),
+            Expanded(child: _buildGrid(context)),
+          ],
+        ),
       ),
     );
   }
@@ -149,6 +153,11 @@ class _DiscoveryView extends StatelessWidget {
             ),
           );
         }
+
+        final columns = Responsive.gridColumns(context);
+        // Keep aspect ratio similar to original maxCrossAxisExtent: 180, ratio: 0.55
+        const childAspectRatio = 0.55;
+
         return RefreshIndicator(
           onRefresh: () => context.read<DiscoveryCubit>().refresh(),
           child: NotificationListener<ScrollNotification>(
@@ -161,9 +170,9 @@ class _DiscoveryView extends StatelessWidget {
             },
             child: GridView.builder(
               padding: const EdgeInsets.all(8),
-              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 180,
-                childAspectRatio: 0.55,
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: columns,
+                childAspectRatio: childAspectRatio,
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
               ),

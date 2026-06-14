@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:get_it/get_it.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:comic_reader/app/router/routes.dart';
+import 'package:comic_reader/core/utils/responsive.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 
@@ -40,17 +41,9 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('漫画阅读器'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.explore),
-            tooltip: '发现',
-            onPressed: () async {
-              await context.push(AppRoutes.discovery);
-              _refresh();
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: '设置',
-            onPressed: () => context.push(AppRoutes.settings),
+            icon: const Icon(Icons.search),
+            tooltip: '搜索',
+            onPressed: () => context.push(AppRoutes.search),
           ),
         ],
       ),
@@ -67,21 +60,24 @@ class _HomeScreenState extends State<HomeScreen> {
             return _buildEmptyState(context);
           }
 
-          return RefreshIndicator(
-            onRefresh: () async => _refresh(),
-            child: GridView.builder(
-              padding: const EdgeInsets.all(12),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                childAspectRatio: 0.65,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
+          return Responsive.constrainedContent(
+            context: context,
+            child: RefreshIndicator(
+              onRefresh: () async => _refresh(),
+              child: GridView.builder(
+                padding: const EdgeInsets.all(12),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: Responsive.gridColumns(context),
+                  childAspectRatio: 0.65,
+                  crossAxisSpacing: 10,
+                  mainAxisSpacing: 10,
+                ),
+                itemCount: favorites.length,
+                itemBuilder: (context, index) {
+                  final manga = favorites[index];
+                  return _buildMangaCard(context, manga);
+                },
               ),
-              itemCount: favorites.length,
-              itemBuilder: (context, index) {
-                final manga = favorites[index];
-                return _buildMangaCard(context, manga);
-              },
             ),
           );
         },
@@ -150,9 +146,14 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 24),
           FilledButton.icon(
-            onPressed: () async {
-              await context.push(AppRoutes.discovery);
-              _refresh();
+            onPressed: () {
+              // Navigate to discovery tab
+              final shell = StatefulNavigationShell.maybeOf(context);
+              if (shell != null) {
+                shell.goBranch(1);
+              } else {
+                context.push(AppRoutes.discovery);
+              }
             },
             icon: const Icon(Icons.explore),
             label: const Text('去发现'),

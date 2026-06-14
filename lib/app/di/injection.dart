@@ -10,6 +10,7 @@ import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
+import 'package:comic_reader/data/local/settings_store.dart';
 
 final getIt = GetIt.instance;
 
@@ -22,6 +23,9 @@ void configureDependencies() {
   );
   getIt.registerLazySingleton<ReadingHistoryStore>(
     () => ReadingHistoryStore(storage: getIt<LocalStorage>()),
+  );
+  getIt.registerLazySingleton<SettingsStore>(
+    () => SettingsStore(storage: getIt<LocalStorage>()),
   );
 
   // HTTP Client
