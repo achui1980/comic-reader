@@ -17,7 +17,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late Future<List<MangaSummary>> _favoritesFuture;
+  List<MangaSummary> _favorites = [];
+  bool _loading = true;
 
   @override
   void initState() {
@@ -25,14 +26,22 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadFavorites();
   }
 
-  void _loadFavorites() {
-    _favoritesFuture = GetIt.instance<FavoritesStore>().getAll();
+  Future<void> _loadFavorites() async {
+    final favorites = await GetIt.instance<FavoritesStore>().getAll();
+    if (mounted) {
+      setState(() {
+        _favorites = favorites;
+        _loading = false;
+      });
+    }
   }
 
-  void _refresh() {
-    setState(() {
-      _loadFavorites();
-    });
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Reload favorites every time this screen becomes active
+    // (e.g., tab switch in indexedStack)
+    _loadFavorites();
   }
 
   @override
@@ -48,41 +57,30 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: FutureBuilder<List<MangaSummary>>(
-        future: _favoritesFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final favorites = snapshot.data ?? [];
-
-          if (favorites.isEmpty) {
-            return _buildEmptyState(context);
-          }
-
-          return Responsive.constrainedContent(
-            context: context,
-            child: RefreshIndicator(
-              onRefresh: () async => _refresh(),
-              child: GridView.builder(
-                padding: const EdgeInsets.all(12),
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: Responsive.gridColumns(context),
-                  childAspectRatio: 0.65,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10,
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _favorites.isEmpty
+              ? _buildEmptyState(context)
+              : Responsive.constrainedContent(
+                  context: context,
+                  child: RefreshIndicator(
+                    onRefresh: _loadFavorites,
+                    child: GridView.builder(
+                      padding: const EdgeInsets.all(12),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: Responsive.gridColumns(context),
+                        childAspectRatio: 0.65,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
+                      ),
+                      itemCount: _favorites.length,
+                      itemBuilder: (context, index) {
+                        final manga = _favorites[index];
+                        return _buildMangaCard(context, manga);
+                      },
+                    ),
+                  ),
                 ),
-                itemCount: favorites.length,
-                itemBuilder: (context, index) {
-                  final manga = favorites[index];
-                  return _buildMangaCard(context, manga);
-                },
-              ),
-            ),
-          );
-        },
-      ),
     );
   }
 
@@ -94,7 +92,7 @@ class _HomeScreenState extends State<HomeScreen> {
               .replaceFirst(':sourceId', manga.sourceId)
               .replaceFirst(':mangaId', manga.id),
         );
-        _refresh();
+        _loadFavorites();
       },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
