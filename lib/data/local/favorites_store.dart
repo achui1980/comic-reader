@@ -1,12 +1,17 @@
+import 'package:flutter/foundation.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'local_storage.dart';
 
 /// Manages favorite manga persistence.
+/// Exposes a [ValueNotifier] so UI can reactively listen for changes.
 class FavoritesStore {
   final LocalStorage _storage;
   static const _key = 'favorites';
 
   List<MangaSummary>? _cache;
+
+  /// Notifier that increments whenever favorites change.
+  final ValueNotifier<int> notifier = ValueNotifier<int>(0);
 
   FavoritesStore({required LocalStorage storage}) : _storage = storage;
 
@@ -42,12 +47,14 @@ class FavoritesStore {
     }
     _cache = [...favorites, manga];
     await _save();
+    notifier.value++;
   }
 
   Future<void> remove(String sourceId, String mangaId) async {
     final favorites = await getAll();
     _cache = favorites.where((m) => !(m.id == mangaId && m.sourceId == sourceId)).toList();
     await _save();
+    notifier.value++;
   }
 
   Future<void> _save() async {

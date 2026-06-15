@@ -19,29 +19,34 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   List<MangaSummary> _favorites = [];
   bool _loading = true;
+  late final FavoritesStore _favoritesStore;
 
   @override
   void initState() {
     super.initState();
+    _favoritesStore = GetIt.instance<FavoritesStore>();
+    _favoritesStore.notifier.addListener(_onFavoritesChanged);
+    _loadFavorites();
+  }
+
+  @override
+  void dispose() {
+    _favoritesStore.notifier.removeListener(_onFavoritesChanged);
+    super.dispose();
+  }
+
+  void _onFavoritesChanged() {
     _loadFavorites();
   }
 
   Future<void> _loadFavorites() async {
-    final favorites = await GetIt.instance<FavoritesStore>().getAll();
+    final favorites = await _favoritesStore.getAll();
     if (mounted) {
       setState(() {
         _favorites = favorites;
         _loading = false;
       });
     }
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    // Reload favorites every time this screen becomes active
-    // (e.g., tab switch in indexedStack)
-    _loadFavorites();
   }
 
   @override
