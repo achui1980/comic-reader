@@ -93,6 +93,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
               children: [
                 // Main reader content
                 _buildReaderContent(state),
+                // Persistent page indicator (always visible)
+                if (state.status == ReaderStatus.loaded)
+                  _buildPageIndicator(state),
                 // Controls overlay (animated)
                 _buildControlsOverlay(state),
               ],
@@ -159,6 +162,31 @@ class _ReaderScreenState extends State<ReaderScreen> {
       child: IgnorePointer(
         ignoring: !state.showControls,
         child: const ReaderControls(),
+      ),
+    );
+  }
+
+  Widget _buildPageIndicator(ReaderState state) {
+    return Positioned(
+      bottom: MediaQuery.of(context).padding.bottom + 12,
+      right: 16,
+      child: AnimatedOpacity(
+        opacity: state.showControls ? 0.0 : 1.0,
+        duration: const Duration(milliseconds: 200),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.black54,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            '${state.currentPage + 1} / ${state.totalPages}',
+            style: const TextStyle(
+              color: Colors.white70,
+              fontSize: 12,
+            ),
+          ),
+        ),
       ),
     );
   }
