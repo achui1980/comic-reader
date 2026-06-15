@@ -4,6 +4,7 @@ import 'package:get_it/get_it.dart';
 import 'package:comic_reader/app/app.dart';
 import 'package:comic_reader/app/di/injection.dart';
 import 'package:comic_reader/data/local/auth_store.dart';
+import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 
 void main() async {
@@ -30,6 +31,11 @@ void main() async {
       source.syncExtraData(extra);
     }
   }
+
+  // Load settings and apply disabled sources to registry
+  final settingsStore = GetIt.instance<SettingsStore>();
+  final appSettings = await settingsStore.load();
+  registry.setDisabledSources(appSettings.disabledSources);
 
   runApp(const ComicReaderApp());
 }

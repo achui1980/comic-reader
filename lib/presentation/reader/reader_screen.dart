@@ -5,6 +5,7 @@ import 'package:get_it/get_it.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
+import 'package:comic_reader/data/local/settings_store.dart' show SettingsStore;
 import 'package:comic_reader/presentation/reader/bloc/reader_bloc.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_event.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_state.dart';
@@ -44,6 +45,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _bloc = ReaderBloc(
       repository: GetIt.instance<MangaRepository>(),
       readingHistoryStore: GetIt.instance<ReadingHistoryStore>(),
+      settingsStore: GetIt.instance<SettingsStore>(),
     );
     // Cast chapter list items to ChapterItem
     final chapters = widget.chapterList

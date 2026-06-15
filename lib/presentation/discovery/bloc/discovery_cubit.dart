@@ -55,11 +55,13 @@ class DiscoveryCubit extends Cubit<DiscoveryState> {
     if (state.sourceId.isEmpty) return;
     emit(state.copyWith(status: DiscoveryStatus.loading));
     try {
-      final results = await _repository.getDiscovery(state.sourceId, 1, state.filters);
+      final source = _registry.get(state.sourceId);
+      final firstPage = source?.firstPage ?? 1;
+      final results = await _repository.getDiscovery(state.sourceId, firstPage, state.filters);
       emit(state.copyWith(
         status: DiscoveryStatus.loaded,
         manga: results,
-        currentPage: 1,
+        currentPage: firstPage,
         hasMore: results.isNotEmpty,
         errorMessage: null,
       ));

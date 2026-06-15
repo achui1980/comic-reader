@@ -54,8 +54,10 @@ class _VerticalReaderState extends State<VerticalReader> {
     if (_scrollController.hasClients && widget.images.isNotEmpty) {
       final viewportHeight = _scrollController.position.viewportDimension;
       final scrollOffset = _scrollController.offset;
-      // Estimate current page based on average image height
-      final estimatedPage = (scrollOffset / viewportHeight).floor();
+      // Estimate current page based on typical manga page aspect ratio (~1.4:1)
+      final screenWidth = MediaQuery.of(context).size.width;
+      final estimatedImageHeight = screenWidth * 1.4;
+      final estimatedPage = (scrollOffset / estimatedImageHeight).floor();
       final page = estimatedPage.clamp(0, widget.images.length - 1);
       context.read<ReaderBloc>().add(PageChanged(page));
 

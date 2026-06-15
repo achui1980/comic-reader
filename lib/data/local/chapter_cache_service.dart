@@ -50,9 +50,12 @@ class ChapterCacheService {
     if (kIsWeb) return null;
     final base = await _cachePath;
     final dir = _chapterDir(base, sourceId, mangaId, chapterId);
-    final file = File('$dir/${index.toString().padLeft(4, '0')}');
-    if (await file.exists()) {
-      return file.path;
+    final baseName = index.toString().padLeft(4, '0');
+    for (final ext in ['.jpg', '.png', '.webp', '.gif', '']) {
+      final file = File('$dir/$baseName$ext');
+      if (await file.exists()) {
+        return file.path;
+      }
     }
     return null;
   }
@@ -63,8 +66,9 @@ class ChapterCacheService {
     String mangaId,
     String chapterId,
     int index,
-    Uint8List bytes,
-  ) async {
+    Uint8List bytes, {
+    String? contentType,
+  }) async {
     if (kIsWeb) return;
     final base = await _cachePath;
     final dir = _chapterDir(base, sourceId, mangaId, chapterId);
@@ -72,8 +76,17 @@ class ChapterCacheService {
     if (!await directory.exists()) {
       await directory.create(recursive: true);
     }
-    final file = File('$dir/${index.toString().padLeft(4, '0')}');
+    final ext = _extensionFromContentType(contentType);
+    final file = File('$dir/${index.toString().padLeft(4, '0')}$ext');
     await file.writeAsBytes(bytes);
+  }
+
+  String _extensionFromContentType(String? contentType) {
+    if (contentType == null) return '.jpg';
+    if (contentType.contains('png')) return '.png';
+    if (contentType.contains('webp')) return '.webp';
+    if (contentType.contains('gif')) return '.gif';
+    return '.jpg';
   }
 
   /// Check if an entire chapter is fully cached.
@@ -115,11 +128,18 @@ class ChapterCacheService {
     final total = images.length;
 
     for (int i = 0; i < images.length; i++) {
-      final filePath = '$dir/${i.toString().padLeft(4, '0')}';
-      final file = File(filePath);
+      final baseName = i.toString().padLeft(4, '0');
 
-      // Skip if already downloaded
-      if (await file.exists()) {
+      // Check if already downloaded (any extension)
+      bool alreadyExists = false;
+      for (final ext in ['.jpg', '.png', '.webp', '.gif', '']) {
+        final file = File('$dir/$baseName$ext');
+        if (await file.exists()) {
+          alreadyExists = true;
+          break;
+        }
+      }
+      if (alreadyExists) {
         completed++;
         onProgress?.call(completed, total);
         continue;
@@ -137,6 +157,9 @@ class ChapterCacheService {
         );
 
         if (response.data != null) {
+          final contentType = response.headers.value('content-type');
+          final ext = _extensionFromContentType(contentType);
+          final file = File('$dir/$baseName$ext');
           await file.writeAsBytes(response.data as List<int>);
         }
         completed++;

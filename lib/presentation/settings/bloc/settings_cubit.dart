@@ -71,6 +71,8 @@ class SettingsCubit extends Cubit<SettingsState> {
     final updated = state.settings.copyWith(disabledSources: disabled);
     emit(state.copyWith(settings: updated));
     await _settingsStore.save(updated);
+    // Update source registry so disabled sources take effect immediately
+    _sourceRegistry.setDisabledSources(disabled);
   }
 
   Future<void> clearFavorites() async {

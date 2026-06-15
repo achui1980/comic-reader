@@ -32,6 +32,9 @@ class EHentai extends MangaSource {
   String? get href => _baseUrl;
 
   @override
+  int get firstPage => 0;
+
+  @override
   bool get needsCloudflare => false;
 
   @override

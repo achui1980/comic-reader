@@ -88,3 +88,22 @@ class SeekToPage extends ReaderEvent {
   @override
   List<Object?> get props => [page];
 }
+
+/// Start auto page-turn at a given interval
+class StartAutoPageTurn extends ReaderEvent {
+  final int intervalSeconds;
+  const StartAutoPageTurn({required this.intervalSeconds});
+
+  @override
+  List<Object?> get props => [intervalSeconds];
+}
+
+/// Stop auto page-turn
+class StopAutoPageTurn extends ReaderEvent {
+  const StopAutoPageTurn();
+}
+
+/// Internal tick event for auto page-turn
+class AutoPageTick extends ReaderEvent {
+  const AutoPageTick();
+}

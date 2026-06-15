@@ -31,6 +31,9 @@ abstract class MangaSource {
   /// Whether this source is disabled
   bool get disabled => false;
 
+  /// First page number for this source (most sources use 1, some use 0)
+  int get firstPage => 1;
+
   /// Rate limiting delay between batch requests (ms)
   int get batchDelay => 1500;
 

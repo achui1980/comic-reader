@@ -4,11 +4,17 @@ import 'manga_source.dart';
 class SourceRegistry {
   final Map<String, MangaSource> _sources = {};
   String? _defaultSourceId;
+  Set<String> _disabledSourceIds = {};
 
   /// Register a source plugin
   void register(MangaSource source) {
     _sources[source.id] = source;
     _defaultSourceId ??= source.id;
+  }
+
+  /// Set user-disabled source IDs
+  void setDisabledSources(Set<String> ids) {
+    _disabledSourceIds = ids;
   }
 
   /// Get a source by ID
@@ -19,7 +25,7 @@ class SourceRegistry {
 
   /// Get all enabled (non-disabled) sources
   List<MangaSource> get enabled =>
-      _sources.values.where((s) => !s.disabled).toList();
+      _sources.values.where((s) => !s.disabled && !_disabledSourceIds.contains(s.id)).toList();
 
   /// Get the default source
   MangaSource? get defaultSource =>
