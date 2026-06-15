@@ -10,6 +10,7 @@ import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
 import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/app/router/routes.dart';
+import 'package:comic_reader/presentation/common/cloudflare_dialog.dart';
 import 'bloc/detail_cubit.dart';
 import 'bloc/detail_state.dart';
 import 'bloc/download_cubit.dart';
@@ -64,14 +65,34 @@ class _DetailView extends StatelessWidget {
             return const Scaffold(body: Center(child: CircularProgressIndicator()));
           }
           if (state.status == DetailStatus.error) {
+            final isCfError = state.errorMessage?.contains('CloudflareException') == true ||
+                state.errorMessage?.contains('Cloudflare') == true;
             return Scaffold(
               appBar: AppBar(),
               body: Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(state.errorMessage ?? '加载失败'),
+                    Icon(
+                      isCfError ? Icons.shield_outlined : Icons.error_outline,
+                      size: 48,
+                      color: isCfError ? Colors.orange : Colors.red,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      isCfError ? '需要完成 Cloudflare 验证' : (state.errorMessage ?? '加载失败'),
+                      textAlign: TextAlign.center,
+                    ),
                     const SizedBox(height: 16),
+                    if (isCfError)
+                      FilledButton.icon(
+                        onPressed: () async {
+                          await showCloudflareDialog(context, sourceId: context.read<DetailCubit>().sourceId);
+                        },
+                        icon: const Icon(Icons.verified_user_outlined, size: 18),
+                        label: const Text('去验证'),
+                      ),
+                    if (isCfError) const SizedBox(height: 8),
                     ElevatedButton(
                       onPressed: () => context.read<DetailCubit>().loadDetail(),
                       child: const Text('重试'),
