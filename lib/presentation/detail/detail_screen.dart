@@ -7,10 +7,13 @@ import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
+import 'package:comic_reader/data/local/chapter_cache_service.dart';
 import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/app/router/routes.dart';
 import 'bloc/detail_cubit.dart';
 import 'bloc/detail_state.dart';
+import 'bloc/download_cubit.dart';
+import 'bloc/download_state.dart';
 
 class DetailScreen extends StatelessWidget {
   final String sourceId;
@@ -20,13 +23,25 @@ class DetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (_) => DetailCubit(
-        repository: GetIt.instance<MangaRepository>(),
-        favoritesStore: GetIt.instance<FavoritesStore>(),
-        sourceId: sourceId,
-        mangaId: mangaId,
-      )..loadDetail(),
+    return MultiBlocProvider(
+      providers: [
+        BlocProvider(
+          create: (_) => DetailCubit(
+            repository: GetIt.instance<MangaRepository>(),
+            favoritesStore: GetIt.instance<FavoritesStore>(),
+            sourceId: sourceId,
+            mangaId: mangaId,
+          )..loadDetail(),
+        ),
+        BlocProvider(
+          create: (_) => DownloadCubit(
+            cacheService: GetIt.instance<ChapterCacheService>(),
+            repository: GetIt.instance<MangaRepository>(),
+            sourceId: sourceId,
+            mangaId: mangaId,
+          ),
+        ),
+      ],
       child: const _DetailView(),
     );
   }
@@ -37,42 +52,49 @@ class _DetailView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocBuilder<DetailCubit, DetailState>(
-      builder: (context, state) {
-        if (state.status == DetailStatus.loading) {
-          return const Scaffold(body: Center(child: CircularProgressIndicator()));
-        }
-        if (state.status == DetailStatus.error) {
-          return Scaffold(
-            appBar: AppBar(),
-            body: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(state.errorMessage ?? '加载失败'),
-                  const SizedBox(height: 16),
-                  ElevatedButton(
-                    onPressed: () => context.read<DetailCubit>().loadDetail(),
-                    child: const Text('重试'),
-                  ),
-                ],
+    return BlocListener<DetailCubit, DetailState>(
+      listenWhen: (prev, curr) => prev.chapters.isEmpty && curr.chapters.isNotEmpty,
+      listener: (context, state) {
+        // Check which chapters are already cached
+        context.read<DownloadCubit>().checkCachedChapters(state.chapters);
+      },
+      child: BlocBuilder<DetailCubit, DetailState>(
+        builder: (context, state) {
+          if (state.status == DetailStatus.loading) {
+            return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          }
+          if (state.status == DetailStatus.error) {
+            return Scaffold(
+              appBar: AppBar(),
+              body: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(state.errorMessage ?? '加载失败'),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: () => context.read<DetailCubit>().loadDetail(),
+                      child: const Text('重试'),
+                    ),
+                  ],
+                ),
               ),
+            );
+          }
+          final manga = state.manga;
+          if (manga == null) return const Scaffold(body: SizedBox.shrink());
+          return Scaffold(
+            body: CustomScrollView(
+              slivers: [
+                _buildHeader(context, manga, state.isFavorite),
+                _buildInfo(context, manga),
+                _buildChapterHeader(context, state),
+                _buildChapterGrid(context, state),
+              ],
             ),
           );
-        }
-        final manga = state.manga;
-        if (manga == null) return const Scaffold(body: SizedBox.shrink());
-        return Scaffold(
-          body: CustomScrollView(
-            slivers: [
-              _buildHeader(context, manga, state.isFavorite),
-              _buildInfo(context, manga),
-              _buildChapterHeader(context, state),
-              _buildChapterGrid(context, state),
-            ],
-          ),
-        );
-      },
+        },
+      ),
     );
   }
 
@@ -171,6 +193,22 @@ class _DetailView extends StatelessWidget {
             Text('章节列表 (${state.chapters.length})',
                 style: Theme.of(context).textTheme.titleSmall),
             const Spacer(),
+            // Download all button
+            BlocBuilder<DownloadCubit, DownloadState>(
+              builder: (context, downloadState) {
+                final isDownloading = downloadState.activeChapterId != null;
+                return IconButton(
+                  icon: Icon(
+                    isDownloading ? Icons.downloading : Icons.download_outlined,
+                    size: 18,
+                  ),
+                  onPressed: isDownloading
+                      ? () => context.read<DownloadCubit>().cancelDownload()
+                      : () => _showDownloadAllDialog(context, state.chapters),
+                  tooltip: isDownloading ? '取消下载' : '下载全部',
+                );
+              },
+            ),
             IconButton(
               icon: Icon(
                 state.chaptersReversed ? Icons.arrow_upward : Icons.arrow_downward,
@@ -181,6 +219,29 @@ class _DetailView extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showDownloadAllDialog(BuildContext context, List<ChapterItem> chapters) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('下载全部章节'),
+        content: Text('确定下载全部 ${chapters.length} 个章节？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              context.read<DownloadCubit>().downloadMultiple(chapters);
+            },
+            child: const Text('下载'),
+          ),
+        ],
       ),
     );
   }
@@ -205,35 +266,165 @@ class _DetailView extends StatelessWidget {
           (context, index) {
             final chapter = chapters[index];
             final cubit = context.read<DetailCubit>();
-            return Material(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(8),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(8),
-                onTap: () => context.push(
+            return BlocBuilder<DownloadCubit, DownloadState>(
+              buildWhen: (prev, curr) =>
+                  prev.chapters[chapter.id] != curr.chapters[chapter.id] ||
+                  (curr.activeChapterId == chapter.id &&
+                      prev.activeProgress != curr.activeProgress),
+              builder: (context, downloadState) {
+                final status = downloadState.chapters[chapter.id] ??
+                    ChapterDownloadStatus.none;
+                return _ChapterTile(
+                  chapter: chapter,
+                  downloadStatus: status,
+                  progress: downloadState.activeChapterId == chapter.id
+                      ? downloadState.activeProgress
+                      : null,
+                  total: downloadState.activeChapterId == chapter.id
+                      ? downloadState.activeTotal
+                      : null,
+                  onTap: () => context.push(
                     AppRoutes.readerPath(cubit.sourceId, cubit.mangaId, chapter.id),
                     extra: <String, dynamic>{
                       'chapterList': cubit.state.chapters,
                       'initialPage': 0,
-                    }),
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Text(
-                      chapter.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
-                    ),
+                    },
                   ),
-                ),
-              ),
+                  onLongPress: () => _showChapterActions(context, chapter, status),
+                );
+              },
             );
           },
           childCount: chapters.length,
         ),
       ),
     );
+  }
+
+  void _showChapterActions(
+    BuildContext context,
+    ChapterItem chapter,
+    ChapterDownloadStatus status,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.download),
+              title: const Text('下载此章节'),
+              enabled: status != ChapterDownloadStatus.cached &&
+                  status != ChapterDownloadStatus.downloading,
+              onTap: () {
+                Navigator.pop(sheetContext);
+                context.read<DownloadCubit>().downloadChapter(chapter);
+              },
+            ),
+            if (status == ChapterDownloadStatus.cached)
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.red),
+                title: const Text('删除缓存', style: TextStyle(color: Colors.red)),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  final cubit = context.read<DetailCubit>();
+                  GetIt.instance<ChapterCacheService>().deleteChapter(
+                    cubit.sourceId,
+                    cubit.mangaId,
+                    chapter.id,
+                  );
+                  // Re-check cache status
+                  context
+                      .read<DownloadCubit>()
+                      .checkCachedChapters(cubit.state.chapters);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ChapterTile extends StatelessWidget {
+  final ChapterItem chapter;
+  final ChapterDownloadStatus downloadStatus;
+  final int? progress;
+  final int? total;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  const _ChapterTile({
+    required this.chapter,
+    required this.downloadStatus,
+    this.progress,
+    this.total,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Stack(
+          children: [
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(
+                  chapter.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ),
+            // Download status indicator
+            Positioned(
+              top: 4,
+              right: 4,
+              child: _buildStatusIcon(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusIcon() {
+    switch (downloadStatus) {
+      case ChapterDownloadStatus.none:
+      case ChapterDownloadStatus.failed:
+        return const SizedBox.shrink();
+      case ChapterDownloadStatus.queued:
+        return const Icon(Icons.hourglass_empty, size: 12, color: Colors.orange);
+      case ChapterDownloadStatus.downloading:
+        if (progress != null && total != null && total! > 0) {
+          return SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              value: progress! / total!,
+              strokeWidth: 2,
+              color: Colors.blue,
+            ),
+          );
+        }
+        return const SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blue),
+        );
+      case ChapterDownloadStatus.cached:
+        return const Icon(Icons.check_circle, size: 14, color: Colors.green);
+    }
   }
 }
 

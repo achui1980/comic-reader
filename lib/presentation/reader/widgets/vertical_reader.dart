@@ -90,11 +90,16 @@ class _VerticalReaderState extends State<VerticalReader> {
         itemCount: widget.images.length,
         padding: EdgeInsets.zero,
         itemBuilder: (context, index) {
+          final state = context.read<ReaderBloc>().state;
           return SizedBox(
             width: double.infinity,
             child: MangaImage(
               image: widget.images[index],
               fit: BoxFit.fitWidth,
+              sourceId: state.sourceId,
+              mangaId: state.mangaId,
+              chapterId: state.chapterId,
+              imageIndex: index,
             ),
           );
         },

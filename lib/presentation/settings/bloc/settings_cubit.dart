@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:comic_reader/app/theme/app_theme.dart';
 import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
+import 'package:comic_reader/data/local/chapter_cache_service.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'settings_state.dart';
 
@@ -84,5 +85,12 @@ class SettingsCubit extends Cubit<SettingsState> {
     // Clear the Flutter image cache
     PaintingBinding.instance.imageCache.clear();
     PaintingBinding.instance.imageCache.clearLiveImages();
+    // Clear chapter download cache
+    await ChapterCacheService().clearCache();
+  }
+
+  /// Get cache size in bytes for display.
+  Future<int> getCacheSize() async {
+    return await ChapterCacheService().getCacheSize();
   }
 }

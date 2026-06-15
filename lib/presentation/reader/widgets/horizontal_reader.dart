@@ -107,9 +107,14 @@ class _HorizontalReaderState extends State<HorizontalReader> {
           },
           physics: const BouncingScrollPhysics(),
           itemBuilder: (context, index) {
+            final state = context.read<ReaderBloc>().state;
             return MangaImage(
               image: widget.images[index],
               fit: BoxFit.contain,
+              sourceId: state.sourceId,
+              mangaId: state.mangaId,
+              chapterId: state.chapterId,
+              imageIndex: index,
             );
           },
         ),
