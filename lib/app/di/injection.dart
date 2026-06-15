@@ -8,6 +8,10 @@ import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/data/sources/copy_manga.dart';
 import 'package:comic_reader/data/sources/manhuagui_mobile.dart';
 import 'package:comic_reader/data/sources/jm_comic.dart';
+import 'package:comic_reader/data/sources/nhentai.dart';
+import 'package:comic_reader/data/sources/pica_comic.dart';
+import 'package:comic_reader/data/sources/wnacg.dart';
+import 'package:comic_reader/data/sources/ehentai.dart';
 import 'package:comic_reader/data/repositories/manga_repository_impl.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
@@ -53,6 +57,10 @@ void configureDependencies() {
   registry.register(ManhuaGuiMobile());
   registry.register(CopyManga());
   registry.register(JmComic());
+  registry.register(NHentai());
+  registry.register(PicaComic());
+  registry.register(Wnacg());
+  registry.register(EHentai());
   getIt.registerSingleton<SourceRegistry>(registry);
 
   // Repository

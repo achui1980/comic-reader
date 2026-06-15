@@ -49,6 +49,7 @@ dependencies:
   # Crypto
   pointycastle: ^3.7.4
   encrypt: ^5.0.3
+  crypto: ^3.0.3
   # DI
   get_it: ^7.6.7
   injectable: ^2.3.5
