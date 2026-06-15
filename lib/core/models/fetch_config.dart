@@ -16,4 +16,22 @@ class FetchConfig {
     this.body,
     this.timeout,
   });
+
+  FetchConfig copyWith({
+    String? url,
+    HttpMethod? method,
+    Map<String, String>? headers,
+    Map<String, dynamic>? queryParameters,
+    dynamic body,
+    Duration? timeout,
+  }) {
+    return FetchConfig(
+      url: url ?? this.url,
+      method: method ?? this.method,
+      headers: headers ?? this.headers,
+      queryParameters: queryParameters ?? this.queryParameters,
+      body: body ?? this.body,
+      timeout: timeout ?? this.timeout,
+    );
+  }
 }

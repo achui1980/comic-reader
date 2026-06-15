@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
+import 'package:go_router/go_router.dart';
+import 'package:comic_reader/app/router/routes.dart';
 import 'package:comic_reader/app/theme/app_theme.dart';
 import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
@@ -182,18 +184,38 @@ class _SettingsView extends StatelessWidget {
         _buildSectionHeader('插件管理'),
         ...state.plugins.map((plugin) {
           final enabled = !state.disabledSources.contains(plugin.id);
-          return SwitchListTile(
+          return ListTile(
             title: Text(plugin.name),
             subtitle: Text(
               '${plugin.description ?? ''} • 评分: ${plugin.score.toStringAsFixed(1)}',
             ),
-            value: enabled,
-            onChanged: (v) => cubit.toggleSource(plugin.id, v),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (plugin.href != null)
+                  TextButton.icon(
+                    onPressed: () => _navigateToVerify(context, plugin.id),
+                    icon: const Icon(Icons.verified_user_outlined, size: 18),
+                    label: const Text('验证'),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                  ),
+                Switch(
+                  value: enabled,
+                  onChanged: (v) => cubit.toggleSource(plugin.id, v),
+                ),
+              ],
+            ),
           );
         }),
         const Divider(),
       ],
     );
+  }
+
+  void _navigateToVerify(BuildContext context, String sourceId) {
+    context.push(AppRoutes.webviewPath(sourceId));
   }
 
   Widget _buildDataSection(BuildContext context) {

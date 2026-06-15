@@ -44,6 +44,8 @@ dependencies:
   # Image
   cached_network_image: ^3.3.1
   extended_image: ^8.2.1
+  # WebView for Cloudflare bypass
+  flutter_inappwebview: ^6.0.0
   # Crypto
   pointycastle: ^3.7.4
   encrypt: ^5.0.3

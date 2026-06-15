@@ -1,4 +1,6 @@
+import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/data/remote/http_client.dart';
+import 'package:comic_reader/data/sources/manga_source.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
@@ -14,12 +16,23 @@ class MangaRepositoryImpl implements MangaRepository {
   })  : _httpClient = httpClient,
         _sourceRegistry = sourceRegistry;
 
+  /// Merge source auth headers (cookies from CF bypass) into config
+  FetchConfig _mergeHeaders(FetchConfig config, MangaSource source) {
+    if (source.extraHeaders.isNotEmpty) {
+      return config.copyWith(
+        headers: {...?config.headers, ...source.extraHeaders},
+      );
+    }
+    return config;
+  }
+
   @override
   Future<List<MangaSummary>> getDiscovery(String sourceId, int page, Map<String, String> filters) async {
     final source = _sourceRegistry.get(sourceId);
     if (source == null) throw Exception('Source not found: $sourceId');
 
-    final config = source.prepareDiscoveryFetch(page, filters);
+    var config = source.prepareDiscoveryFetch(page, filters);
+    config = _mergeHeaders(config, source);
     final response = await _httpClient.execute(config);
     return source.parseDiscovery(response.data);
   }
@@ -29,7 +42,8 @@ class MangaRepositoryImpl implements MangaRepository {
     final source = _sourceRegistry.get(sourceId);
     if (source == null) throw Exception('Source not found: $sourceId');
 
-    final config = source.prepareSearchFetch(keyword, page, filters);
+    var config = source.prepareSearchFetch(keyword, page, filters);
+    config = _mergeHeaders(config, source);
     final response = await _httpClient.execute(config);
     return source.parseSearch(response.data);
   }
@@ -39,7 +53,8 @@ class MangaRepositoryImpl implements MangaRepository {
     final source = _sourceRegistry.get(sourceId);
     if (source == null) throw Exception('Source not found: $sourceId');
 
-    final config = source.prepareMangaInfoFetch(mangaId);
+    var config = source.prepareMangaInfoFetch(mangaId);
+    config = _mergeHeaders(config, source);
     final response = await _httpClient.execute(config);
     return source.parseMangaInfo(response.data, mangaId);
   }
@@ -49,10 +64,11 @@ class MangaRepositoryImpl implements MangaRepository {
     final source = _sourceRegistry.get(sourceId);
     if (source == null) throw Exception('Source not found: $sourceId');
 
-    final config = source.prepareChapterListFetch(mangaId, page);
+    var config = source.prepareChapterListFetch(mangaId, page);
     if (config == null) {
       return const ChapterListResult(chapters: []);
     }
+    config = _mergeHeaders(config, source);
     final response = await _httpClient.execute(config);
     return source.parseChapterList(response.data, mangaId);
   }
@@ -62,7 +78,8 @@ class MangaRepositoryImpl implements MangaRepository {
     final source = _sourceRegistry.get(sourceId);
     if (source == null) throw Exception('Source not found: $sourceId');
 
-    final config = source.prepareChapterFetch(mangaId, chapterId, page, extra: extra);
+    var config = source.prepareChapterFetch(mangaId, chapterId, page, extra: extra);
+    config = _mergeHeaders(config, source);
     final response = await _httpClient.execute(config);
     return source.parseChapter(response.data, mangaId, chapterId, page);
   }

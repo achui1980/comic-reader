@@ -40,6 +40,43 @@ abstract class MangaSource {
   /// Search page filter options
   List<FilterOption> get searchFilters => const [];
 
+  /// JavaScript to inject in WebView after page loads.
+  /// Should call window.flutter_inappwebview.callHandler('onData', data)
+  /// with extracted cookie/token data.
+  /// Return null if this source doesn't need WebView verification.
+  String? get injectedJavaScript => null;
+
+  /// Cloudflare challenge page title(s) to detect.
+  List<String> get cloudflarePageTitles => const ['Just a moment...'];
+
+  /// Whether this source requires Cloudflare verification.
+  bool get needsCloudflare => false;
+
+  /// Extra headers from stored auth data (cookies, etc.)
+  /// These are merged into every request's headers.
+  final Map<String, String> _extraHeaders = {};
+
+  /// Get current extra headers (includes auth cookies)
+  Map<String, String> get extraHeaders => _extraHeaders;
+
+  /// Receive auth data from WebView (cookie, token, userAgent).
+  /// Override to customize how data is applied.
+  void syncExtraData(Map<String, dynamic> data) {
+    final cookie = data['cookie'] as String?;
+    if (cookie != null && cookie.isNotEmpty) {
+      _extraHeaders['Cookie'] = cookie;
+    }
+    final userAgent = data['userAgent'] as String?;
+    if (userAgent != null && userAgent.isNotEmpty) {
+      _extraHeaders['User-Agent'] = userAgent;
+    }
+  }
+
+  /// Clear stored auth/extra headers
+  void clearExtraData() {
+    _extraHeaders.clear();
+  }
+
   /// Build PluginInfo from this source
   PluginInfo get info => PluginInfo(
     id: id,

@@ -5,6 +5,7 @@ import 'package:comic_reader/presentation/search/search_screen.dart';
 import 'package:comic_reader/presentation/detail/detail_screen.dart';
 import 'package:comic_reader/presentation/reader/reader_screen.dart';
 import 'package:comic_reader/presentation/settings/settings_screen.dart';
+import 'package:comic_reader/presentation/webview/webview_screen.dart';
 import 'package:comic_reader/presentation/shell/app_shell.dart';
 import 'routes.dart';
 
@@ -72,6 +73,17 @@ class AppRouter {
             chapterId: chapterId,
             chapterList: extra?['chapterList'] as List<dynamic>? ?? const [],
             initialPage: extra?['initialPage'] as int? ?? 0,
+          );
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.webview,
+        builder: (context, state) {
+          final sourceId = state.pathParameters['sourceId'] ?? '';
+          final extra = state.extra as Map<String, dynamic>?;
+          return WebViewScreen(
+            sourceId: sourceId,
+            initialUrl: extra?['url'] as String?,
           );
         },
       ),

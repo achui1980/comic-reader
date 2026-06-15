@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:comic_reader/data/remote/http_client.dart';
 import 'package:comic_reader/data/remote/source_interceptor.dart';
 import 'package:comic_reader/data/remote/cors_proxy_interceptor.dart';
+import 'package:comic_reader/data/remote/cloudflare_interceptor.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/data/sources/copy_manga.dart';
 import 'package:comic_reader/data/sources/manhuagui_mobile.dart';
@@ -14,6 +15,7 @@ import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
+import 'package:comic_reader/data/local/auth_store.dart';
 
 final getIt = GetIt.instance;
 
@@ -33,10 +35,14 @@ void configureDependencies() {
   getIt.registerLazySingleton<ChapterCacheService>(
     () => ChapterCacheService(),
   );
+  getIt.registerLazySingleton<AuthStore>(
+    () => AuthStore(storage: getIt<LocalStorage>()),
+  );
 
   // HTTP Client
   final httpClient = HttpClient();
   httpClient.addInterceptor(SourceInterceptor());
+  httpClient.addInterceptor(CloudflareDetectorInterceptor());
   if (kIsWeb) {
     httpClient.addInterceptor(CorsProxyInterceptor());
   }
