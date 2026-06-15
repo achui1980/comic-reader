@@ -160,7 +160,7 @@ class _BottomBar extends StatelessWidget {
                 min: 0,
                 max: (totalPages - 1).toDouble(),
                 onChanged: (value) {
-                  bloc.add(PageChanged(value.round()));
+                  bloc.add(SeekToPage(value.round()));
                 },
               ),
             ),

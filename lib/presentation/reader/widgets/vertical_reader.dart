@@ -34,6 +34,15 @@ class _VerticalReaderState extends State<VerticalReader> {
   }
 
   @override
+  void didUpdateWidget(VerticalReader oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Reset loading flag when images change (new chapter loaded)
+    if (oldWidget.images != widget.images) {
+      _isLoadingNext = false;
+    }
+  }
+
+  @override
   void dispose() {
     _scrollController.removeListener(_onScroll);
     _scrollController.dispose();

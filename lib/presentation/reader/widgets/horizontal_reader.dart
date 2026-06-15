@@ -5,6 +5,7 @@ import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_bloc.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_event.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_state.dart';
+import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'manga_image.dart';
 
 /// Horizontal page-turn manga reader.
@@ -74,23 +75,44 @@ class _HorizontalReaderState extends State<HorizontalReader> {
     }
   }
 
+  /// Precache the next 2 images for smoother page turns.
+  void _precacheAdjacent(int currentPage) {
+    for (int i = 1; i <= 2; i++) {
+      final nextIdx = currentPage + i;
+      if (nextIdx < widget.images.length) {
+        final url = ImageProxy.url(widget.images[nextIdx].url);
+        precacheImage(ExtendedNetworkImageProvider(url, cache: true), context);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapUp: (details) => _onTap(details, context),
-      child: ExtendedImageGesturePageView.builder(
-        controller: _pageController,
-        itemCount: widget.images.length,
-        reverse: widget.direction == ReadingDirection.rtl,
-        onPageChanged: (page) {
-          context.read<ReaderBloc>().add(PageChanged(page));
-        },
-        itemBuilder: (context, index) {
-          return MangaImage(
-            image: widget.images[index],
-            fit: BoxFit.contain,
-          );
-        },
+    return BlocListener<ReaderBloc, ReaderState>(
+      listenWhen: (prev, curr) => curr.seekPage != null && curr.seekPage != prev.seekPage,
+      listener: (context, state) {
+        if (state.seekPage != null && _pageController.hasClients) {
+          _pageController.jumpToPage(state.seekPage!);
+        }
+      },
+      child: GestureDetector(
+        onTapUp: (details) => _onTap(details, context),
+        child: ExtendedImageGesturePageView.builder(
+          controller: _pageController,
+          itemCount: widget.images.length,
+          reverse: widget.direction == ReadingDirection.rtl,
+          onPageChanged: (page) {
+            context.read<ReaderBloc>().add(PageChanged(page));
+            _precacheAdjacent(page);
+          },
+          physics: const BouncingScrollPhysics(),
+          itemBuilder: (context, index) {
+            return MangaImage(
+              image: widget.images[index],
+              fit: BoxFit.contain,
+            );
+          },
+        ),
       ),
     );
   }

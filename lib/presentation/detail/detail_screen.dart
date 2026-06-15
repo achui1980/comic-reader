@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
+import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/app/router/routes.dart';
 import 'bloc/detail_cubit.dart';
@@ -154,20 +155,7 @@ class _DetailView extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () {
-                  final cubit = context.read<DetailCubit>();
-                  if (cubit.state.chapters.isNotEmpty) {
-                    final first = cubit.state.chapters.first;
-                    context.push(AppRoutes.readerPath(cubit.sourceId, cubit.mangaId, first.id));
-                  }
-                },
-                icon: const Icon(Icons.play_arrow),
-                label: const Text('开始阅读'),
-              ),
-            ),
+            _ReadButton(manga: manga),
           ],
         ),
       ),
@@ -223,7 +211,11 @@ class _DetailView extends StatelessWidget {
               child: InkWell(
                 borderRadius: BorderRadius.circular(8),
                 onTap: () => context.push(
-                    AppRoutes.readerPath(cubit.sourceId, cubit.mangaId, chapter.id)),
+                    AppRoutes.readerPath(cubit.sourceId, cubit.mangaId, chapter.id),
+                    extra: <String, dynamic>{
+                      'chapterList': cubit.state.chapters,
+                      'initialPage': 0,
+                    }),
                 child: Center(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -240,6 +232,69 @@ class _DetailView extends StatelessWidget {
           },
           childCount: chapters.length,
         ),
+      ),
+    );
+  }
+}
+
+class _ReadButton extends StatefulWidget {
+  final MangaDetail manga;
+  const _ReadButton({required this.manga});
+
+  @override
+  State<_ReadButton> createState() => _ReadButtonState();
+}
+
+class _ReadButtonState extends State<_ReadButton> {
+  Map<String, dynamic>? _progress;
+  bool _loaded = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProgress();
+  }
+
+  Future<void> _loadProgress() async {
+    final cubit = context.read<DetailCubit>();
+    final progress = await GetIt.instance<ReadingHistoryStore>()
+        .getProgress(cubit.sourceId, cubit.mangaId);
+    if (mounted) {
+      setState(() {
+        _progress = progress;
+        _loaded = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cubit = context.read<DetailCubit>();
+    final hasProgress = _loaded && _progress != null;
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        onPressed: () {
+          if (cubit.state.chapters.isEmpty) return;
+          String chapterId;
+          int initialPage;
+          if (hasProgress) {
+            chapterId = _progress!['chapterId'] as String;
+            initialPage = (_progress!['page'] as num?)?.toInt() ?? 0;
+          } else {
+            chapterId = cubit.state.chapters.first.id;
+            initialPage = 0;
+          }
+          context.push(
+            AppRoutes.readerPath(cubit.sourceId, cubit.mangaId, chapterId),
+            extra: <String, dynamic>{
+              'chapterList': cubit.state.chapters,
+              'initialPage': initialPage,
+            },
+          );
+        },
+        icon: Icon(hasProgress ? Icons.play_circle_outline : Icons.play_arrow),
+        label: Text(hasProgress ? '继续阅读' : '开始阅读'),
       ),
     );
   }

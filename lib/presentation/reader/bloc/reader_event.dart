@@ -79,3 +79,12 @@ class LoadNextChapter extends ReaderEvent {
 class LoadPreviousChapter extends ReaderEvent {
   const LoadPreviousChapter();
 }
+
+/// Seek to a specific page (from slider)
+class SeekToPage extends ReaderEvent {
+  final int page;
+  const SeekToPage(this.page);
+
+  @override
+  List<Object?> get props => [page];
+}

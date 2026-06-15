@@ -25,6 +25,9 @@ class ReaderState extends Equatable {
   final List<ChapterItem> chapterList;
   final int currentChapterIndex;
 
+  /// Set when slider seeks to a page - consumed by HorizontalReader to jump.
+  final int? seekPage;
+
   const ReaderState({
     this.status = ReaderStatus.initial,
     this.layoutMode = LayoutMode.horizontal,
@@ -40,6 +43,7 @@ class ReaderState extends Equatable {
     this.chapterId = '',
     this.chapterList = const [],
     this.currentChapterIndex = -1,
+    this.seekPage,
   });
 
   ReaderState copyWith({
@@ -57,6 +61,7 @@ class ReaderState extends Equatable {
     String? chapterId,
     List<ChapterItem>? chapterList,
     int? currentChapterIndex,
+    int? seekPage,
   }) {
     return ReaderState(
       status: status ?? this.status,
@@ -73,6 +78,7 @@ class ReaderState extends Equatable {
       chapterId: chapterId ?? this.chapterId,
       chapterList: chapterList ?? this.chapterList,
       currentChapterIndex: currentChapterIndex ?? this.currentChapterIndex,
+      seekPage: seekPage,
     );
   }
 
@@ -100,5 +106,6 @@ class ReaderState extends Equatable {
         chapterId,
         chapterList,
         currentChapterIndex,
+        seekPage,
       ];
 }

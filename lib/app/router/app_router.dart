@@ -65,10 +65,13 @@ class AppRouter {
           final sourceId = state.pathParameters['sourceId'] ?? '';
           final mangaId = state.pathParameters['mangaId'] ?? '';
           final chapterId = state.pathParameters['chapterId'] ?? '';
+          final extra = state.extra as Map<String, dynamic>?;
           return ReaderScreen(
             sourceId: sourceId,
             mangaId: mangaId,
             chapterId: chapterId,
+            chapterList: extra?['chapterList'] as List<dynamic>? ?? const [],
+            initialPage: extra?['initialPage'] as int? ?? 0,
           );
         },
       ),

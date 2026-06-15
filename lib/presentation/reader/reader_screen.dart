@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
+import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
+import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_bloc.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_event.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_state.dart';
@@ -17,12 +19,16 @@ class ReaderScreen extends StatefulWidget {
   final String sourceId;
   final String mangaId;
   final String chapterId;
+  final List<dynamic> chapterList;
+  final int initialPage;
 
   const ReaderScreen({
     super.key,
     required this.sourceId,
     required this.mangaId,
     required this.chapterId,
+    this.chapterList = const [],
+    this.initialPage = 0,
   });
 
   @override
@@ -35,11 +41,20 @@ class _ReaderScreenState extends State<ReaderScreen> {
   @override
   void initState() {
     super.initState();
-    _bloc = ReaderBloc(repository: GetIt.instance<MangaRepository>());
+    _bloc = ReaderBloc(
+      repository: GetIt.instance<MangaRepository>(),
+      readingHistoryStore: GetIt.instance<ReadingHistoryStore>(),
+    );
+    // Cast chapter list items to ChapterItem
+    final chapters = widget.chapterList
+        .whereType<ChapterItem>()
+        .toList();
     _bloc.add(LoadChapter(
       sourceId: widget.sourceId,
       mangaId: widget.mangaId,
       chapterId: widget.chapterId,
+      chapterList: chapters,
+      initialPage: widget.initialPage,
     ));
     _enterImmersiveMode();
   }

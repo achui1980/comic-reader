@@ -1,13 +1,18 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
+import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'reader_event.dart';
 import 'reader_state.dart';
 
 class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
   final MangaRepository _repository;
+  final ReadingHistoryStore _historyStore;
 
-  ReaderBloc({required MangaRepository repository})
-      : _repository = repository,
+  ReaderBloc({
+    required MangaRepository repository,
+    required ReadingHistoryStore readingHistoryStore,
+  })  : _repository = repository,
+        _historyStore = readingHistoryStore,
         super(const ReaderState()) {
     on<LoadChapter>(_onLoadChapter);
     on<PageChanged>(_onPageChanged);
@@ -17,6 +22,7 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
     on<ChangeDirection>(_onChangeDirection);
     on<LoadNextChapter>(_onLoadNextChapter);
     on<LoadPreviousChapter>(_onLoadPreviousChapter);
+    on<SeekToPage>(_onSeekToPage);
   }
 
   Future<void> _onLoadChapter(
@@ -65,6 +71,12 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
 
   void _onPageChanged(PageChanged event, Emitter<ReaderState> emit) {
     emit(state.copyWith(currentPage: event.page));
+    // Save reading progress
+    if (state.sourceId.isNotEmpty && state.mangaId.isNotEmpty && state.chapterId.isNotEmpty) {
+      _historyStore.saveProgress(
+        state.sourceId, state.mangaId, state.chapterId, event.page,
+      );
+    }
   }
 
   void _onToggleControls(ToggleControls event, Emitter<ReaderState> emit) {
@@ -113,5 +125,15 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
       chapterId: prevChapter.id,
       initialPage: 0,
     ));
+  }
+
+  void _onSeekToPage(SeekToPage event, Emitter<ReaderState> emit) {
+    emit(state.copyWith(currentPage: event.page, seekPage: event.page));
+    // Save progress
+    if (state.sourceId.isNotEmpty && state.mangaId.isNotEmpty && state.chapterId.isNotEmpty) {
+      _historyStore.saveProgress(
+        state.sourceId, state.mangaId, state.chapterId, event.page,
+      );
+    }
   }
 }
