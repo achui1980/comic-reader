@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:extended_image/extended_image.dart';
@@ -6,6 +5,8 @@ import 'package:get_it/get_it.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
+import 'package:comic_reader/presentation/reader/widgets/manga_image_file.dart'
+    if (dart.library.io) 'package:comic_reader/presentation/reader/widgets/manga_image_file_io.dart';
 
 /// Displays a single manga page image with loading and error states.
 /// On native: checks local cache first, saves to cache after network load.
@@ -101,32 +102,19 @@ class _MangaImageState extends State<MangaImage> {
       );
     }
 
-    // If we have a local file, load from disk
+    // If we have a local file, load from disk (native only)
     if (_localPath != null) {
-      return ExtendedImage.file(
-        File(_localPath!),
+      return buildFileImage(
+        path: _localPath!,
         fit: widget.fit,
-        loadStateChanged: (state) {
-          switch (state.extendedImageLoadState) {
-            case LoadState.loading:
-              return const Center(
-                child: CircularProgressIndicator(strokeWidth: 2),
-              );
-            case LoadState.completed:
-              return state.completedWidget;
-            case LoadState.failed:
-              // If local file fails, fallback to network
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  setState(() {
-                    _localPath = null;
-                  });
-                }
+        onFailed: () {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              setState(() {
+                _localPath = null;
               });
-              return const Center(
-                child: CircularProgressIndicator(strokeWidth: 2),
-              );
-          }
+            }
+          });
         },
       );
     }
