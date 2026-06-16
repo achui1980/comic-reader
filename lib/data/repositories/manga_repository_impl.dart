@@ -27,6 +27,7 @@ class MangaRepositoryImpl implements MangaRepository {
       ...?config.extra,
     };
     final headers = <String, String>{
+      ...?source.defaultHeaders,
       ...?config.headers,
       ...source.extraHeaders,
     };
@@ -85,24 +86,59 @@ class MangaRepositoryImpl implements MangaRepository {
     final source = _sourceRegistry.get(sourceId);
     if (source == null) throw Exception('Source not found: $sourceId');
 
-    var config = source.prepareChapterFetch(mangaId, chapterId, page, extra: extra);
+    // Use source.firstPage for initial page (E-Hentai is 0-based)
+    final effectivePage = page == 1 ? source.firstPage : page;
+
+    var config = source.prepareChapterFetch(mangaId, chapterId, effectivePage, extra: extra);
     config = _mergeHeaders(config, source);
     final response = await _httpClient.execute(config);
-    var result = source.parseChapter(response.data, mangaId, chapterId, page);
+    var result = source.parseChapter(response.data, mangaId, chapterId, effectivePage);
 
     // Handle sources that return image page URLs needing resolution (e.g., E-Hentai)
+    // Collect ALL thumbnail pages first, then resolve all image page URLs
     if (result.chapter.images.isEmpty && result.nextExtra != null) {
-      final imagePageUrls = jsonDecode(result.nextExtra!) as List;
+      var allImagePageUrls = List<dynamic>.from(jsonDecode(result.nextExtra!));
+
+      // If there are more thumbnail pages, fetch them all
+      var currentPage = effectivePage;
+      var canLoadMore = result.canLoadMore;
+      while (canLoadMore && result.nextPage != null) {
+        currentPage = result.nextPage!;
+        final nextConfig = source.prepareChapterFetch(mangaId, chapterId, currentPage, extra: extra);
+        final nextResponse = await _httpClient.execute(_mergeHeaders(nextConfig, source));
+        result = source.parseChapter(nextResponse.data, mangaId, chapterId, currentPage);
+        if (result.nextExtra != null) {
+          final moreUrls = jsonDecode(result.nextExtra!) as List;
+          allImagePageUrls.addAll(moreUrls);
+        }
+        canLoadMore = result.canLoadMore;
+      }
+
+      // Now resolve each image page URL to the actual image src
       final resolvedImages = <ChapterImage>[];
-      for (final pageUrl in imagePageUrls) {
+      for (final pageUrl in allImagePageUrls) {
         try {
           final imgConfig = FetchConfig(url: pageUrl as String);
           final imgResponse = await _httpClient.execute(_mergeHeaders(imgConfig, source));
           final imgHtml = imgResponse.data as String;
-          // Parse img#img src from the image page
-          final srcMatch = RegExp(r'<img[^>]+id="img"[^>]+src="([^"]+)"').firstMatch(imgHtml);
-          if (srcMatch != null) {
-            resolvedImages.add(ChapterImage(url: srcMatch.group(1)!));
+          // Parse img#img src from the image page (handle src before or after id)
+          String? imgSrc;
+          final srcMatch1 = RegExp(r'<img[^>]+id="img"[^>]+src="([^"]+)"').firstMatch(imgHtml);
+          if (srcMatch1 != null) {
+            imgSrc = srcMatch1.group(1);
+          } else {
+            final srcMatch2 = RegExp(r'<img[^>]+src="([^"]+)"[^>]+id="img"').firstMatch(imgHtml);
+            if (srcMatch2 != null) {
+              imgSrc = srcMatch2.group(1);
+            }
+          }
+          if (imgSrc != null && imgSrc.isNotEmpty) {
+            resolvedImages.add(ChapterImage(
+              url: imgSrc,
+              headers: source.defaultHeaders != null
+                  ? Map<String, String>.from(source.defaultHeaders!)
+                  : null,
+            ));
           }
         } catch (_) {
           // Skip failed image pages
@@ -116,8 +152,6 @@ class MangaRepositoryImpl implements MangaRepository {
             title: result.chapter.title,
             images: resolvedImages,
           ),
-          canLoadMore: result.canLoadMore,
-          nextPage: result.nextPage,
         );
       }
     }

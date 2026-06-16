@@ -38,6 +38,11 @@ class EHentai extends MangaSource {
   bool get needsCloudflare => false;
 
   @override
+  Map<String, String>? get defaultHeaders => const {
+    'Referer': 'https://e-hentai.org',
+  };
+
+  @override
   String? get injectedJavaScript => '''
     (function() {
       var cookies = document.cookie;
