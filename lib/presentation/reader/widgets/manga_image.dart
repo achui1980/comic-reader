@@ -97,14 +97,17 @@ class _MangaImageState extends State<MangaImage> {
   /// Calculate segment count for JMC unscrambling.
   int _calculateSegments(int width, int height) {
     final chapterId = widget.chapterId ?? '';
-    final mangaId = widget.mangaId ?? '';
-    final aid = int.tryParse(mangaId) ?? int.tryParse(chapterId) ?? 0;
+    // aid = photo_id (chapter ID), NOT album_id
+    final aid = int.tryParse(chapterId) ?? 0;
 
-    // Extract filename from URL
+    // Extract filename from URL (e.g., "00001.webp" from full URL)
     final url = widget.image.url;
     final filename = url.split('/').last.split('?').first;
+    // Remove extension for the hash calculation
+    final filenameNoExt = filename.contains('.') 
+        ? filename.substring(0, filename.lastIndexOf('.'))
+        : filename;
 
-    // Use album_id (series_id) for scramble calculation
     // scramble_id threshold - default 220980
     const scramble220980 = 220980;
     const scramble268850 = 268850;
@@ -114,7 +117,7 @@ class _MangaImageState extends State<MangaImage> {
     if (aid < scramble268850) return 10;
 
     final x = aid < scramble421926 ? 10 : 8;
-    final s = '$aid$filename';
+    final s = '$aid$filenameNoExt';
     final hash = crypto_lib.md5.convert(utf8.encode(s)).toString();
     final lastChar = hash.codeUnitAt(hash.length - 1);
     final num = lastChar % x;
