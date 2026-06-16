@@ -132,6 +132,8 @@ const server = http.createServer((req, res) => {
       headers['referer'] = 'https://m.manhuagui.com';
     } else if (host.includes('mangacopy') || host.includes('mangafunc') || host.includes('mangafunb')) {
       headers['referer'] = 'https://www.mangacopy.com';
+    } else if (host.includes('jmapiproxy') || host.includes('jmapinodeudzn')) {
+      headers['referer'] = 'https://www.cdngwc.cc';
     }
   }
 

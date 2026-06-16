@@ -107,7 +107,7 @@ class _HomeScreenState extends State<HomeScreen> {
               borderRadius: BorderRadius.circular(8),
               child: CachedNetworkImage(
                 imageUrl: ImageProxy.url(manga.coverUrl),
-                httpHeaders: manga.headers,
+                httpHeaders: ImageProxy.safeHeaders(manga.headers),
                 fit: BoxFit.cover,
                 placeholder: (_, __) => Container(
                   color: Colors.grey.shade200,

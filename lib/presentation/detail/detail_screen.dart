@@ -139,7 +139,7 @@ class _DetailView extends StatelessWidget {
           children: [
             CachedNetworkImage(
               imageUrl: ImageProxy.url(manga.coverUrl),
-              httpHeaders: manga.headers,
+              httpHeaders: ImageProxy.safeHeaders(manga.headers),
               fit: BoxFit.cover,
             ),
             const DecoratedBox(

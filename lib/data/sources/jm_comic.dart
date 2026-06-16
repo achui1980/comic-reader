@@ -465,12 +465,12 @@ class JmComic extends MangaSource {
 
   // --- Image Helpers ---
 
-  Map<String, String> get _imageHeaders => {
-        'Accept':
-            'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+  /// Image headers for native platforms.
+  /// On web, Referer/X-Requested-With are ignored by the browser
+  /// but the CORS proxy handles them automatically.
+  Map<String, String> get _imageHeaders => const {
+        'Referer': 'https://www.cdngwc.cc',
         'X-Requested-With': 'com.JMComic3.app',
-        'Referer': 'https://$_apiDomain',
-        'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
       };
 
   String _buildCoverUrl(String albumId) {
