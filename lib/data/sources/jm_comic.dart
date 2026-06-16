@@ -1,22 +1,69 @@
 import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
 
-import 'package:html/parser.dart' as html_parser;
+import 'package:crypto/crypto.dart';
+import 'package:encrypt/encrypt.dart' as encrypt_pkg;
 
 import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/data/sources/manga_source.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 
+/// JMComic APP API client.
+///
+/// Uses the mobile APP API which doesn't require Cloudflare bypass.
+/// Implements token-based auth and AES-ECB response decryption.
 class JmComic extends MangaSource {
   static const String sourceId = 'jmc';
-  static const String _baseUrl = 'https://18comic.vip';
+
+  // APP API secrets (from jmcomic-crawler-python)
+  static const String _appTokenSecret = '18comicAPP';
+  static const String _appTokenSecret2 = '18comicAPPContent';
+  static const String _appDataSecret = '185Hcomic3PAPP7R';
+  static const String _appVersion = '2.0.21';
+
+  // API domains (shuffled list)
+  static const List<String> _apiDomains = [
+    'www.cdnhjk.net',
+    'www.cdngwc.cc',
+    'www.cdngwc.net',
+    'www.cdngwc.club',
+    'www.cdnhjk.cc',
+  ];
+
+  // Image CDN domains
+  static const List<String> _imageDomains = [
+    'cdn-msp.jmapiproxy1.cc',
+    'cdn-msp.jmapiproxy2.cc',
+    'cdn-msp2.jmapiproxy2.cc',
+    'cdn-msp3.jmapiproxy2.cc',
+    'cdn-msp.jmapinodeudzn.net',
+    'cdn-msp3.jmapinodeudzn.net',
+  ];
 
   static const String _mobileUA =
-      'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 '
-      '(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+      'Mozilla/5.0 (Linux; Android 9; V1938CT Build/PQ3A.190705.11211812; wv) '
+      'AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/91.0.4472.114 Safari/537.36';
 
-  static const Map<String, String> _imageHeaders = {
-    'Referer': '$_baseUrl/',
-  };
+  // Scramble thresholds
+  static const int _scramble220980 = 220980;
+  static const int _scramble268850 = 268850;
+  static const int _scramble421926 = 421926;
+
+  String? _currentDomain;
+  int _scrambleId = _scramble220980;
+  // Cache timestamp for consistent token in request/response pair
+  String? _lastTs;
+
+  String get _apiDomain {
+    _currentDomain ??= _apiDomains[Random().nextInt(_apiDomains.length)];
+    return _currentDomain!;
+  }
+
+  String get _apiBaseUrl => 'https://$_apiDomain';
+
+  String get _imageDomain =>
+      _imageDomains[Random().nextInt(_imageDomains.length)];
 
   @override
   String get id => sourceId;
@@ -28,43 +75,42 @@ class JmComic extends MangaSource {
   String get shortName => 'JMC';
 
   @override
-  String? get description => '需要代理，屏蔽日本ip';
+  String? get description => 'APP API模式，无需CF验证';
 
   @override
   double get score => 5.0;
 
   @override
-  String? get href => _baseUrl;
+  String? get href => 'https://18comic.vip';
 
   @override
-  bool get needsCloudflare => true;
+  bool get needsCloudflare => false; // APP API doesn't need CF
 
   @override
-  List<String> get cloudflarePageTitles => const ['Just a moment...', '403 Forbidden'];
+  List<String> get cloudflarePageTitles => const [];
 
   @override
   String? get userAgent => _mobileUA;
 
   @override
-  Map<String, String>? get defaultHeaders => {
-        'User-Agent': _mobileUA,
-        'Referer': _baseUrl,
-      };
+  Map<String, String>? get defaultHeaders => null;
 
   @override
   List<FilterOption> get discoveryFilters => const [
         FilterOption(
-          name: 'type',
+          name: 'category',
           label: '分类',
-          defaultValue: '',
+          defaultValue: '0',
           choices: [
-            FilterChoice(label: '选择分类', value: ''),
-            FilterChoice(label: '其他类', value: 'another'),
+            FilterChoice(label: '全部', value: '0'),
             FilterChoice(label: '同人', value: 'doujin'),
+            FilterChoice(label: '单本', value: 'single'),
+            FilterChoice(label: '短篇', value: 'short'),
+            FilterChoice(label: '其他', value: 'another'),
             FilterChoice(label: '韩漫', value: 'hanman'),
             FilterChoice(label: '美漫', value: 'meiman'),
-            FilterChoice(label: '短篇', value: 'short'),
-            FilterChoice(label: '单本', value: 'single'),
+            FilterChoice(label: 'Cosplay', value: 'doujin_cosplay'),
+            FilterChoice(label: '3D', value: '3D'),
           ],
         ),
         FilterOption(
@@ -72,13 +118,21 @@ class JmComic extends MangaSource {
           label: '排序',
           defaultValue: 'mr',
           choices: [
-            FilterChoice(label: '选择排序', value: 'mr'),
             FilterChoice(label: '最新', value: 'mr'),
-            FilterChoice(label: '最多订阅', value: 'mv'),
+            FilterChoice(label: '最多观看', value: 'mv'),
             FilterChoice(label: '最多图片', value: 'mp'),
-            FilterChoice(label: '最高评分', value: 'tr'),
-            FilterChoice(label: '最多评论', value: 'md'),
             FilterChoice(label: '最多爱心', value: 'tf'),
+          ],
+        ),
+        FilterOption(
+          name: 'time',
+          label: '时间',
+          defaultValue: 'a',
+          choices: [
+            FilterChoice(label: '全部', value: 'a'),
+            FilterChoice(label: '今天', value: 't'),
+            FilterChoice(label: '本周', value: 'w'),
+            FilterChoice(label: '本月', value: 'm'),
           ],
         ),
       ];
@@ -90,10 +144,10 @@ class JmComic extends MangaSource {
           label: '时间',
           defaultValue: 'a',
           choices: [
-            FilterChoice(label: '选择时间', value: 'a'),
-            FilterChoice(label: '一天内', value: 't'),
-            FilterChoice(label: '一周内', value: 'w'),
-            FilterChoice(label: '一个月内', value: 'm'),
+            FilterChoice(label: '全部', value: 'a'),
+            FilterChoice(label: '今天', value: 't'),
+            FilterChoice(label: '本周', value: 'w'),
+            FilterChoice(label: '本月', value: 'm'),
           ],
         ),
         FilterOption(
@@ -101,75 +155,62 @@ class JmComic extends MangaSource {
           label: '排序',
           defaultValue: 'mr',
           choices: [
-            FilterChoice(label: '选择排序', value: 'mr'),
-            FilterChoice(label: '最新的', value: 'mr'),
-            FilterChoice(label: '最多点阅', value: 'mv'),
+            FilterChoice(label: '最新', value: 'mr'),
+            FilterChoice(label: '最多观看', value: 'mv'),
             FilterChoice(label: '最多图片', value: 'mp'),
             FilterChoice(label: '最多爱心', value: 'tf'),
           ],
         ),
       ];
 
+  // --- API Request Building ---
+
+  /// Generate token and tokenparam for API authentication.
+  Map<String, String> _buildApiHeaders({String? secret}) {
+    final ts = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
+    _lastTs = ts;
+
+    final effectiveSecret = secret ?? _appTokenSecret;
+    final token = _md5Hex('$ts$effectiveSecret');
+    final tokenparam = '$ts,$_appVersion';
+
+    return {
+      'token': token,
+      'tokenparam': tokenparam,
+      'User-Agent': _mobileUA,
+      'Accept-Encoding': 'gzip, deflate',
+    };
+  }
+
   @override
   FetchConfig prepareDiscoveryFetch(int page, Map<String, String> filters) {
-    final type = filters['type'] ?? '';
+    final category = filters['category'] ?? '0';
     final sort = filters['sort'] ?? 'mr';
+    final time = filters['time'] ?? 'a';
 
-    final path = type.isNotEmpty ? '/albums/$type' : '/albums';
+    // Build order param: "mv_m" for monthly most viewed, etc.
+    final o = time != 'a' ? '${sort}_$time' : sort;
+
     return FetchConfig(
-      url: '$_baseUrl$path',
-      headers: {'User-Agent': _mobileUA},
+      url: '$_apiBaseUrl/categories/filter',
+      headers: _buildApiHeaders(),
       queryParameters: {
-        'o': sort,
         'page': '$page',
+        'order': '',
+        'c': category,
+        'o': o,
       },
+      extra: {'ts': _lastTs, 'isJmApi': true},
     );
   }
 
   @override
   List<MangaSummary> parseDiscovery(dynamic response) {
-    final htmlStr = response as String;
-    final document = html_parser.parse(htmlStr);
+    final data = _decodeApiResponse(response);
+    if (data == null) return [];
 
-    final items = document.querySelectorAll('div.row div.list-col');
-    final results = <MangaSummary>[];
-
-    for (final item in items) {
-      // Must have thumb-overlay-albums for discovery
-      final overlay = item.querySelector('div.thumb-overlay-albums');
-      if (overlay == null) continue;
-
-      final linkEl = item.querySelector('a');
-      if (linkEl == null) continue;
-
-      final href = linkEl.attributes['href'] ?? '';
-      final mangaId = _extractAlbumId(href);
-      if (mangaId == null) continue;
-
-      final imgEl = item.querySelector('img');
-      final title = imgEl?.attributes['title'] ?? '';
-      final cover = imgEl?.attributes['data-original'] ??
-          imgEl?.attributes['src'] ??
-          imgEl?.attributes['data-cfsrc'] ??
-          '';
-      final fullCover = _ensureAbsoluteUrl(cover);
-
-      // Author
-      final authorEl = item.querySelector(
-          'div.title-truncate:not(.video-title):not(.tags) a');
-      final author = authorEl?.text.trim() ?? '';
-
-      results.add(MangaSummary(
-        id: mangaId,
-        sourceId: sourceId,
-        title: title,
-        coverUrl: fullCover,
-        author: author,
-        headers: _imageHeaders,
-      ));
-    }
-
-    return results;
+    final content = data['content'] as List? ?? [];
+    return _parseAlbumList(content);
   }
 
   @override
@@ -179,181 +220,107 @@ class JmComic extends MangaSource {
     final sort = filters['sort'] ?? 'mr';
 
     return FetchConfig(
-      url: '$_baseUrl/search/photos',
-      headers: {'User-Agent': _mobileUA},
+      url: '$_apiBaseUrl/search',
+      headers: _buildApiHeaders(),
       queryParameters: {
-        'main_tag': '0',
         'search_query': keyword,
-        't': time,
-        'o': sort,
         'page': '$page',
+        'main_tag': '0',
+        'o': sort,
+        't': time,
       },
+      extra: {'ts': _lastTs, 'isJmApi': true},
     );
   }
 
   @override
   List<MangaSummary> parseSearch(dynamic response) {
-    final htmlStr = response as String;
-    final document = html_parser.parse(htmlStr);
+    final data = _decodeApiResponse(response);
+    if (data == null) return [];
 
-    // Search uses div.thumb-overlay (without -albums)
-    final items = document.querySelectorAll('div.row div.list-col');
-    final results = <MangaSummary>[];
-
-    for (final item in items) {
-      final overlay = item.querySelector('div.thumb-overlay') ??
-          item.querySelector('div.thumb-overlay-albums');
-      if (overlay == null) continue;
-
-      final linkEl = item.querySelector('a');
-      if (linkEl == null) continue;
-
-      final href = linkEl.attributes['href'] ?? '';
-      final mangaId = _extractAlbumId(href);
-      if (mangaId == null) continue;
-
-      final imgEl = item.querySelector('img');
-      final title = imgEl?.attributes['title'] ?? '';
-      final cover = imgEl?.attributes['data-original'] ??
-          imgEl?.attributes['src'] ??
-          imgEl?.attributes['data-cfsrc'] ??
-          '';
-      final fullCover = _ensureAbsoluteUrl(cover);
-
-      final authorEl = item.querySelector(
-          'div.title-truncate:not(.video-title):not(.tags) a');
-      final author = authorEl?.text.trim() ?? '';
-
-      results.add(MangaSummary(
-        id: mangaId,
-        sourceId: sourceId,
-        title: title,
-        coverUrl: fullCover,
-        author: author,
-        headers: _imageHeaders,
-      ));
+    // Check for redirect_aid (direct album ID search)
+    if (data['redirect_aid'] != null) {
+      // Single result redirect — we'll return a minimal summary
+      final aid = data['redirect_aid'].toString();
+      return [
+        MangaSummary(
+          id: aid,
+          sourceId: sourceId,
+          title: 'JM$aid',
+          coverUrl: _buildCoverUrl(aid),
+          author: '',
+        ),
+      ];
     }
 
-    return results;
+    final content = data['content'] as List? ?? [];
+    return _parseAlbumList(content);
   }
 
   @override
   FetchConfig prepareMangaInfoFetch(String mangaId) {
     return FetchConfig(
-      url: '$_baseUrl/album/$mangaId',
-      headers: {'User-Agent': _mobileUA},
+      url: '$_apiBaseUrl/album',
+      headers: _buildApiHeaders(),
+      queryParameters: {'id': mangaId},
+      extra: {'ts': _lastTs, 'isJmApi': true},
     );
   }
 
   @override
   MangaDetail parseMangaInfo(dynamic response, String mangaId) {
-    final htmlStr = response as String;
-    final document = html_parser.parse(htmlStr);
-
-    // Cover
-    final coverEl =
-        document.querySelector('div#album_photo_cover div.thumb-overlay img');
-    final cover = coverEl?.attributes['data-original'] ??
-        coverEl?.attributes['src'] ??
-        '';
-    final fullCover = _ensureAbsoluteUrl(cover);
-
-    // Title
-    final title = coverEl?.attributes['title'] ?? '';
-
-    // Update time from span[itemprop=datePublished]
-    final dateEls = document.querySelectorAll('span[itemprop=datePublished]');
-    String? updateTime;
-    if (dateEls.isNotEmpty) {
-      updateTime = dateEls.last.attributes['content'] ??
-          dateEls.last.text.trim();
+    final data = _decodeApiResponse(response);
+    if (data == null) {
+      return MangaDetail(
+        id: mangaId,
+        sourceId: sourceId,
+        title: 'Error',
+        coverUrl: '',
+        author: '',
+        tags: const [],
+        status: MangaStatus.unknown,
+      );
     }
 
-    // Tags
-    final tags = <String>[];
-    final tagEls = document.querySelectorAll(
-        'div#intro-block div.tag-block span[data-type=tags] a');
-    for (final el in tagEls) {
-      final tag = el.text.trim();
-      if (tag.isNotEmpty) tags.add(tag);
-    }
+    final title = data['name']?.toString() ?? '';
+    final authors = (data['author'] as List?)?.cast<String>() ?? [];
+    final tags = (data['tags'] as List?)?.cast<String>() ?? [];
+    final description = data['description']?.toString();
 
-    // Author
-    final authorEls = document.querySelectorAll(
-        'div#intro-block div.tag-block span[data-type=author] a');
-    final authors = <String>[];
-    for (final el in authorEls) {
-      final a = el.text.trim();
-      if (a.isNotEmpty) authors.add(a);
-    }
-
-    // Chapters - look for base64-encoded chapter HTML in script
-    var chapters = <ChapterItem>[];
-    final scripts = document.querySelectorAll('script');
-    for (final script in scripts) {
-      final content = script.text;
-      final b64Match =
-          RegExp(r'base64DecodeUtf8\("([^"]+)"\)').firstMatch(content);
-      if (b64Match != null) {
-        final b64 = b64Match.group(1)!;
-        try {
-          final decoded = utf8.decode(base64.decode(b64));
-          final chapterDoc = html_parser.parseFragment(decoded);
-          final chapterLinks =
-              chapterDoc.querySelectorAll('.episode ul.btn-toolbar a');
-          for (final link in chapterLinks) {
-            final chHref = link.attributes['href'] ?? '';
-            final chId = _extractPhotoId(chHref);
-            if (chId == null) continue;
-            final chTitle = link.text.trim();
-            chapters.add(ChapterItem(
-              id: chId,
-              mangaId: mangaId,
-              title: chTitle,
-              href: '$_baseUrl$chHref',
-            ));
-          }
-        } catch (_) {
-          // Base64 decode failed, skip
-        }
-        break;
+    // Build chapter list from series
+    final series = data['series'] as List? ?? [];
+    final chapters = <ChapterItem>[];
+    for (final ch in series) {
+      if (ch is Map) {
+        chapters.add(ChapterItem(
+          id: ch['id']?.toString() ?? '',
+          mangaId: mangaId,
+          title: ch['name']?.toString() ?? '第${ch['sort']}话',
+          href: '',
+        ));
       }
     }
 
-    // If no chapters found from script, try the read button as single chapter
-    if (chapters.isEmpty) {
-      final readBtn = document.querySelector('a.reading') ??
-          document.querySelector('a[href*="/photo/"]');
-      if (readBtn != null) {
-        final readHref = readBtn.attributes['href'] ?? '';
-        final readId = _extractPhotoId(readHref);
-        if (readId != null) {
-          chapters.add(ChapterItem(
-            id: readId,
-            mangaId: mangaId,
-            title: '开始阅读',
-            href: '$_baseUrl$readHref',
-          ));
-        }
-      }
-    }
+    // Cover URL
+    final coverUrl = _buildCoverUrl(mangaId);
 
     return MangaDetail(
       id: mangaId,
       sourceId: sourceId,
       title: title,
-      coverUrl: fullCover,
+      coverUrl: coverUrl,
       author: authors.join(', '),
       tags: tags,
       status: MangaStatus.unknown,
-      updateTime: updateTime,
+      description: description,
+      chapters: chapters,
       headers: _imageHeaders,
     );
   }
 
   @override
   FetchConfig? prepareChapterListFetch(String mangaId, int page) {
-    // Chapters are parsed from manga info page
+    // Chapters are embedded in manga info response
     return null;
   }
 
@@ -366,116 +333,248 @@ class JmComic extends MangaSource {
   FetchConfig prepareChapterFetch(String mangaId, String chapterId, int page,
       {dynamic extra}) {
     return FetchConfig(
-      url: '$_baseUrl/photo/$chapterId',
-      headers: {
-        'User-Agent': _mobileUA,
-        'Referer': '$_baseUrl/album/$mangaId',
-      },
+      url: '$_apiBaseUrl/chapter',
+      headers: _buildApiHeaders(),
+      queryParameters: {'id': chapterId},
+      extra: {'ts': _lastTs, 'isJmApi': true},
     );
   }
 
   @override
   ChapterResult parseChapter(
       dynamic response, String mangaId, String chapterId, int page) {
-    final htmlStr = response as String;
-    final document = html_parser.parse(htmlStr);
-
-    // Extract scramble info from script
-    String? scrambleId;
-    String? seriesId;
-    String? aid;
-
-    final scripts = document.querySelectorAll('script');
-    for (final script in scripts) {
-      final content = script.text;
-      if (content.contains('var series_id') || content.contains('var aid')) {
-        final seriesMatch =
-            RegExp(r'var\s+series_id\s*=\s*(\d+)').firstMatch(content);
-        final aidMatch =
-            RegExp(r'var\s+aid\s*=\s*(\d+)').firstMatch(content);
-        final scrambleMatch =
-            RegExp(r'var\s+scramble_id\s*=\s*(\d+)').firstMatch(content);
-
-        seriesId = seriesMatch?.group(1);
-        aid = aidMatch?.group(1);
-        scrambleId = scrambleMatch?.group(1);
-        break;
-      }
+    final data = _decodeApiResponse(response);
+    if (data == null) {
+      return ChapterResult(
+        chapter: Chapter(
+          id: chapterId,
+          mangaId: mangaId,
+          title: '',
+          images: const [],
+        ),
+      );
     }
 
-    // Use seriesId as mangaId if available
-    final effectiveMangaId = seriesId ?? mangaId;
-    final effectiveChapterId = aid ?? chapterId;
+    final chTitle = data['name']?.toString() ?? '';
+    final imageNames = (data['images'] as List?)?.cast<String>() ?? [];
+    final seriesId = data['series_id']?.toString() ?? mangaId;
 
-    // Extract images
-    final imageEls = document.querySelectorAll(
-        'div.panel-body div.thumb-overlay-albums div.scramble-page img.lazy_img');
-    // Fallback selector if above doesn't match
-    final imgElements = imageEls.isNotEmpty
-        ? imageEls
-        : document.querySelectorAll('div.scramble-page img[id^=album_photo]');
-
+    // Build image URLs
     final images = <ChapterImage>[];
-    for (final img in imgElements) {
-      final src = img.attributes['data-original'] ??
-          img.attributes['src'] ??
-          '';
-      if (src.isEmpty) continue;
+    for (int i = 0; i < imageNames.length; i++) {
+      final imgName = imageNames[i];
+      final suffix = _getImageSuffix(imgName);
+      final imgUrl =
+          'https://$_imageDomain/media/photos/$chapterId/${_padIndex(i + 1)}$suffix';
 
-      final fullUrl = _ensureAbsoluteUrl(src.trim());
-
-      // Determine if image needs unscrambling
-      var scrambleType = ScrambleType.none;
-      if (!fullUrl.endsWith('.gif') && scrambleId != null) {
-        final chIdNum = int.tryParse(effectiveChapterId);
-        final scrIdNum = int.tryParse(scrambleId);
-        if (chIdNum != null && scrIdNum != null && chIdNum >= scrIdNum) {
-          scrambleType = ScrambleType.jmc;
-        }
-      }
+      // Determine scramble
+      final scrambleType = _getScrambleType(chapterId, imgName);
 
       images.add(ChapterImage(
-        url: fullUrl,
+        url: imgUrl,
         scrambleType: scrambleType,
         headers: _imageHeaders,
       ));
     }
 
-    // Title
-    final titleEl = document.querySelector('div.container div.panel-heading') ??
-        document.querySelector('title');
-    final chapterTitle = titleEl?.text.trim() ?? '';
-
     return ChapterResult(
       chapter: Chapter(
-        id: effectiveChapterId,
-        mangaId: effectiveMangaId,
-        title: chapterTitle,
+        id: chapterId,
+        mangaId: seriesId,
+        title: chTitle,
         images: images,
         headers: _imageHeaders,
       ),
     );
   }
 
-  // --- Private helpers ---
+  // --- Crypto ---
 
-  /// Extract album ID from href like "/album/12345/" or "/album/12345"
-  String? _extractAlbumId(String href) {
-    final match = RegExp(r'/album/(\d+)').firstMatch(href);
-    return match?.group(1);
+  /// MD5 hex digest of a string.
+  String _md5Hex(String input) {
+    return md5.convert(utf8.encode(input)).toString();
   }
 
-  /// Extract photo ID from href like "/photo/12345/" or "/photo/12345"
-  String? _extractPhotoId(String href) {
-    final match = RegExp(r'/photo/(\d+)').firstMatch(href);
-    return match?.group(1);
+  /// Decrypt API response data.
+  ///
+  /// 1. Base64 decode
+  /// 2. AES-ECB decrypt with key = md5(ts + secret)
+  /// 3. Remove PKCS7 padding
+  /// 4. UTF-8 decode → JSON
+  Map<String, dynamic>? _decodeApiResponse(dynamic response) {
+    try {
+      // Dio may auto-parse JSON into a Map, or leave it as String
+      if (response is Map<String, dynamic>) {
+        // Already parsed JSON — check for encrypted 'data' field
+        if (response.containsKey('data') && response['data'] is String) {
+          final encrypted = response['data'] as String;
+          if (encrypted.isNotEmpty) {
+            return _decryptData(encrypted);
+          }
+        }
+        // Plain unencrypted response
+        return response;
+      }
+
+      // Response is a raw string
+      final respStr = response as String;
+
+      // Try to parse as JSON first
+      try {
+        final parsed = jsonDecode(respStr);
+        if (parsed is Map<String, dynamic>) {
+          if (parsed.containsKey('data') && parsed['data'] is String) {
+            final encrypted = parsed['data'] as String;
+            if (encrypted.isNotEmpty) {
+              return _decryptData(encrypted);
+            }
+          }
+          return parsed;
+        }
+      } catch (_) {
+        // Not valid JSON
+      }
+
+      // Try treating entire response as encrypted data
+      return _decryptData(respStr);
+    } catch (e) {
+      return null;
+    }
   }
 
-  /// Ensure a URL is absolute
-  String _ensureAbsoluteUrl(String url) {
-    if (url.isEmpty) return '';
-    if (url.startsWith('http')) return url;
-    if (url.startsWith('//')) return 'https:$url';
-    return '$_baseUrl$url';
+  Map<String, dynamic>? _decryptData(String encryptedData) {
+    final ts = _lastTs ?? (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
+
+    // Key = md5(ts + secret) → 32-char hex → use first 16 bytes as AES key
+    final keyHex = _md5Hex('$ts$_appDataSecret');
+    final keyBytes = utf8.encode(keyHex);
+
+    // Base64 decode the data
+    final dataBytes = base64.decode(encryptedData);
+
+    // AES-ECB decrypt
+    final key = encrypt_pkg.Key(Uint8List.fromList(keyBytes));
+    final encrypter = encrypt_pkg.Encrypter(
+      encrypt_pkg.AES(key, mode: encrypt_pkg.AESMode.ecb, padding: 'PKCS7'),
+    );
+    final decrypted = encrypter.decrypt(encrypt_pkg.Encrypted(dataBytes));
+
+    // Parse JSON
+    return jsonDecode(decrypted) as Map<String, dynamic>;
+  }
+
+  // --- Image Helpers ---
+
+  Map<String, String> get _imageHeaders => {
+        'Accept':
+            'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        'X-Requested-With': 'com.JMComic3.app',
+        'Referer': 'https://$_apiDomain',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+      };
+
+  String _buildCoverUrl(String albumId) {
+    return 'https://$_imageDomain/media/albums/${albumId}_3x4.jpg';
+  }
+
+  String _padIndex(int index) {
+    return index.toString().padLeft(5, '0');
+  }
+
+  String _getImageSuffix(String imageName) {
+    // imageName like "00001.webp" or "00002.jpg"
+    final dotIndex = imageName.lastIndexOf('.');
+    if (dotIndex >= 0) {
+      return imageName.substring(dotIndex);
+    }
+    return '.webp';
+  }
+
+  ScrambleType _getScrambleType(String chapterId, String imageName) {
+    final chIdNum = int.tryParse(chapterId) ?? 0;
+
+    // GIF images are never scrambled
+    if (imageName.endsWith('.gif')) return ScrambleType.none;
+
+    if (chIdNum < _scrambleId) return ScrambleType.none;
+
+    return ScrambleType.jmc;
+  }
+
+  /// Calculate the number of segments for image unscrambling.
+  ///
+  /// This implements the same algorithm as the Python library.
+  static int calculateSegmentCount(int scrambleId, int albumId, String filename) {
+    if (albumId < scrambleId) return 0;
+    if (albumId < _scramble268850) return 10;
+
+    final x = albumId < _scramble421926 ? 10 : 8;
+    final s = '$albumId$filename';
+    final hash = md5.convert(utf8.encode(s)).toString();
+    final lastChar = hash.codeUnitAt(hash.length - 1);
+    final num = lastChar % x;
+    return num * 2 + 2;
+  }
+
+  // --- List Parsing ---
+
+  List<MangaSummary> _parseAlbumList(List<dynamic> content) {
+    final results = <MangaSummary>[];
+    for (final item in content) {
+      if (item is! Map) continue;
+      final albumId = item['id']?.toString() ?? '';
+      if (albumId.isEmpty) continue;
+
+      final title = item['name']?.toString() ?? '';
+      final author = item['author']?.toString() ?? '';
+
+      results.add(MangaSummary(
+        id: albumId,
+        sourceId: sourceId,
+        title: title,
+        coverUrl: _buildCoverUrl(albumId),
+        author: author,
+        headers: _imageHeaders,
+      ));
+    }
+    return results;
+  }
+
+  // --- Scramble ID fetching ---
+
+  /// Fetch scramble_id from the chapter_view_template endpoint.
+  /// Call this before reading a chapter to get the correct scramble threshold.
+  FetchConfig prepareScrambleFetch(String chapterId) {
+    final ts = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
+    final token = _md5Hex('$ts$_appTokenSecret2');
+    final tokenparam = '$ts,$_appVersion';
+
+    return FetchConfig(
+      url: '$_apiBaseUrl/chapter_view_template',
+      headers: {
+        'token': token,
+        'tokenparam': tokenparam,
+        'User-Agent': _mobileUA,
+        'Accept-Encoding': 'gzip, deflate',
+      },
+      queryParameters: {
+        'id': chapterId,
+        'mode': 'vertical',
+        'page': '0',
+        'app_img_shunt': '1',
+        'express': 'off',
+        'v': ts,
+      },
+      extra: {'ts': ts, 'isJmApi': true},
+    );
+  }
+
+  /// Parse scramble_id from the chapter_view_template response.
+  void parseScrambleResponse(String responseText) {
+    final match =
+        RegExp(r'var\s+scramble_id\s*=\s*(\d+)').firstMatch(responseText);
+    if (match != null) {
+      _scrambleId = int.tryParse(match.group(1)!) ?? _scramble220980;
+    }
   }
 }
