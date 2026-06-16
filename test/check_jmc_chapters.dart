@@ -11,7 +11,7 @@ void main() async {
   final tokenparam = '$ts,2.0.21';
 
   // Test multiple albums - single chapter and multi-chapter
-  final testIds = ['440808', '400222', '152637', '1446861'];
+  final testIds = ['1446860', '1446861', '400222'];
   for (final albumId in testIds) {
     final ts2 = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
     final token2 = md5.convert(utf8.encode('${ts2}18comicAPP')).toString();

@@ -487,20 +487,25 @@ class _ReadButtonState extends State<_ReadButton> {
       width: double.infinity,
       child: FilledButton.icon(
         onPressed: () {
-          if (cubit.state.chapters.isEmpty) return;
           String chapterId;
           int initialPage;
           if (hasProgress) {
             chapterId = _progress!['chapterId'] as String;
             initialPage = (_progress!['page'] as num?)?.toInt() ?? 0;
-          } else {
+          } else if (cubit.state.chapters.isNotEmpty) {
             chapterId = cubit.state.chapters.first.id;
+            initialPage = 0;
+          } else {
+            // Fallback for single-chapter manga with no explicit chapter list
+            chapterId = cubit.mangaId;
             initialPage = 0;
           }
           context.push(
             AppRoutes.readerPath(cubit.sourceId, cubit.mangaId, chapterId),
             extra: <String, dynamic>{
-              'chapterList': cubit.state.chapters,
+              'chapterList': cubit.state.chapters.isNotEmpty
+                  ? cubit.state.chapters
+                  : [ChapterItem(id: chapterId, mangaId: cubit.mangaId, title: '开始阅读', href: '')],
               'initialPage': initialPage,
             },
           );
