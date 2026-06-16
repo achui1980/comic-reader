@@ -477,6 +477,11 @@ class PicaComic extends MangaSource {
       return 'https://storage-b.picacomic.com/static/$path';
     }
 
+    // /tobs/ path requires auth which doesn't work; /static/ is public
+    if (imageUrl.contains('/tobs/')) {
+      imageUrl = imageUrl.replaceFirst('/tobs/', '/static/');
+    }
+
     return imageUrl;
   }
 
