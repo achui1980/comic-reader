@@ -443,10 +443,42 @@ class PicaComic extends MangaSource {
     var base = fileServer;
     if (!base.endsWith('/')) base += '/';
 
+    String imageUrl;
     // Some paths already include "static/"
     if (path.startsWith('/')) {
-      return '$base${path.substring(1)}';
+      imageUrl = '$base${path.substring(1)}';
+    } else {
+      imageUrl = '$base$path';
     }
-    return '$base$path';
+
+    // If the URL uses imgproxy (/tobeimg/), use raw static URL instead
+    // because imgproxy signatures may be invalid/expired
+    if (imageUrl.contains('/tobeimg/')) {
+      // Extract the base64-encoded original URL from the imgproxy path
+      // Pattern: .../tobeimg/{sig}/rs:{options}/{base64url}.{ext}
+      final match = RegExp(r'/tobeimg/.+?/[^/]+/[^/]+/(.+)$').firstMatch(imageUrl);
+      if (match != null) {
+        final encoded = match.group(1)!.replaceAll(RegExp(r'\.\w+$'), ''); // remove extension
+        try {
+          final decoded = Uri.decodeFull(
+            String.fromCharCodes(base64Decode(_padBase64(encoded))),
+          );
+          if (decoded.startsWith('http')) return decoded;
+        } catch (_) {}
+      }
+      // Fallback: construct direct static URL
+      return 'https://storage-b.picacomic.com/static/$path';
+    }
+
+    return imageUrl;
+  }
+
+  /// Pad base64url string to proper length
+  static String _padBase64(String s) {
+    // Convert base64url to standard base64
+    var result = s.replaceAll('-', '+').replaceAll('_', '/');
+    final pad = result.length % 4;
+    if (pad > 0) result += '=' * (4 - pad);
+    return result;
   }
 }

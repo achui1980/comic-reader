@@ -136,6 +136,8 @@ const server = http.createServer((req, res) => {
       headers['referer'] = 'https://e-hentai.org';
     } else if (host.includes('zrocdn.xyz')) {
       headers['referer'] = 'https://nhentai.to';
+    } else if (host.includes('picacomic.com')) {
+      headers['referer'] = 'https://picacomic.com';
     }
   }
 
