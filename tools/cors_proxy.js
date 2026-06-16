@@ -119,6 +119,12 @@ const server = http.createServer((req, res) => {
     delete headers['x-proxy-referer'];
   }
 
+  // Restore X-Proxy-Cookie as Cookie
+  if (headers['x-proxy-cookie']) {
+    headers['cookie'] = headers['x-proxy-cookie'];
+    delete headers['x-proxy-cookie'];
+  }
+
   // Auto-add Referer for known CDN hosts that require it
   if (!headers['referer']) {
     const host = parsed.hostname || '';

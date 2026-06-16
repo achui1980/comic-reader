@@ -48,11 +48,13 @@ class CorsProxyInterceptor extends Interceptor {
       for (final entry in options.headers.entries) {
         if (_forbiddenHeaders.contains(entry.key.toLowerCase())) {
           toRemove.add(entry.key);
-          // Only preserve user-agent and referer - proxy needs these
+          // Preserve important headers via X-Proxy-* prefix
           if (entry.key.toLowerCase() == 'user-agent') {
             toAdd['X-Proxy-User-Agent'] = entry.value;
           } else if (entry.key.toLowerCase() == 'referer') {
             toAdd['X-Proxy-Referer'] = entry.value;
+          } else if (entry.key.toLowerCase() == 'cookie') {
+            toAdd['X-Proxy-Cookie'] = entry.value;
           }
         }
       }

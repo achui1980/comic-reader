@@ -54,8 +54,19 @@ class _WebCookieInputScreenState extends State<_WebCookieInputScreen> {
   }
 
   Future<void> _saveCookie() async {
-    final cookie = _cookieController.text.trim();
+    var cookie = _cookieController.text.trim();
     if (cookie.isEmpty) return;
+
+    // If user pasted just a raw value (no '=' sign), assume it's cf_clearance
+    if (!cookie.contains('=')) {
+      cookie = 'cf_clearance=$cookie';
+    }
+    // If user pasted just "value" from the cf_clearance row in DevTools,
+    // and it doesn't look like a full cookie string (no semicolons),
+    // wrap it as cf_clearance=value
+    else if (!cookie.contains(';') && !cookie.startsWith('cf_clearance=')) {
+      // Looks like a single key=value pair that isn't cf_clearance - use as-is
+    }
 
     final data = {'cookie': cookie};
     await _authStore.saveExtra(widget.sourceId, data);
@@ -173,7 +184,7 @@ class _WebCookieInputScreenState extends State<_WebCookieInputScreen> {
                         controller: _cookieController,
                         maxLines: 3,
                         decoration: InputDecoration(
-                          hintText: 'cf_clearance=...; ...',
+                          hintText: '粘贴 document.cookie 的完整输出\n或者粘贴 cf_clearance 的值',
                           border: const OutlineInputBorder(),
                           suffixIcon: IconButton(
                             icon: const Icon(Icons.paste),

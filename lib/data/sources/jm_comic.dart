@@ -37,6 +37,12 @@ class JmComic extends MangaSource {
   String? get href => _baseUrl;
 
   @override
+  bool get needsCloudflare => true;
+
+  @override
+  List<String> get cloudflarePageTitles => const ['Just a moment...', '403 Forbidden'];
+
+  @override
   String? get userAgent => _mobileUA;
 
   @override
