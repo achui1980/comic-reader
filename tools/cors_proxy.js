@@ -97,15 +97,13 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const parsed = url.parse(targetUrl);
-  const client = parsed.protocol === 'https:' ? https : http;
+  const initialParsed = url.parse(targetUrl);
 
   // Forward headers, replacing host and restoring X-Proxy-* headers
   const headers = { ...req.headers };
   delete headers.host;
   delete headers.origin;
   delete headers.referer;
-  headers.host = parsed.host;
 
   // Restore X-Proxy-User-Agent as User-Agent
   if (headers['x-proxy-user-agent']) {
@@ -127,7 +125,7 @@ const server = http.createServer((req, res) => {
 
   // Auto-add Referer for known CDN hosts that require it
   if (!headers['referer']) {
-    const host = parsed.hostname || '';
+    const host = initialParsed.hostname || '';
     if (host.endsWith('.hamreus.com')) {
       headers['referer'] = 'https://m.manhuagui.com';
     } else if (host.includes('mangacopy') || host.includes('mangafunc') || host.includes('mangafunb')) {
@@ -146,38 +144,68 @@ const server = http.createServer((req, res) => {
     }
   }
 
-  const proxyReq = client.request(
-    {
-      hostname: parsed.hostname,
-      port: parsed.port,
-      path: parsed.path,
-      method: req.method,
-      headers: headers,
-      agent: proxyAgent || undefined,
-    },
-    (proxyRes) => {
-      // Add CORS headers to response
-      const responseHeaders = { ...proxyRes.headers };
-      responseHeaders['access-control-allow-origin'] = '*';
-      responseHeaders['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-      responseHeaders['access-control-allow-headers'] = '*';
-      responseHeaders['access-control-expose-headers'] = '*';
-
-      res.writeHead(proxyRes.statusCode, responseHeaders);
-      proxyRes.pipe(res);
+  // Make request with redirect following
+  function doRequest(targetUrl, headers, maxRedirects) {
+    if (maxRedirects <= 0) {
+      res.writeHead(502, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
+      res.end('Too many redirects');
+      return;
     }
-  );
 
-  proxyReq.on('error', (err) => {
-    console.error('Proxy error:', err.message, '→', targetUrl);
-    res.writeHead(502, {
-      'Content-Type': 'text/plain',
-      'Access-Control-Allow-Origin': '*',
+    const parsed = url.parse(targetUrl);
+    const client = parsed.protocol === 'https:' ? https : http;
+    headers.host = parsed.host;
+
+    const proxyReq = client.request(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port,
+        path: parsed.path,
+        method: req.method,
+        headers: headers,
+        agent: proxyAgent || undefined,
+      },
+      (proxyRes) => {
+        // Follow redirects server-side (301, 302, 303, 307, 308)
+        if ([301, 302, 303, 307, 308].includes(proxyRes.statusCode) && proxyRes.headers.location) {
+          let redirectUrl = proxyRes.headers.location;
+          // Handle relative redirects
+          if (redirectUrl.startsWith('/')) {
+            redirectUrl = `${parsed.protocol}//${parsed.host}${redirectUrl}`;
+          }
+          // Consume the response body to free the socket
+          proxyRes.resume();
+          doRequest(redirectUrl, headers, maxRedirects - 1);
+          return;
+        }
+
+        // Add CORS headers to response
+        const responseHeaders = { ...proxyRes.headers };
+        responseHeaders['access-control-allow-origin'] = '*';
+        responseHeaders['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+        responseHeaders['access-control-allow-headers'] = '*';
+        responseHeaders['access-control-expose-headers'] = '*';
+        // Remove any Location header to prevent browser from following redirects
+        delete responseHeaders['location'];
+
+        res.writeHead(proxyRes.statusCode, responseHeaders);
+        proxyRes.pipe(res);
+      }
+    );
+
+    proxyReq.on('error', (err) => {
+      console.error('Proxy error:', err.message, '→', targetUrl);
+      res.writeHead(502, {
+        'Content-Type': 'text/plain',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.end('Proxy error: ' + err.message);
     });
-    res.end('Proxy error: ' + err.message);
-  });
 
-  req.pipe(proxyReq);
+    req.pipe(proxyReq);
+  }
+
+  doRequest(targetUrl, headers, 5);
 });
 
 server.listen(PORT, () => {
