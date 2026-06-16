@@ -114,10 +114,15 @@ class _DiscoveryView extends StatelessWidget {
               : null,
           onTap: () async {
             Navigator.pop(ctx);
-            // If source requires login and is not authenticated, show login dialog
+            // If source requires login and is not authenticated, try auto-login
             if (sources[i].requiresLogin && !sources[i].isAuthenticated) {
-              final result = await showPicaLoginDialog(context);
-              if (result != true) return; // User cancelled or login failed
+              final result = await picaAutoLogin();
+              if (!result) {
+                // Auto-login failed, show manual dialog
+                if (!context.mounted) return;
+                final manual = await showPicaLoginDialog(context);
+                if (manual != true) return;
+              }
             }
             cubit.changeSource(sources[i].id);
           },

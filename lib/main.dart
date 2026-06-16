@@ -6,6 +6,8 @@ import 'package:comic_reader/app/di/injection.dart';
 import 'package:comic_reader/data/local/auth_store.dart';
 import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
+import 'package:comic_reader/data/sources/pica_comic.dart';
+import 'package:comic_reader/presentation/common/pica_login_dialog.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,6 +32,13 @@ void main() async {
     if (extra != null && extra.isNotEmpty) {
       source.syncExtraData(extra);
     }
+  }
+
+  // Auto-login PicaComic if no token stored
+  final picaSource = registry.get(PicaComic.sourceId);
+  if (picaSource != null && !picaSource.isAuthenticated) {
+    // Fire and forget - don't block app startup
+    picaAutoLogin();
   }
 
   // Load settings and apply disabled sources to registry

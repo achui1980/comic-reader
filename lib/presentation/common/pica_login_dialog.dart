@@ -6,6 +6,33 @@ import 'package:comic_reader/data/remote/http_client.dart';
 import 'package:comic_reader/data/sources/pica_comic.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 
+/// Attempts auto-login with built-in credentials.
+/// Returns true if login succeeded.
+Future<bool> picaAutoLogin() async {
+  try {
+    final registry = GetIt.instance<SourceRegistry>();
+    final source = registry.get(PicaComic.sourceId);
+    if (source is! PicaComic) return false;
+    if (source.isAuthenticated) return true;
+
+    final httpClient = GetIt.instance<HttpClient>();
+    final config = source.buildSignInRequest(
+      PicaComic.defaultEmail,
+      PicaComic.defaultPassword,
+    );
+    final response = await httpClient.execute(config);
+    final token = source.parseSignIn(response.data);
+    if (token != null) {
+      final authStore = GetIt.instance<AuthStore>();
+      await authStore.saveExtra(PicaComic.sourceId, {'token': token});
+      return true;
+    }
+    return false;
+  } catch (_) {
+    return false;
+  }
+}
+
 /// Shows a login dialog for PicaComic.
 /// Returns true if login succeeded, false/null otherwise.
 Future<bool?> showPicaLoginDialog(BuildContext context) {
@@ -23,8 +50,8 @@ class _PicaLoginDialog extends StatefulWidget {
 }
 
 class _PicaLoginDialogState extends State<_PicaLoginDialog> {
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  final _emailController = TextEditingController(text: PicaComic.defaultEmail);
+  final _passwordController = TextEditingController(text: PicaComic.defaultPassword);
   bool _loading = false;
   String? _error;
   bool _obscurePassword = true;

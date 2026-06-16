@@ -33,6 +33,10 @@ class PicaComic extends MangaSource {
 
   String _authToken = '';
 
+  /// Built-in credentials for convenience
+  static const String defaultEmail = 'iz9xgh420260616u';
+  static const String defaultPassword = 'iz9xgh420260616p';
+
   @override
   String get id => sourceId;
 
