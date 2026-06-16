@@ -56,10 +56,12 @@ class NHentai extends MangaSource {
     if (sort.isNotEmpty) {
       params['sort'] = sort;
     }
-    // Default discovery: popular this week
+    // Default discovery: popular this week, use '*' wildcard to get results
     if (sort.isEmpty) {
-      params['q'] = '';
+      params['q'] = '*';
       params['sort'] = 'popular-week';
+    } else if (!params.containsKey('q')) {
+      params['q'] = '*';
     }
     return FetchConfig(url: url, queryParameters: params);
   }
