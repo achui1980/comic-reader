@@ -156,6 +156,8 @@ class _MangaImageState extends State<MangaImage> {
       imageUrl,
       fit: widget.fit,
       cache: true,
+      retries: 3,
+      timeLimit: const Duration(seconds: 15),
       headers: ImageProxy.safeHeaders(widget.image.headers),
       enableLoadState: true,
       loadStateChanged: (state) {

@@ -219,6 +219,7 @@ const server = http.createServer((req, res) => {
         method: req.method,
         headers: headers,
         agent: proxyAgent || undefined,
+        timeout: 30000, // 30s timeout for upstream connection
       },
       (proxyRes) => {
         // Follow redirects server-side (301, 302, 303, 307, 308)
@@ -250,11 +251,25 @@ const server = http.createServer((req, res) => {
 
     proxyReq.on('error', (err) => {
       console.error('Proxy error:', err.message, '→', targetUrl);
-      res.writeHead(502, {
-        'Content-Type': 'text/plain',
-        'Access-Control-Allow-Origin': '*',
-      });
-      res.end('Proxy error: ' + err.message);
+      if (!res.headersSent) {
+        res.writeHead(502, {
+          'Content-Type': 'text/plain',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end('Proxy error: ' + err.message);
+      }
+    });
+
+    proxyReq.on('timeout', () => {
+      console.error('Proxy timeout (30s):', targetUrl);
+      proxyReq.destroy();
+      if (!res.headersSent) {
+        res.writeHead(504, {
+          'Content-Type': 'text/plain',
+          'Access-Control-Allow-Origin': '*',
+        });
+        res.end('Proxy timeout: upstream did not respond within 30s');
+      }
     });
 
     req.pipe(proxyReq);
@@ -277,3 +292,13 @@ server.listen(PORT, () => {
     console.log('  Upstream proxy: (none - direct connection)');
   }
 });
+
+// Increase max connections to prevent queueing
+server.maxConnections = 200;
+
+// Short keep-alive timeout so idle connections are freed quickly for new requests
+server.keepAliveTimeout = 5000; // 5s
+
+// Also increase the global agent max sockets for outgoing requests
+https.globalAgent.maxSockets = 50;
+http.globalAgent.maxSockets = 50;
