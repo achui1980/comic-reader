@@ -11,22 +11,23 @@ import 'package:comic_reader/domain/entities/entities.dart';
 /// API-based source with HMAC-SHA256 signed requests.
 class PicaComic extends MangaSource {
   static const String sourceId = 'pica';
-  static const String _baseUrl = 'https://api.manhuabika.com';
+  static const String _baseUrl = 'https://picaapi.picacomic.com';
   static const String _webUrl = 'https://manhuabika.com';
 
-  static const String _appleKillFlag = 'C69BAF41DA5ABD1FFEDC6D2FEA56B';
-  static const String _appleVersion =
+  static const String _apiKey = 'C69BAF41DA5ABD1FFEDC6D2FEA56B';
+  static const String _secretKey =
       r'~d}$Q7$eIni=V)9\RK/P.RM4;9[7|@/CA}b~OW!3?EV`:<>M7pddUBL5n|0/*Cn';
 
   static const Map<String, String> _defaultHeaders = {
+    'api-key': _apiKey,
     'Accept': 'application/vnd.picacomic.com.v1+json',
-    'App-Channel': '1',
-    'App-Uuid': 'webUUID',
+    'App-Channel': '2',
+    'App-Uuid': 'defaultUuid',
     'App-Platform': 'android',
     'Image-Quality': 'original',
     'Content-Type': 'application/json; charset=UTF-8',
-    'App-Version': '2.2.1.3.3.4',
-    'App-Build-Version': '45',
+    'App-Version': '2.2.1.2.3.3',
+    'App-Build-Version': '44',
     'User-Agent': 'okhttp/3.8.1',
   };
 
@@ -42,7 +43,7 @@ class PicaComic extends MangaSource {
   String get shortName => 'Pica';
 
   @override
-  String? get description => '需要登录，WebView获取Token';
+  String? get description => '需要登录Token才能使用，请先在设置中验证';
 
   @override
   double get score => 4.5;
@@ -340,10 +341,10 @@ class PicaComic extends MangaSource {
     final ts = (DateTime.now().millisecondsSinceEpoch ~/ 1000).toString();
     final nonce = _generateNonce();
 
-    // Build signature
+    // Build signature: path + ts + nonce + method + apiKey -> lowercase -> HMAC-SHA256
     final raw =
-        (urlPath + ts + nonce + method + _appleKillFlag).toLowerCase();
-    final key = utf8.encode(_appleVersion);
+        (urlPath + ts + nonce + method + _apiKey).toLowerCase();
+    final key = utf8.encode(_secretKey);
     final hmacSha256 = Hmac(sha256, key);
     final digest = hmacSha256.convert(utf8.encode(raw));
     final signature = digest.toString();
