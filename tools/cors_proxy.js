@@ -21,6 +21,9 @@ let currentProxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || proce
 
 let proxyAgent = null;
 
+// Stored auth tokens for specific hosts (set dynamically via API)
+const hostTokens = {};  // e.g. { 'picacomic.com': 'token_value' }
+
 function createProxyAgent(proxyUrl) {
   if (!proxyUrl) {
     proxyAgent = null;
@@ -89,6 +92,45 @@ const server = http.createServer((req, res) => {
     }
   }
 
+  // /__host_token - store auth tokens for specific hosts (used for PICA CDN)
+  if (req.url === '/__host_token') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(hostTokens));
+      return;
+    }
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        try {
+          const data = JSON.parse(body);
+          // { host: "picacomic.com", token: "xxx", header: "Authorization" }
+          const host = (data.host || '').trim();
+          const token = (data.token || '').trim();
+          const header = (data.header || 'Authorization').trim();
+          if (host && token) {
+            hostTokens[host] = { token, header };
+            console.log(`[token] Stored token for ${host} (header: ${header})`);
+          } else if (host && !token) {
+            delete hostTokens[host];
+            console.log(`[token] Cleared token for ${host}`);
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ status: 'ok', tokens: Object.keys(hostTokens) }));
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        }
+      });
+      return;
+    }
+  }
+
   // Extract target URL from the path (everything after /)
   const targetUrl = req.url.slice(1);
   if (!targetUrl || (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://'))) {
@@ -145,6 +187,15 @@ const server = http.createServer((req, res) => {
   for (const key of Object.keys(headers)) {
     if (key.startsWith('x-proxy-')) {
       delete headers[key];
+    }
+  }
+
+  // Auto-inject stored auth tokens for matching hosts
+  const targetHost = (initialParsed.hostname || '');
+  for (const [pattern, info] of Object.entries(hostTokens)) {
+    if (targetHost.includes(pattern)) {
+      headers[info.header.toLowerCase()] = info.token;
+      break;
     }
   }
 

@@ -342,7 +342,7 @@ class PicaComic extends MangaSource {
       final media = (doc as Map)['media'] as Map? ?? {};
       final imageUrl = _buildImageUrl(media);
       if (imageUrl.isNotEmpty) {
-        images.add(ChapterImage(url: imageUrl));
+        images.add(ChapterImage(url: imageUrl, headers: _imageHeaders));
       }
     }
 
@@ -430,7 +430,14 @@ class PicaComic extends MangaSource {
       coverUrl: coverUrl,
       author: author,
       latestChapter: finished ? 'Completed' : null,
+      headers: _imageHeaders,
     );
+  }
+
+  /// Headers needed for PICA image CDN (storage1.picacomic.com requires auth)
+  Map<String, String>? get _imageHeaders {
+    if (_authToken.isEmpty) return null;
+    return {'Authorization': _authToken};
   }
 
   String _buildImageUrl(Map? media) {

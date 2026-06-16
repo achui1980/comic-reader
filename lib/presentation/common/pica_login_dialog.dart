@@ -1,5 +1,7 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
+import 'package:dio/dio.dart';
 
 import 'package:comic_reader/data/local/auth_store.dart';
 import 'package:comic_reader/data/remote/http_client.dart';
@@ -25,6 +27,8 @@ Future<bool> picaAutoLogin() async {
     if (token != null) {
       final authStore = GetIt.instance<AuthStore>();
       await authStore.saveExtra(PicaComic.sourceId, {'token': token});
+      // On web, register the token with the CORS proxy for CDN image access
+      await _registerProxyToken(token);
       return true;
     }
     return false;
@@ -97,6 +101,8 @@ class _PicaLoginDialogState extends State<_PicaLoginDialog> {
         // Save token to persistent store
         final authStore = GetIt.instance<AuthStore>();
         await authStore.saveExtra(PicaComic.sourceId, {'token': token});
+        // Register with CORS proxy for CDN image access
+        await _registerProxyToken(token);
 
         if (mounted) {
           Navigator.of(context).pop(true);
@@ -204,5 +210,23 @@ class _PicaLoginDialogState extends State<_PicaLoginDialog> {
         ),
       ],
     );
+  }
+}
+
+/// Register PICA auth token with CORS proxy so CDN images can be served.
+/// Only needed on web platform.
+Future<void> _registerProxyToken(String token) async {
+  if (!kIsWeb) return;
+  try {
+    await Dio().post(
+      'http://localhost:9090/__host_token',
+      data: {
+        'host': 'picacomic.com',
+        'token': token,
+        'header': 'Authorization',
+      },
+    );
+  } catch (_) {
+    // Non-critical: images will fail but app still works
   }
 }
