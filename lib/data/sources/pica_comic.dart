@@ -136,11 +136,11 @@ class PicaComic extends MangaSource {
 
     if (type.startsWith('leaderboard_')) {
       final tt = type.replaceFirst('leaderboard_', '');
-      const path = 'comics/leaderboard';
-      const url = '$_baseUrl/$path';
+      // Query params MUST be included in the signature path for Pica API auth
+      final path = 'comics/leaderboard?tt=$tt&ct=VC';
+      final url = '$_baseUrl/$path';
       return FetchConfig(
         url: url,
-        queryParameters: {'tt': tt, 'ct': 'VC'},
         headers: _buildSignedHeaders(path, 'GET'),
       );
     } else if (type == 'collections') {

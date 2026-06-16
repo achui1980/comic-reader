@@ -98,6 +98,32 @@ class MangaRepositoryImpl implements MangaRepository {
     var result = source.parseChapter(response.data, mangaId, chapterId, effectivePage);
     debugPrint('[getChapter] parseChapter result: images=${result.chapter.images.length}, nextExtra=${result.nextExtra != null ? "has ${jsonDecode(result.nextExtra!).length} urls" : "null"}, canLoadMore=${result.canLoadMore}');
 
+    // Handle sources with paginated image lists (e.g., PicaComic returns ~40 images per API page)
+    // If images were returned directly AND there are more pages, fetch all remaining pages
+    if (result.chapter.images.isNotEmpty && result.canLoadMore && result.nextPage != null) {
+      final allImages = List<ChapterImage>.from(result.chapter.images);
+      var canLoadMore = result.canLoadMore;
+      var nextPage = result.nextPage;
+      while (canLoadMore && nextPage != null) {
+        debugPrint('[getChapter] Loading additional page $nextPage...');
+        final nextConfig = source.prepareChapterFetch(mangaId, chapterId, nextPage, extra: extra);
+        final nextResponse = await _httpClient.execute(_mergeHeaders(nextConfig, source));
+        final nextResult = source.parseChapter(nextResponse.data, mangaId, chapterId, nextPage);
+        allImages.addAll(nextResult.chapter.images);
+        canLoadMore = nextResult.canLoadMore;
+        nextPage = nextResult.nextPage;
+      }
+      debugPrint('[getChapter] Total images after all pages: ${allImages.length}');
+      result = ChapterResult(
+        chapter: Chapter(
+          id: result.chapter.id,
+          mangaId: result.chapter.mangaId,
+          title: result.chapter.title,
+          images: allImages,
+        ),
+      );
+    }
+
     // Handle sources that return image page URLs needing resolution (e.g., E-Hentai)
     // Collect ALL thumbnail pages first, then resolve all image page URLs
     if (result.chapter.images.isEmpty && result.nextExtra != null) {
