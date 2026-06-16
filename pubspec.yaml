@@ -56,12 +56,16 @@ dependencies:
   # UI
   flutter_screenutil: ^5.9.0
   shimmer: ^3.0.0
+  # Backup & sharing
+  share_plus: ^10.1.4
+  file_picker: ^8.1.7
   # Utils
   collection: ^1.18.0
   intl: ^0.19.0
   logging: ^1.2.0
   uuid: ^4.3.3
   web: ^1.1.1
+  gal: ^2.3.0
 
 dev_dependencies:
   flutter_test:

@@ -20,6 +20,9 @@ import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
 import 'package:comic_reader/data/local/auth_store.dart';
+import 'package:comic_reader/data/local/update_store.dart';
+import 'package:comic_reader/data/local/backup_service.dart';
+import 'package:comic_reader/data/local/download_manager.dart';
 
 final getIt = GetIt.instance;
 
@@ -41,6 +44,12 @@ void configureDependencies() {
   );
   getIt.registerLazySingleton<AuthStore>(
     () => AuthStore(storage: getIt<LocalStorage>()),
+  );
+  getIt.registerLazySingleton<UpdateStore>(
+    () => UpdateStore(storage: getIt<LocalStorage>()),
+  );
+  getIt.registerLazySingleton<BackupService>(
+    () => BackupService(storage: getIt<LocalStorage>()),
   );
 
   // HTTP Client
@@ -68,6 +77,15 @@ void configureDependencies() {
     MangaRepositoryImpl(
       httpClient: getIt<HttpClient>(),
       sourceRegistry: getIt<SourceRegistry>(),
+    ),
+  );
+
+  // Download Manager
+  getIt.registerLazySingleton<DownloadManager>(
+    () => DownloadManager(
+      repository: getIt<MangaRepository>(),
+      cacheService: getIt<ChapterCacheService>(),
+      storage: getIt<LocalStorage>(),
     ),
   );
 }

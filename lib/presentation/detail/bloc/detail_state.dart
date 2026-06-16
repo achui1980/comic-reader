@@ -13,6 +13,7 @@ class DetailState extends Equatable {
   final String? errorMessage;
   final bool isFavorite;
   final bool chaptersReversed;
+  final Set<String> readChapterIds;
 
   const DetailState({
     this.status = DetailStatus.initial,
@@ -24,6 +25,7 @@ class DetailState extends Equatable {
     this.errorMessage,
     this.isFavorite = false,
     this.chaptersReversed = false,
+    this.readChapterIds = const {},
   });
 
   DetailState copyWith({
@@ -36,6 +38,7 @@ class DetailState extends Equatable {
     String? errorMessage,
     bool? isFavorite,
     bool? chaptersReversed,
+    Set<String>? readChapterIds,
   }) {
     return DetailState(
       status: status ?? this.status,
@@ -47,6 +50,7 @@ class DetailState extends Equatable {
       errorMessage: errorMessage ?? this.errorMessage,
       isFavorite: isFavorite ?? this.isFavorite,
       chaptersReversed: chaptersReversed ?? this.chaptersReversed,
+      readChapterIds: readChapterIds ?? this.readChapterIds,
     );
   }
 
@@ -64,5 +68,6 @@ class DetailState extends Equatable {
         errorMessage,
         isFavorite,
         chaptersReversed,
+        readChapterIds,
       ];
 }

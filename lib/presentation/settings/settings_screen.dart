@@ -1,13 +1,16 @@
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 import 'package:dio/dio.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:comic_reader/app/router/routes.dart';
 import 'package:comic_reader/app/theme/app_theme.dart';
 import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
+import 'package:comic_reader/data/local/backup_service.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/presentation/common/pica_login_dialog.dart';
 import 'bloc/settings_cubit.dart';
@@ -235,6 +238,61 @@ class _SettingsView extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSectionHeader('数据管理'),
+        if (!kIsWeb) ...[
+          ListTile(
+            leading: const Icon(Icons.upload),
+            title: const Text('备份数据'),
+            subtitle: const Text('导出收藏、历史、设置到文件'),
+            onTap: () async {
+              try {
+                final backupService = GetIt.instance<BackupService>();
+                await backupService.shareBackup();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('备份文件已生成')),
+                  );
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('备份失败: $e')),
+                  );
+                }
+              }
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.download),
+            title: const Text('恢复数据'),
+            subtitle: const Text('从备份文件恢复所有数据'),
+            onTap: () => _showConfirmDialog(
+              context,
+              title: '恢复数据',
+              content: '恢复将覆盖当前所有数据（收藏、历史、设置）。确定继续吗？',
+              onConfirm: () async {
+                final result = await FilePicker.platform.pickFiles(
+                  type: FileType.custom,
+                  allowedExtensions: ['json'],
+                );
+                if (result == null || result.files.isEmpty) return;
+
+                final file = File(result.files.single.path!);
+                final json = await file.readAsString();
+
+                final backupService = GetIt.instance<BackupService>();
+                final success = await backupService.importData(json);
+
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(success ? '恢复成功，请重启应用' : '恢复失败：文件格式错误'),
+                    ),
+                  );
+                }
+              },
+            ),
+          ),
+        ],
         ListTile(
           leading: const Icon(Icons.bookmark_remove_outlined),
           title: const Text('清除收藏'),

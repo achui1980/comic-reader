@@ -9,6 +9,7 @@ import 'package:get_it/get_it.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
+import 'package:comic_reader/core/utils/save_image.dart';
 import 'package:comic_reader/presentation/reader/widgets/manga_image_file.dart'
     if (dart.library.io) 'package:comic_reader/presentation/reader/widgets/manga_image_file_io.dart';
 
@@ -132,6 +133,41 @@ class _MangaImageState extends State<MangaImage> {
       );
     }
 
+    return GestureDetector(
+      onLongPress: kIsWeb ? null : () => _showSaveDialog(context),
+      child: _buildImageContent(),
+    );
+  }
+
+  Future<void> _showSaveDialog(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('保存图片'),
+        content: const Text('是否保存此图片到相册？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('保存')),
+        ],
+      ),
+    );
+    if (confirmed == true && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('正在保存...')),
+      );
+      final success = await saveImageToGallery(
+        widget.image.url,
+        headers: widget.image.headers,
+      );
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(success ? '已保存到相册' : '保存失败')),
+        );
+      }
+    }
+  }
+
+  Widget _buildImageContent() {
     // If we have a local file, load from disk (native only)
     if (_localPath != null) {
       return buildFileImage(

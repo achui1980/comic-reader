@@ -7,6 +7,21 @@ enum LayoutMode { horizontal, vertical }
 
 enum ReadingDirection { ltr, rtl }
 
+class ChapterBoundary extends Equatable {
+  final int startIndex;
+  final String chapterId;
+  final String chapterTitle;
+
+  const ChapterBoundary({
+    required this.startIndex,
+    required this.chapterId,
+    required this.chapterTitle,
+  });
+
+  @override
+  List<Object?> get props => [startIndex, chapterId, chapterTitle];
+}
+
 class ReaderState extends Equatable {
   final ReaderStatus status;
   final LayoutMode layoutMode;
@@ -24,9 +39,15 @@ class ReaderState extends Equatable {
   final String chapterId;
   final List<ChapterItem> chapterList;
   final int currentChapterIndex;
+  final int lastLoadedChapterIndex;
 
   /// Set when slider seeks to a page - consumed by HorizontalReader to jump.
   final int? seekPage;
+
+  /// Chapter boundaries for infinite scroll: maps image index to chapterId
+  final List<ChapterBoundary> chapterBoundaries;
+  /// Whether next chapter is currently loading (for vertical append)
+  final bool isAppendingNext;
 
   const ReaderState({
     this.status = ReaderStatus.initial,
@@ -43,7 +64,10 @@ class ReaderState extends Equatable {
     this.chapterId = '',
     this.chapterList = const [],
     this.currentChapterIndex = -1,
+    this.lastLoadedChapterIndex = 0,
     this.seekPage,
+    this.chapterBoundaries = const [],
+    this.isAppendingNext = false,
   });
 
   ReaderState copyWith({
@@ -61,7 +85,10 @@ class ReaderState extends Equatable {
     String? chapterId,
     List<ChapterItem>? chapterList,
     int? currentChapterIndex,
+    int? lastLoadedChapterIndex,
     int? seekPage,
+    List<ChapterBoundary>? chapterBoundaries,
+    bool? isAppendingNext,
   }) {
     return ReaderState(
       status: status ?? this.status,
@@ -78,13 +105,20 @@ class ReaderState extends Equatable {
       chapterId: chapterId ?? this.chapterId,
       chapterList: chapterList ?? this.chapterList,
       currentChapterIndex: currentChapterIndex ?? this.currentChapterIndex,
+      lastLoadedChapterIndex: lastLoadedChapterIndex ?? this.lastLoadedChapterIndex,
       seekPage: seekPage,
+      chapterBoundaries: chapterBoundaries ?? this.chapterBoundaries,
+      isAppendingNext: isAppendingNext ?? this.isAppendingNext,
     );
   }
 
-  /// Check if there's a next chapter available
+  /// Check if there's a next chapter available (based on current viewing position)
   bool get hasNextChapter =>
       chapterList.isNotEmpty && currentChapterIndex < chapterList.length - 1;
+
+  /// Check if we can append the next chapter (based on last loaded chapter)
+  bool get canAppendNext =>
+      chapterList.isNotEmpty && lastLoadedChapterIndex < chapterList.length - 1;
 
   /// Check if there's a previous chapter available
   bool get hasPreviousChapter =>
@@ -106,6 +140,9 @@ class ReaderState extends Equatable {
         chapterId,
         chapterList,
         currentChapterIndex,
+        lastLoadedChapterIndex,
         seekPage,
+        chapterBoundaries,
+        isAppendingNext,
       ];
 }

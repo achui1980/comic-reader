@@ -3,6 +3,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_bloc.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_event.dart';
+import 'package:comic_reader/presentation/reader/bloc/reader_state.dart';
 import 'manga_image.dart';
 
 /// Vertical scrolling (webtoon-style) manga reader.
@@ -24,22 +25,12 @@ class VerticalReader extends StatefulWidget {
 
 class _VerticalReaderState extends State<VerticalReader> {
   late final ScrollController _scrollController;
-  bool _isLoadingNext = false;
 
   @override
   void initState() {
     super.initState();
     _scrollController = ScrollController();
     _scrollController.addListener(_onScroll);
-  }
-
-  @override
-  void didUpdateWidget(VerticalReader oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Reset loading flag when images change (new chapter loaded)
-    if (oldWidget.images != widget.images) {
-      _isLoadingNext = false;
-    }
   }
 
   @override
@@ -61,12 +52,13 @@ class _VerticalReaderState extends State<VerticalReader> {
       final page = estimatedPage.clamp(0, widget.images.length - 1);
       context.read<ReaderBloc>().add(PageChanged(page));
 
-      // Check if we've scrolled near the bottom
+      // Check if we've scrolled near the bottom - use BLoC state as guard
       final maxScroll = _scrollController.position.maxScrollExtent;
-      if (scrollOffset >= maxScroll - viewportHeight * 0.5 &&
-          !_isLoadingNext) {
-        _isLoadingNext = true;
-        context.read<ReaderBloc>().add(const LoadNextChapter());
+      if (scrollOffset >= maxScroll - viewportHeight * 0.5) {
+        final bloc = context.read<ReaderBloc>();
+        if (!bloc.state.isAppendingNext && bloc.state.canAppendNext) {
+          bloc.add(const AppendNextChapter());
+        }
       }
     }
   }
@@ -87,22 +79,37 @@ class _VerticalReaderState extends State<VerticalReader> {
   Widget build(BuildContext context) {
     return GestureDetector(
       onTapUp: _onTap,
-      child: ListView.builder(
-        controller: _scrollController,
-        itemCount: widget.images.length,
-        padding: EdgeInsets.zero,
-        itemBuilder: (context, index) {
-          final state = context.read<ReaderBloc>().state;
-          return SizedBox(
-            width: double.infinity,
-            child: MangaImage(
-              image: widget.images[index],
-              fit: BoxFit.fitWidth,
-              sourceId: state.sourceId,
-              mangaId: state.mangaId,
-              chapterId: state.chapterId,
-              imageIndex: index,
-            ),
+      child: BlocBuilder<ReaderBloc, ReaderState>(
+        buildWhen: (prev, curr) =>
+            prev.isAppendingNext != curr.isAppendingNext ||
+            prev.images != curr.images,
+        builder: (context, state) {
+          return ListView.builder(
+            controller: _scrollController,
+            itemCount: widget.images.length + (state.isAppendingNext ? 1 : 0),
+            padding: EdgeInsets.zero,
+            itemBuilder: (context, index) {
+              // Loading indicator at the bottom
+              if (index >= widget.images.length) {
+                return const Padding(
+                  padding: EdgeInsets.all(32.0),
+                  child: Center(
+                    child: CircularProgressIndicator(),
+                  ),
+                );
+              }
+              return SizedBox(
+                width: double.infinity,
+                child: MangaImage(
+                  image: widget.images[index],
+                  fit: BoxFit.fitWidth,
+                  sourceId: state.sourceId,
+                  mangaId: state.mangaId,
+                  chapterId: state.chapterId,
+                  imageIndex: index,
+                ),
+              );
+            },
           );
         },
       ),

@@ -57,6 +57,26 @@ class FavoritesStore {
     notifier.value++;
   }
 
+  /// Update the stored latestChapter for a manga (called after batch update finds new chapters).
+  Future<void> updateLatestChapter(String sourceId, String mangaId, String latestChapter) async {
+    final favorites = await getAll();
+    final index = favorites.indexWhere((m) => m.id == mangaId && m.sourceId == sourceId);
+    if (index == -1) return;
+    final old = _cache![index];
+    final updated = MangaSummary(
+      id: old.id,
+      sourceId: old.sourceId,
+      title: old.title,
+      coverUrl: old.coverUrl,
+      author: old.author,
+      latestChapter: latestChapter,
+      updateTime: old.updateTime,
+      headers: old.headers,
+    );
+    _cache![index] = updated;
+    await _save();
+  }
+
   Future<void> _save() async {
     final items = (_cache ?? []).map((m) => <String, dynamic>{
       'id': m.id,

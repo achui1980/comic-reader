@@ -107,3 +107,8 @@ class StopAutoPageTurn extends ReaderEvent {
 class AutoPageTick extends ReaderEvent {
   const AutoPageTick();
 }
+
+/// Append next chapter images to current list (for infinite vertical scroll)
+class AppendNextChapter extends ReaderEvent {
+  const AppendNextChapter();
+}

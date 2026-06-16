@@ -38,4 +38,34 @@ class ReadingHistoryStore {
     _cache = data;
     await _storage.write(_key, data);
   }
+
+  /// Get all chapter IDs that have been read for a manga.
+  Future<Set<String>> getReadChapters(String sourceId, String mangaId) async {
+    final data = await _getData();
+    final Set<String> result = {};
+    // The main progress key stores the last-read chapter
+    final key = '${sourceId}_$mangaId';
+    final entry = data[key];
+    if (entry is Map<String, dynamic> && entry['chapterId'] != null) {
+      result.add(entry['chapterId'] as String);
+    }
+    // Also check per-chapter keys if stored
+    final chapterHistoryKey = '${sourceId}_${mangaId}_chapters';
+    final chapters = data[chapterHistoryKey];
+    if (chapters is List) {
+      result.addAll(chapters.cast<String>());
+    }
+    return result;
+  }
+
+  /// Record that a chapter has been visited.
+  Future<void> markChapterRead(String sourceId, String mangaId, String chapterId) async {
+    final data = await _getData();
+    final key = '${sourceId}_${mangaId}_chapters';
+    final chapters = (data[key] as List<dynamic>?)?.cast<String>().toSet() ?? {};
+    chapters.add(chapterId);
+    data[key] = chapters.toList();
+    _cache = data;
+    await _storage.write(_key, data);
+  }
 }

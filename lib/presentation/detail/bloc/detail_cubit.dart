@@ -2,21 +2,25 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
+import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'detail_state.dart';
 
 class DetailCubit extends Cubit<DetailState> {
   final MangaRepository _repository;
   final FavoritesStore _favoritesStore;
+  final ReadingHistoryStore _historyStore;
   final String sourceId;
   final String mangaId;
 
   DetailCubit({
     required MangaRepository repository,
     required FavoritesStore favoritesStore,
+    required ReadingHistoryStore historyStore,
     required this.sourceId,
     required this.mangaId,
   })  : _repository = repository,
         _favoritesStore = favoritesStore,
+        _historyStore = historyStore,
         super(const DetailState());
 
   Future<void> loadDetail() async {
@@ -26,6 +30,8 @@ class DetailCubit extends Cubit<DetailState> {
       final isFav = await _favoritesStore.isFavorite(sourceId, mangaId);
       emit(state.copyWith(status: DetailStatus.loaded, manga: manga, isFavorite: isFav));
       await loadChapters();
+      final readChapters = await _historyStore.getReadChapters(sourceId, mangaId);
+      emit(state.copyWith(readChapterIds: readChapters));
     } catch (e) {
       emit(state.copyWith(status: DetailStatus.error, errorMessage: e.toString()));
     }

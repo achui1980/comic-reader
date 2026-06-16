@@ -30,6 +30,7 @@ class DetailScreen extends StatelessWidget {
           create: (_) => DetailCubit(
             repository: GetIt.instance<MangaRepository>(),
             favoritesStore: GetIt.instance<FavoritesStore>(),
+            historyStore: GetIt.instance<ReadingHistoryStore>(),
             sourceId: sourceId,
             mangaId: mangaId,
           )..loadDetail(),
@@ -298,6 +299,7 @@ class _DetailView extends StatelessWidget {
                 return _ChapterTile(
                   chapter: chapter,
                   downloadStatus: status,
+                  isRead: cubit.state.readChapterIds.contains(chapter.id),
                   progress: downloadState.activeChapterId == chapter.id
                       ? downloadState.activeProgress
                       : null,
@@ -373,6 +375,7 @@ class _ChapterTile extends StatelessWidget {
   final ChapterDownloadStatus downloadStatus;
   final int? progress;
   final int? total;
+  final bool isRead;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
 
@@ -381,14 +384,18 @@ class _ChapterTile extends StatelessWidget {
     required this.downloadStatus,
     this.progress,
     this.total,
+    this.isRead = false,
     required this.onTap,
     required this.onLongPress,
   });
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      color: isRead
+          ? colorScheme.surfaceContainerHighest.withValues(alpha: 0.5)
+          : colorScheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
@@ -403,7 +410,12 @@ class _ChapterTile extends StatelessWidget {
                   chapter.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isRead
+                        ? colorScheme.onSurface.withValues(alpha: 0.5)
+                        : null,
+                  ),
                 ),
               ),
             ),
@@ -413,6 +425,20 @@ class _ChapterTile extends StatelessWidget {
               right: 4,
               child: _buildStatusIcon(),
             ),
+            // Read indicator
+            if (isRead)
+              Positioned(
+                bottom: 4,
+                left: 4,
+                child: Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: colorScheme.primary.withValues(alpha: 0.7),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
