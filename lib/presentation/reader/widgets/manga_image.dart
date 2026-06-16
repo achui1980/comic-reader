@@ -1,6 +1,10 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:extended_image/extended_image.dart';
+import 'package:crypto/crypto.dart' as crypto_lib;
+import 'dart:convert' show utf8;
 import 'package:get_it/get_it.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/core/utils/image_proxy.dart';
@@ -9,8 +13,7 @@ import 'package:comic_reader/presentation/reader/widgets/manga_image_file.dart'
     if (dart.library.io) 'package:comic_reader/presentation/reader/widgets/manga_image_file_io.dart';
 
 /// Displays a single manga page image with loading and error states.
-/// On native: checks local cache first, saves to cache after network load.
-/// On web: always loads from network (online-only).
+/// Supports JMC image unscrambling via CustomPainter.
 class MangaImage extends StatefulWidget {
   final ChapterImage image;
   final BoxFit fit;
@@ -75,7 +78,6 @@ class _MangaImageState extends State<MangaImage> {
     try {
       final data = state.extendedImageInfo?.image;
       if (data == null) return;
-      // Get the raw bytes from the cache manager
       final cacheService = GetIt.instance<ChapterCacheService>();
       final url = ImageProxy.url(widget.image.url);
       final file = await getCachedImageFile(url);
@@ -89,9 +91,34 @@ class _MangaImageState extends State<MangaImage> {
           bytes,
         );
       }
-    } catch (_) {
-      // Silently ignore cache save failures
-    }
+    } catch (_) {}
+  }
+
+  /// Calculate segment count for JMC unscrambling.
+  int _calculateSegments(int width, int height) {
+    final chapterId = widget.chapterId ?? '';
+    final mangaId = widget.mangaId ?? '';
+    final aid = int.tryParse(mangaId) ?? int.tryParse(chapterId) ?? 0;
+
+    // Extract filename from URL
+    final url = widget.image.url;
+    final filename = url.split('/').last.split('?').first;
+
+    // Use album_id (series_id) for scramble calculation
+    // scramble_id threshold - default 220980
+    const scramble220980 = 220980;
+    const scramble268850 = 268850;
+    const scramble421926 = 421926;
+
+    if (aid < scramble220980) return 0;
+    if (aid < scramble268850) return 10;
+
+    final x = aid < scramble421926 ? 10 : 8;
+    final s = '$aid$filename';
+    final hash = crypto_lib.md5.convert(utf8.encode(s)).toString();
+    final lastChar = hash.codeUnitAt(hash.length - 1);
+    final num = lastChar % x;
+    return num * 2 + 2;
   }
 
   @override
@@ -124,7 +151,7 @@ class _MangaImageState extends State<MangaImage> {
       ImageProxy.url(widget.image.url),
       fit: widget.fit,
       cache: true,
-      headers: widget.image.headers,
+      headers: ImageProxy.safeHeaders(widget.image.headers),
       loadStateChanged: (state) {
         switch (state.extendedImageLoadState) {
           case LoadState.loading:
@@ -136,6 +163,19 @@ class _MangaImageState extends State<MangaImage> {
             if (_canCache) {
               _saveToCache(state);
             }
+
+            // If image needs unscrambling, use custom painter
+            if (widget.image.scrambleType == ScrambleType.jmc) {
+              final imageInfo = state.extendedImageInfo;
+              if (imageInfo != null) {
+                return _UnscrambledImage(
+                  image: imageInfo.image,
+                  fit: widget.fit,
+                  calculateSegments: _calculateSegments,
+                );
+              }
+            }
+
             return state.completedWidget;
           case LoadState.failed:
             return GestureDetector(
@@ -155,5 +195,82 @@ class _MangaImageState extends State<MangaImage> {
         }
       },
     );
+  }
+}
+
+/// Widget that displays an unscrambled JMC image.
+class _UnscrambledImage extends StatelessWidget {
+  final ui.Image image;
+  final BoxFit fit;
+  final int Function(int width, int height) calculateSegments;
+
+  const _UnscrambledImage({
+    required this.image,
+    required this.fit,
+    required this.calculateSegments,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final w = image.width.toDouble();
+    final h = image.height.toDouble();
+    final segments = calculateSegments(image.width, image.height);
+
+    if (segments <= 0) {
+      // No scrambling needed, render directly
+      return RawImage(image: image, fit: fit);
+    }
+
+    return CustomPaint(
+      size: Size(w, h),
+      painter: _JmcUnscramblePainter(image: image, segments: segments),
+    );
+  }
+}
+
+/// Paints the unscrambled JMC image by rearranging horizontal strips.
+///
+/// Algorithm (from jmcomic-crawler-python JmImageTool.decode_and_save):
+/// The image is split into [segments] horizontal strips.
+/// Each strip is moved from its scrambled position to its correct position.
+/// The strips are reordered from bottom-to-top of source to top-to-bottom of dest.
+class _JmcUnscramblePainter extends CustomPainter {
+  final ui.Image image;
+  final int segments;
+
+  _JmcUnscramblePainter({required this.image, required this.segments});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = image.width.toDouble();
+    final h = image.height.toDouble();
+    final paint = Paint();
+
+    final over = h.toInt() % segments;
+
+    for (int i = 0; i < segments; i++) {
+      final move = (h ~/ segments).toDouble();
+
+      // Source Y (from bottom up)
+      double ySrc = h - (move * (i + 1)) - over;
+      // Destination Y (from top down)
+      double yDst = move * i;
+
+      double segHeight = move;
+      if (i == 0) {
+        segHeight += over;
+      } else {
+        yDst += over;
+      }
+
+      final srcRect = Rect.fromLTWH(0, ySrc, w, segHeight);
+      final dstRect = Rect.fromLTWH(0, yDst, w, segHeight);
+      canvas.drawImageRect(image, srcRect, dstRect, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _JmcUnscramblePainter oldDelegate) {
+    return oldDelegate.image != image || oldDelegate.segments != segments;
   }
 }
