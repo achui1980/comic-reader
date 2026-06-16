@@ -290,14 +290,29 @@ class JmComic extends MangaSource {
     // Build chapter list from series
     final series = data['series'] as List? ?? [];
     final chapters = <ChapterItem>[];
-    for (final ch in series) {
-      if (ch is Map) {
-        chapters.add(ChapterItem(
-          id: ch['id']?.toString() ?? '',
-          mangaId: mangaId,
-          title: ch['name']?.toString() ?? '第${ch['sort']}话',
-          href: '',
-        ));
+
+    if (series.isEmpty) {
+      // Single-chapter manga: album_id IS the photo_id (chapter_id)
+      chapters.add(ChapterItem(
+        id: mangaId,
+        mangaId: mangaId,
+        title: '开始阅读',
+        href: '',
+      ));
+    } else {
+      for (final ch in series) {
+        if (ch is Map) {
+          final chName = ch['name']?.toString() ?? '';
+          final sort = ch['sort']?.toString() ?? '';
+          // Use name if available, otherwise fall back to "第N话"
+          final displayTitle = chName.isNotEmpty ? chName : '第$sort话';
+          chapters.add(ChapterItem(
+            id: ch['id']?.toString() ?? '',
+            mangaId: mangaId,
+            title: displayTitle,
+            href: '',
+          ));
+        }
       }
     }
 
