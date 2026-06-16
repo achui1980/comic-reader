@@ -134,6 +134,8 @@ const server = http.createServer((req, res) => {
       headers['referer'] = 'https://www.cdngwc.cc';
     } else if (host.includes('e-hentai') || host.includes('ehgt') || host.includes('.hath.network')) {
       headers['referer'] = 'https://e-hentai.org';
+    } else if (host.includes('zrocdn.xyz')) {
+      headers['referer'] = 'https://nhentai.to';
     }
   }
 
