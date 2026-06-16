@@ -43,7 +43,7 @@ class PicaComic extends MangaSource {
   String get shortName => 'Pica';
 
   @override
-  String? get description => '需要登录Token才能使用，请先在设置中验证';
+  String? get description => '需要登录账号才能使用';
 
   @override
   double get score => 4.5;
@@ -55,14 +55,10 @@ class PicaComic extends MangaSource {
   Map<String, String>? get defaultHeaders => _defaultHeaders;
 
   @override
-  String? get injectedJavaScript => '''
-    (function() {
-      var token = localStorage.getItem('token') || '';
-      if (token) {
-        window.flutter_inappwebview.callHandler('onData', JSON.stringify({token: token}));
-      }
-    })();
-  ''';
+  bool get requiresLogin => true;
+
+  @override
+  bool get isAuthenticated => _authToken.isNotEmpty;
 
   @override
   void syncExtraData(Map<String, dynamic> data) {
@@ -71,6 +67,32 @@ class PicaComic extends MangaSource {
     if (token != null && token.isNotEmpty) {
       _authToken = token;
     }
+  }
+
+  /// Sign in with email and password.
+  /// Returns a FetchConfig for the sign-in request.
+  /// The caller should execute this and pass the response to [parseSignIn].
+  FetchConfig buildSignInRequest(String email, String password) {
+    const path = 'auth/sign-in';
+    return FetchConfig(
+      url: '$_baseUrl/$path',
+      method: HttpMethod.post,
+      body: jsonEncode({'email': email, 'password': password}),
+      headers: _buildSignedHeaders(path, 'POST'),
+    );
+  }
+
+  /// Parse sign-in response and return the token, or null on failure.
+  /// Also stores the token internally.
+  String? parseSignIn(dynamic response) {
+    final data = _parseJsonResponse(response);
+    if (data == null) return null;
+    final token = data['token'] as String?;
+    if (token != null && token.isNotEmpty) {
+      _authToken = token;
+      return token;
+    }
+    return null;
   }
 
   @override

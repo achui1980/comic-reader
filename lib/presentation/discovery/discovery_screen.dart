@@ -8,6 +8,7 @@ import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/core/utils/responsive.dart';
 import 'package:comic_reader/core/utils/image_proxy.dart';
+import 'package:comic_reader/presentation/common/pica_login_dialog.dart';
 import 'package:comic_reader/app/router/routes.dart';
 import 'package:comic_reader/presentation/common/cloudflare_dialog.dart';
 import 'bloc/discovery_cubit.dart';
@@ -108,8 +109,16 @@ class _DiscoveryView extends StatelessWidget {
         itemBuilder: (ctx, i) => ListTile(
           title: Text(sources[i].name),
           subtitle: Text(sources[i].description ?? ''),
-          onTap: () {
+          trailing: sources[i].requiresLogin && !sources[i].isAuthenticated
+              ? const Icon(Icons.login, color: Colors.orange, size: 18)
+              : null,
+          onTap: () async {
             Navigator.pop(ctx);
+            // If source requires login and is not authenticated, show login dialog
+            if (sources[i].requiresLogin && !sources[i].isAuthenticated) {
+              final result = await showPicaLoginDialog(context);
+              if (result != true) return; // User cancelled or login failed
+            }
             cubit.changeSource(sources[i].id);
           },
         ),

@@ -80,6 +80,12 @@ abstract class MangaSource {
     _extraHeaders.clear();
   }
 
+  /// Whether this source requires login (email/password) instead of WebView.
+  bool get requiresLogin => false;
+
+  /// Whether this source currently has valid auth data.
+  bool get isAuthenticated => false;
+
   /// Build PluginInfo from this source
   PluginInfo get info => PluginInfo(
     id: id,

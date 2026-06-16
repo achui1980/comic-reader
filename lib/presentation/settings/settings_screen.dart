@@ -9,6 +9,7 @@ import 'package:comic_reader/app/theme/app_theme.dart';
 import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
+import 'package:comic_reader/presentation/common/pica_login_dialog.dart';
 import 'bloc/settings_cubit.dart';
 import 'bloc/settings_state.dart';
 
@@ -218,7 +219,14 @@ class _SettingsView extends StatelessWidget {
   }
 
   void _navigateToVerify(BuildContext context, String sourceId) {
-    context.push(AppRoutes.webviewPath(sourceId));
+    final registry = GetIt.instance<SourceRegistry>();
+    final source = registry.get(sourceId);
+    if (source != null && source.requiresLogin) {
+      // Show login dialog for sources that need email/password
+      showPicaLoginDialog(context);
+    } else {
+      context.push(AppRoutes.webviewPath(sourceId));
+    }
   }
 
   Widget _buildDataSection(BuildContext context) {
