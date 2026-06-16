@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/data/remote/http_client.dart';
 import 'package:comic_reader/data/sources/manga_source.dart';
@@ -91,13 +92,17 @@ class MangaRepositoryImpl implements MangaRepository {
 
     var config = source.prepareChapterFetch(mangaId, chapterId, effectivePage, extra: extra);
     config = _mergeHeaders(config, source);
+    debugPrint('[getChapter] Fetching: ${config.url} params=${config.queryParameters}');
     final response = await _httpClient.execute(config);
+    debugPrint('[getChapter] Response type: ${response.data.runtimeType}, length: ${response.data.toString().length}');
     var result = source.parseChapter(response.data, mangaId, chapterId, effectivePage);
+    debugPrint('[getChapter] parseChapter result: images=${result.chapter.images.length}, nextExtra=${result.nextExtra != null ? "has ${jsonDecode(result.nextExtra!).length} urls" : "null"}, canLoadMore=${result.canLoadMore}');
 
     // Handle sources that return image page URLs needing resolution (e.g., E-Hentai)
     // Collect ALL thumbnail pages first, then resolve all image page URLs
     if (result.chapter.images.isEmpty && result.nextExtra != null) {
       var allImagePageUrls = List<dynamic>.from(jsonDecode(result.nextExtra!));
+      debugPrint('[getChapter] Starting multi-page resolution. Initial URLs: ${allImagePageUrls.length}');
 
       // If there are more thumbnail pages, fetch them all
       var currentPage = effectivePage;
@@ -116,11 +121,20 @@ class MangaRepositoryImpl implements MangaRepository {
 
       // Now resolve each image page URL to the actual image src
       final resolvedImages = <ChapterImage>[];
-      for (final pageUrl in allImagePageUrls) {
+      debugPrint('[getChapter] Resolving ${allImagePageUrls.length} image page URLs...');
+      if (allImagePageUrls.isNotEmpty) {
+        debugPrint('[getChapter] First URL to resolve: ${allImagePageUrls.first}');
+      }
+      for (int i = 0; i < allImagePageUrls.length; i++) {
+        final pageUrl = allImagePageUrls[i];
         try {
           final imgConfig = FetchConfig(url: pageUrl as String);
           final imgResponse = await _httpClient.execute(_mergeHeaders(imgConfig, source));
           final imgHtml = imgResponse.data as String;
+          if (i == 0) {
+            debugPrint('[getChapter] First image page HTML length: ${imgHtml.length}');
+            debugPrint('[getChapter] First image page contains img#img: ${imgHtml.contains('id="img"')}');
+          }
           // Parse img#img src from the image page (handle src before or after id)
           String? imgSrc;
           final srcMatch1 = RegExp(r'<img[^>]+id="img"[^>]+src="([^"]+)"').firstMatch(imgHtml);
@@ -140,11 +154,16 @@ class MangaRepositoryImpl implements MangaRepository {
                   : null,
             ));
           }
-        } catch (_) {
-          // Skip failed image pages
+        } catch (e) {
+          debugPrint('[EH-Resolve] Failed to resolve image page [$i] $pageUrl: $e');
+          if (i == 0) {
+            debugPrint('[EH-Resolve] First failure stack: ${StackTrace.current.toString().split('\n').take(5).join('\n')}');
+          }
         }
       }
+      debugPrint('[EH-Resolve] Resolved ${resolvedImages.length}/${allImagePageUrls.length} images');
       if (resolvedImages.isNotEmpty) {
+        debugPrint('[EH-Resolve] First image: ${resolvedImages.first.url}');
         result = ChapterResult(
           chapter: Chapter(
             id: result.chapter.id,

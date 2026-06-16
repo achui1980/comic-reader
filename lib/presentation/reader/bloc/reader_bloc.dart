@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
@@ -112,7 +113,13 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
         currentChapterIndex: chapterIndex,
         errorMessage: null,
       ));
-    } catch (e) {
+      debugPrint('[ReaderBloc] Loaded ${result.chapter.images.length} images');
+      if (result.chapter.images.isNotEmpty) {
+        debugPrint('[ReaderBloc] First image URL: ${result.chapter.images.first.url}');
+      }
+    } catch (e, stack) {
+      debugPrint('[ReaderBloc] ERROR loading chapter: $e');
+      debugPrint('[ReaderBloc] Stack: ${stack.toString().split('\n').take(5).join('\n')}');
       emit(state.copyWith(
         status: ReaderStatus.error,
         errorMessage: e.toString(),

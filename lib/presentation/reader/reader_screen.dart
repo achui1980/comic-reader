@@ -143,6 +143,33 @@ class _ReaderScreenState extends State<ReaderScreen> {
           ),
         );
       case ReaderStatus.loaded:
+        if (state.images.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.image_not_supported, color: Colors.white54, size: 48),
+                const SizedBox(height: 16),
+                const Text(
+                  '未能解析图片\n请检查浏览器控制台日志',
+                  style: TextStyle(color: Colors.white70),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () => _bloc.add(LoadChapter(
+                    sourceId: widget.sourceId,
+                    mangaId: widget.mangaId,
+                    chapterId: state.chapterId.isNotEmpty
+                        ? state.chapterId
+                        : widget.chapterId,
+                  )),
+                  child: const Text('重试'),
+                ),
+              ],
+            ),
+          );
+        }
         if (state.layoutMode == LayoutMode.vertical) {
           return VerticalReader(
             images: state.images,

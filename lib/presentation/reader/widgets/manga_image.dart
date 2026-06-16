@@ -150,16 +150,35 @@ class _MangaImageState extends State<MangaImage> {
     }
 
     // Load from network
+    final imageUrl = ImageProxy.url(widget.image.url);
+    debugPrint('[MangaImage] Loading: $imageUrl');
     return ExtendedImage.network(
-      ImageProxy.url(widget.image.url),
+      imageUrl,
       fit: widget.fit,
       cache: true,
       headers: ImageProxy.safeHeaders(widget.image.headers),
+      enableLoadState: true,
       loadStateChanged: (state) {
         switch (state.extendedImageLoadState) {
           case LoadState.loading:
             return const Center(
-              child: CircularProgressIndicator(strokeWidth: 2),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white70,
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    '加载中...',
+                    style: TextStyle(
+                      color: Colors.white54,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
             );
           case LoadState.completed:
             // Save to local cache asynchronously
@@ -181,6 +200,7 @@ class _MangaImageState extends State<MangaImage> {
 
             return state.completedWidget;
           case LoadState.failed:
+            debugPrint('[MangaImage] FAILED: ${widget.image.url} - ${state.lastException}');
             return GestureDetector(
               onTap: () => state.reLoadImage(),
               child: const Center(

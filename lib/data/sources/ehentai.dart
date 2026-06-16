@@ -277,10 +277,15 @@ class EHentai extends MangaSource {
     // This is a gallery thumbnail page - extract image page links
     final imagePageLinks = <String>[];
 
-    // Try large thumbnail mode (gdtl)
-    var thumbContainers = document.querySelectorAll('.gdtl a');
+    // Try different thumbnail modes:
+    // - Large thumbnails: #gdt.gt200 > a (direct children of gdt)
+    // - Normal large: .gdtl a
+    // - Medium: .gdtm a
+    var thumbContainers = document.querySelectorAll('#gdt > a');
     if (thumbContainers.isEmpty) {
-      // Try medium thumbnail mode (gdtm)
+      thumbContainers = document.querySelectorAll('.gdtl a');
+    }
+    if (thumbContainers.isEmpty) {
       thumbContainers = document.querySelectorAll('.gdtm a');
     }
 
