@@ -457,17 +457,29 @@ class PicaComic extends MangaSource {
       return '$_imgProxy/$imgproxyPath';
     }
 
-    // Case 2: tobs/ path (chapter images, requires auth on storage-b)
+    // Case 2: tobs/ path (chapter images, requires auth on direct access)
     // Convert to static/ URL, then route through img.picacomic.com imgproxy
     if (path.startsWith('tobs/')) {
       final staticPath = path.replaceFirst('tobs/', 'static/');
-      final sourceUrl = 'https://storage-b.picacomic.com/$staticPath';
+      final host = fileServer.isNotEmpty ? fileServer : 'https://storage-b.picacomic.com';
+      final cleanHost = host.endsWith('/') ? host.substring(0, host.length - 1) : host;
+      final sourceUrl = '$cleanHost/$staticPath';
       return _buildImgProxyUrl(sourceUrl);
     }
 
     // Case 3: path that already starts with static/
     if (path.startsWith('static/')) {
-      final sourceUrl = 'https://storage-b.picacomic.com/$path';
+      final host = fileServer.isNotEmpty ? fileServer : 'https://storage-b.picacomic.com';
+      final cleanHost = host.endsWith('/') ? host.substring(0, host.length - 1) : host;
+      final sourceUrl = '$cleanHost/$path';
+      return _buildImgProxyUrl(sourceUrl);
+    }
+
+    // Case 4: plain uuid path (e.g., "3c85189f-...jpg" on storage1)
+    // Route through imgproxy with fileServer + /static/ + path
+    if (fileServer.isNotEmpty) {
+      final cleanHost = fileServer.endsWith('/') ? fileServer.substring(0, fileServer.length - 1) : fileServer;
+      final sourceUrl = '$cleanHost/static/$path';
       return _buildImgProxyUrl(sourceUrl);
     }
 
