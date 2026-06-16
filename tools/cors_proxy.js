@@ -7,6 +7,8 @@
 // Supports X-Proxy-* headers: the Flutter app moves browser-forbidden headers
 // (User-Agent, Referer) to X-Proxy-User-Agent / X-Proxy-Referer, and this
 // proxy restores them before forwarding.
+//
+// Supports dynamic proxy configuration via /__proxy_config endpoint.
 
 const http = require('http');
 const https = require('https');
@@ -15,22 +17,27 @@ const url = require('url');
 const PORT = 9090;
 
 // Upstream proxy support: reads HTTPS_PROXY / HTTP_PROXY from env
-const UPSTREAM_PROXY = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy;
+let currentProxyUrl = process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy || '';
 
 let proxyAgent = null;
-if (UPSTREAM_PROXY) {
+
+function createProxyAgent(proxyUrl) {
+  if (!proxyUrl) {
+    proxyAgent = null;
+    return;
+  }
   try {
-    // Use Node's built-in undici ProxyAgent if available (Node 18+)
-    // Otherwise fall back to https-proxy-agent if installed
     const { HttpsProxyAgent } = require('https-proxy-agent');
-    proxyAgent = new HttpsProxyAgent(UPSTREAM_PROXY);
-    console.log(`Using upstream proxy: ${UPSTREAM_PROXY}`);
+    proxyAgent = new HttpsProxyAgent(proxyUrl);
+    console.log(`[proxy] Using upstream proxy: ${proxyUrl}`);
   } catch (e) {
-    console.log(`Warning: HTTPS_PROXY set to ${UPSTREAM_PROXY} but https-proxy-agent not installed.`);
-    console.log('Run: npm install https-proxy-agent');
-    console.log('Proceeding without upstream proxy...');
+    console.log(`[proxy] Warning: https-proxy-agent not installed. Run: npm install https-proxy-agent`);
+    proxyAgent = null;
   }
 }
+
+// Initialize with env var
+createProxyAgent(currentProxyUrl);
 
 const server = http.createServer((req, res) => {
   // Handle preflight
@@ -45,10 +52,47 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // ---- Dynamic proxy config API ----
+  if (req.url === '/__proxy_config') {
+    if (req.method === 'GET') {
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.end(JSON.stringify({ proxy: currentProxyUrl }));
+      return;
+    }
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        try {
+          const data = JSON.parse(body);
+          const newProxy = (data.proxy || '').trim();
+          currentProxyUrl = newProxy;
+          createProxyAgent(newProxy);
+          console.log(`[proxy] Proxy updated to: ${newProxy || '(none - direct)'}`);
+          res.writeHead(200, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          res.end(JSON.stringify({ proxy: currentProxyUrl, status: 'ok' }));
+        } catch (e) {
+          res.writeHead(400, {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          });
+          res.end(JSON.stringify({ error: 'Invalid JSON' }));
+        }
+      });
+      return;
+    }
+  }
+
   // Extract target URL from the path (everything after /)
   const targetUrl = req.url.slice(1);
   if (!targetUrl || (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://'))) {
-    res.writeHead(400, { 'Content-Type': 'text/plain' });
+    res.writeHead(400, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
     res.end('Usage: http://localhost:' + PORT + '/https://target-url.com/path');
     return;
   }
@@ -128,8 +172,15 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`CORS proxy running at http://localhost:${PORT}`);
-  console.log('Usage: http://localhost:' + PORT + '/https://api.mangacopy.com/...');
   console.log('');
-  console.log('Supports X-Proxy-User-Agent / X-Proxy-Referer header restoration');
-  console.log('Run your Flutter web app with: flutter run -d chrome');
+  console.log('  Proxy requests:  http://localhost:' + PORT + '/https://api.example.com/...');
+  console.log('  Get proxy config: GET  http://localhost:' + PORT + '/__proxy_config');
+  console.log('  Set proxy config: POST http://localhost:' + PORT + '/__proxy_config');
+  console.log('                    Body: {"proxy": "http://127.0.0.1:2222"}');
+  console.log('');
+  if (currentProxyUrl) {
+    console.log(`  Upstream proxy: ${currentProxyUrl}`);
+  } else {
+    console.log('  Upstream proxy: (none - direct connection)');
+  }
 });
