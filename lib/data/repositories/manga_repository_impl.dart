@@ -19,13 +19,18 @@ class MangaRepositoryImpl implements MangaRepository {
         _sourceRegistry = sourceRegistry;
 
   /// Merge source auth headers (cookies from CF bypass) into config
+  /// and inject source metadata into extras for interceptors.
   FetchConfig _mergeHeaders(FetchConfig config, MangaSource source) {
-    if (source.extraHeaders.isNotEmpty) {
-      return config.copyWith(
-        headers: {...?config.headers, ...source.extraHeaders},
-      );
-    }
-    return config;
+    final extra = <String, dynamic>{
+      'sourceId': source.id,
+      'needsCloudflare': source.needsCloudflare,
+      ...?config.extra,
+    };
+    final headers = <String, String>{
+      ...?config.headers,
+      ...source.extraHeaders,
+    };
+    return config.copyWith(headers: headers, extra: extra);
   }
 
   @override

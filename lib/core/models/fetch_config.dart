@@ -7,6 +7,7 @@ class FetchConfig {
   final Map<String, dynamic>? queryParameters;
   final dynamic body;
   final Duration? timeout;
+  final Map<String, dynamic>? extra;
 
   const FetchConfig({
     required this.url,
@@ -15,6 +16,7 @@ class FetchConfig {
     this.queryParameters,
     this.body,
     this.timeout,
+    this.extra,
   });
 
   FetchConfig copyWith({
@@ -24,6 +26,7 @@ class FetchConfig {
     Map<String, dynamic>? queryParameters,
     dynamic body,
     Duration? timeout,
+    Map<String, dynamic>? extra,
   }) {
     return FetchConfig(
       url: url ?? this.url,
@@ -32,6 +35,7 @@ class FetchConfig {
       queryParameters: queryParameters ?? this.queryParameters,
       body: body ?? this.body,
       timeout: timeout ?? this.timeout,
+      extra: extra ?? this.extra,
     );
   }
 }

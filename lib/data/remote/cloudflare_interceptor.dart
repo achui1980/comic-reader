@@ -44,6 +44,53 @@ class CloudflareDetectorInterceptor extends Interceptor {
     handler.next(response);
   }
 
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) {
+    // Check if a 403 response contains CF challenge HTML
+    final response = err.response;
+    if (response != null && response.statusCode == 403) {
+      final contentType = response.headers.value('content-type') ?? '';
+      final sourceId = err.requestOptions.extra['sourceId'] as String? ?? '';
+
+      // If the response body is HTML, check for CF markers
+      if (contentType.contains('text/html') && response.data is String) {
+        if (_isCloudflareChallenge(response.data as String)) {
+          handler.reject(
+            DioException(
+              requestOptions: err.requestOptions,
+              response: response,
+              type: DioExceptionType.unknown,
+              error: CloudflareException(
+                sourceId: sourceId,
+                url: err.requestOptions.uri.toString(),
+              ),
+            ),
+          );
+          return;
+        }
+      }
+
+      // Even without HTML body, if the source declares needsCloudflare,
+      // a 403 is almost certainly a CF block
+      if (sourceId.isNotEmpty &&
+          err.requestOptions.extra['needsCloudflare'] == true) {
+        handler.reject(
+          DioException(
+            requestOptions: err.requestOptions,
+            response: response,
+            type: DioExceptionType.unknown,
+            error: CloudflareException(
+              sourceId: sourceId,
+              url: err.requestOptions.uri.toString(),
+            ),
+          ),
+        );
+        return;
+      }
+    }
+    handler.next(err);
+  }
+
   bool _isCloudflareChallenge(String html) {
     // Check page title
     final titleMatch = RegExp(r'<title>(.*?)</title>', caseSensitive: false).firstMatch(html);
