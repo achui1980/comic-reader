@@ -342,7 +342,7 @@ class PicaComic extends MangaSource {
       final media = (doc as Map)['media'] as Map? ?? {};
       final imageUrl = _buildImageUrl(media);
       if (imageUrl.isNotEmpty) {
-        images.add(ChapterImage(url: imageUrl, headers: _imageHeaders));
+        images.add(ChapterImage(url: imageUrl));
       }
     }
 
@@ -430,67 +430,67 @@ class PicaComic extends MangaSource {
       coverUrl: coverUrl,
       author: author,
       latestChapter: finished ? 'Completed' : null,
-      headers: _imageHeaders,
     );
   }
 
-  /// Headers needed for PICA image CDN (storage1.picacomic.com requires auth)
-  Map<String, String>? get _imageHeaders {
-    if (_authToken.isEmpty) return null;
-    return {'Authorization': _authToken};
-  }
+  /// Public imgproxy endpoint that doesn't require auth signatures
+  static const _imgProxy = 'https://img.picacomic.com';
 
   String _buildImageUrl(Map? media) {
     if (media == null) return '';
     final fileServer = media['fileServer'] as String? ?? '';
     final path = media['path'] as String? ?? '';
-    if (fileServer.isEmpty || path.isEmpty) return '';
+    if (fileServer.isEmpty && path.isEmpty) return '';
 
-    // Handle various CDN patterns
+    // If path is already a full URL, use it directly
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      return path;
+    }
+
+    // Case 1: tobeimg/ path (imgproxy with signature)
+    // Replace storage-b.picacomic.com/tobeimg/ with img.picacomic.com/
+    // img.picacomic.com is a public imgproxy that doesn't validate signatures
+    if (path.startsWith('tobeimg/')) {
+      // path = tobeimg/{sig}/rs:{opts}/g:{gravity}/{base64}.ext
+      // We want: img.picacomic.com/{sig}/rs:{opts}/g:{gravity}/{base64}.ext
+      final imgproxyPath = path.substring('tobeimg/'.length);
+      return '$_imgProxy/$imgproxyPath';
+    }
+
+    // Case 2: tobs/ path (chapter images, requires auth on storage-b)
+    // Convert to static/ URL, then route through img.picacomic.com imgproxy
+    if (path.startsWith('tobs/')) {
+      final staticPath = path.replaceFirst('tobs/', 'static/');
+      final sourceUrl = 'https://storage-b.picacomic.com/$staticPath';
+      return _buildImgProxyUrl(sourceUrl);
+    }
+
+    // Case 3: path that already starts with static/
+    if (path.startsWith('static/')) {
+      final sourceUrl = 'https://storage-b.picacomic.com/$path';
+      return _buildImgProxyUrl(sourceUrl);
+    }
+
+    // Fallback: construct full URL and route through imgproxy
     var base = fileServer;
+    if (base.isEmpty) base = 'https://storage-b.picacomic.com';
     if (!base.endsWith('/')) base += '/';
+    final cleanPath = path.startsWith('/') ? path.substring(1) : path;
+    final sourceUrl = '$base$cleanPath';
 
-    String imageUrl;
-    // Some paths already include "static/"
-    if (path.startsWith('/')) {
-      imageUrl = '$base${path.substring(1)}';
-    } else {
-      imageUrl = '$base$path';
-    }
+    // If it's already on img.picacomic.com, return directly
+    if (sourceUrl.contains('img.picacomic.com')) return sourceUrl;
 
-    // If the URL uses imgproxy (/tobeimg/), use raw static URL instead
-    // because imgproxy signatures may be invalid/expired
-    if (imageUrl.contains('/tobeimg/')) {
-      // Extract the base64-encoded original URL from the imgproxy path
-      // Pattern: .../tobeimg/{sig}/rs:{options}/{base64url}.{ext}
-      final match = RegExp(r'/tobeimg/.+?/[^/]+/[^/]+/(.+)$').firstMatch(imageUrl);
-      if (match != null) {
-        final encoded = match.group(1)!.replaceAll(RegExp(r'\.\w+$'), ''); // remove extension
-        try {
-          final decoded = Uri.decodeFull(
-            String.fromCharCodes(base64Decode(_padBase64(encoded))),
-          );
-          if (decoded.startsWith('http')) return decoded;
-        } catch (_) {}
-      }
-      // Fallback: construct direct static URL
-      return 'https://storage-b.picacomic.com/static/$path';
-    }
-
-    // /tobs/ path requires auth which doesn't work; /static/ is public
-    if (imageUrl.contains('/tobs/')) {
-      imageUrl = imageUrl.replaceFirst('/tobs/', '/static/');
-    }
-
-    return imageUrl;
+    return _buildImgProxyUrl(sourceUrl);
   }
 
-  /// Pad base64url string to proper length
-  static String _padBase64(String s) {
-    // Convert base64url to standard base64
-    var result = s.replaceAll('-', '+').replaceAll('_', '/');
-    final pad = result.length % 4;
-    if (pad > 0) result += '=' * (4 - pad);
-    return result;
+  /// Build an img.picacomic.com imgproxy URL from a source image URL
+  String _buildImgProxyUrl(String sourceUrl) {
+    // Determine extension from source URL
+    final ext = sourceUrl.contains('.png') ? '.png' : '.jpg';
+    // Encode source URL as base64url (no padding)
+    final encoded = base64Url.encode(utf8.encode(sourceUrl)).replaceAll('=', '');
+    // Use fill with large width for full quality, no signature needed on public imgproxy
+    return '$_imgProxy/rs:fill:1920:0:0/g:sm/$encoded$ext';
   }
 }
