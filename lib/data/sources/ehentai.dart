@@ -40,6 +40,7 @@ class EHentai extends MangaSource {
   @override
   Map<String, String>? get defaultHeaders => const {
     'Referer': 'https://e-hentai.org',
+    'Cookie': 'nw=1',
   };
 
   @override

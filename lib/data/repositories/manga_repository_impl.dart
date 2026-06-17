@@ -42,8 +42,11 @@ class MangaRepositoryImpl implements MangaRepository {
 
     var config = source.prepareDiscoveryFetch(page, filters);
     config = _mergeHeaders(config, source);
+    debugPrint('[getDiscovery] Fetching page=$page url=${config.url} params=${config.queryParameters}');
     final response = await _httpClient.execute(config);
-    return source.parseDiscovery(response.data);
+    final results = source.parseDiscovery(response.data);
+    debugPrint('[getDiscovery] page=$page returned ${results.length} items${results.isNotEmpty ? ", first: ${results.first.id}" : ""}');
+    return results;
   }
 
   @override

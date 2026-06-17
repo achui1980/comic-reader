@@ -76,11 +76,27 @@ class DiscoveryCubit extends Cubit<DiscoveryState> {
     try {
       final nextPage = state.currentPage + 1;
       final results = await _repository.getDiscovery(state.sourceId, nextPage, state.filters);
+
+      // Detect duplicate content: if new results are all already in existing list,
+      // it means the server is returning the same page (e.g., EH without cookies).
+      final existingIds = state.manga.map((m) => m.id).toSet();
+      final newResults = results.where((m) => !existingIds.contains(m.id)).toList();
+
+      if (results.isNotEmpty && newResults.isEmpty) {
+        // All results are duplicates — server is not paginating correctly.
+        // Stop trying to load more.
+        emit(state.copyWith(
+          status: DiscoveryStatus.loaded,
+          hasMore: false,
+        ));
+        return;
+      }
+
       emit(state.copyWith(
         status: DiscoveryStatus.loaded,
-        manga: [...state.manga, ...results],
+        manga: [...state.manga, ...newResults],
         currentPage: nextPage,
-        hasMore: results.isNotEmpty,
+        hasMore: newResults.isNotEmpty,
       ));
     } catch (e) {
       emit(state.copyWith(status: DiscoveryStatus.loaded));

@@ -23,15 +23,17 @@ class SearchCubit extends Cubit<SearchState> {
 
   Future<void> search(String keyword) async {
     if (keyword.trim().isEmpty) return;
+    final source = _registry.get(state.sourceId);
+    final firstPage = source?.firstPage ?? 1;
     emit(state.copyWith(
       status: SearchStatus.loading,
       keyword: keyword.trim(),
       results: [],
-      currentPage: 1,
+      currentPage: firstPage,
       hasMore: true,
     ));
     try {
-      final results = await _repository.searchManga(state.sourceId, keyword.trim(), 1, {});
+      final results = await _repository.searchManga(state.sourceId, keyword.trim(), firstPage, {});
       emit(state.copyWith(
         status: SearchStatus.loaded,
         results: results,
@@ -48,11 +50,24 @@ class SearchCubit extends Cubit<SearchState> {
     try {
       final nextPage = state.currentPage + 1;
       final results = await _repository.searchManga(state.sourceId, state.keyword, nextPage, {});
+
+      // Detect duplicate content (server returning same page)
+      final existingIds = state.results.map((m) => m.id).toSet();
+      final newResults = results.where((m) => !existingIds.contains(m.id)).toList();
+
+      if (results.isNotEmpty && newResults.isEmpty) {
+        emit(state.copyWith(
+          status: SearchStatus.loaded,
+          hasMore: false,
+        ));
+        return;
+      }
+
       emit(state.copyWith(
         status: SearchStatus.loaded,
-        results: [...state.results, ...results],
+        results: [...state.results, ...newResults],
         currentPage: nextPage,
-        hasMore: results.isNotEmpty,
+        hasMore: newResults.isNotEmpty,
       ));
     } catch (e) {
       emit(state.copyWith(status: SearchStatus.loaded));
