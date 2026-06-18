@@ -27,18 +27,63 @@ class HorizontalReader extends StatefulWidget {
 }
 
 class _HorizontalReaderState extends State<HorizontalReader> {
-  late final ExtendedPageController _pageController;
+  /// Whether this chapter uses JMC scrambled images.
+  /// Determines which page view implementation to use.
+  late final bool _isJmcContent;
+  // Use either a regular PageController or ExtendedPageController based on content.
+  late final PageController? _simplePageController;
+  late final ExtendedPageController? _gesturePageController;
 
   @override
   void initState() {
     super.initState();
-    _pageController = ExtendedPageController(initialPage: widget.initialPage);
+    _isJmcContent = widget.images.any((img) => img.scrambleType == ScrambleType.jmc);
+    if (_isJmcContent) {
+      _simplePageController = PageController(initialPage: widget.initialPage);
+      _gesturePageController = null;
+    } else {
+      _simplePageController = null;
+      _gesturePageController = ExtendedPageController(initialPage: widget.initialPage);
+    }
   }
 
   @override
   void dispose() {
-    _pageController.dispose();
+    _simplePageController?.dispose();
+    _gesturePageController?.dispose();
     super.dispose();
+  }
+
+  double? get _currentPage => _isJmcContent
+      ? _simplePageController!.page
+      : _gesturePageController!.page;
+
+  bool get _hasClients => _isJmcContent
+      ? _simplePageController!.hasClients
+      : _gesturePageController!.hasClients;
+
+  void _jumpToPage(int page) {
+    if (_isJmcContent) {
+      _simplePageController!.jumpToPage(page);
+    } else {
+      _gesturePageController!.jumpToPage(page);
+    }
+  }
+
+  void _animateToPage(int page) {
+    if (_isJmcContent) {
+      _simplePageController!.animateToPage(
+        page,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    } else {
+      _gesturePageController!.animateToPage(
+        page,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
   }
 
   void _onTap(TapUpDetails details, BuildContext context) {
@@ -59,13 +104,9 @@ class _HorizontalReaderState extends State<HorizontalReader> {
   }
 
   void _navigatePage(int delta) {
-    final newPage = _pageController.page!.round() + delta;
+    final newPage = _currentPage!.round() + delta;
     if (newPage >= 0 && newPage < widget.images.length) {
-      _pageController.animateToPage(
-        newPage,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
+      _animateToPage(newPage);
     } else if (delta > 0) {
       // Reached end, load next chapter
       context.read<ReaderBloc>().add(const LoadNextChapter());
@@ -91,34 +132,70 @@ class _HorizontalReaderState extends State<HorizontalReader> {
     return BlocListener<ReaderBloc, ReaderState>(
       listenWhen: (prev, curr) => curr.seekPage != null && curr.seekPage != prev.seekPage,
       listener: (context, state) {
-        if (state.seekPage != null && _pageController.hasClients) {
-          _pageController.jumpToPage(state.seekPage!);
+        if (state.seekPage != null && _hasClients) {
+          _jumpToPage(state.seekPage!);
         }
       },
       child: GestureDetector(
         onTapUp: (details) => _onTap(details, context),
-        child: ExtendedImageGesturePageView.builder(
-          controller: _pageController,
-          itemCount: widget.images.length,
-          reverse: widget.direction == ReadingDirection.rtl,
-          onPageChanged: (page) {
-            context.read<ReaderBloc>().add(PageChanged(page));
-            _precacheAdjacent(page);
-          },
-          physics: const BouncingScrollPhysics(),
-          itemBuilder: (context, index) {
-            final state = context.read<ReaderBloc>().state;
-            return MangaImage(
-              image: widget.images[index],
-              fit: BoxFit.fitWidth,
-              sourceId: state.sourceId,
-              mangaId: state.mangaId,
-              chapterId: state.chapterId,
-              imageIndex: index,
-            );
-          },
-        ),
+        child: _isJmcContent
+            ? _buildSimplePageView()
+            : _buildGesturePageView(),
       ),
+    );
+  }
+
+  /// Simple PageView for JMC content (no pinch-to-zoom needed since
+  /// JMC images use custom painting that doesn't support gestures).
+  Widget _buildSimplePageView() {
+    return PageView.builder(
+      controller: _simplePageController!,
+      itemCount: widget.images.length,
+      reverse: widget.direction == ReadingDirection.rtl,
+      onPageChanged: (page) {
+        context.read<ReaderBloc>().add(PageChanged(page));
+        _precacheAdjacent(page);
+      },
+      physics: const BouncingScrollPhysics(),
+      itemBuilder: (context, index) {
+        final state = context.read<ReaderBloc>().state;
+        return MangaImage(
+          image: widget.images[index],
+          fit: BoxFit.contain,
+          disableGesture: true,
+          jmcAlignment: Alignment.center,
+          sourceId: state.sourceId,
+          mangaId: state.mangaId,
+          chapterId: state.chapterId,
+          imageIndex: index,
+        );
+      },
+    );
+  }
+
+  /// Gesture-enabled PageView for normal images (supports pinch-to-zoom
+  /// with proper page-swipe coordination).
+  Widget _buildGesturePageView() {
+    return ExtendedImageGesturePageView.builder(
+      controller: _gesturePageController!,
+      itemCount: widget.images.length,
+      reverse: widget.direction == ReadingDirection.rtl,
+      onPageChanged: (page) {
+        context.read<ReaderBloc>().add(PageChanged(page));
+        _precacheAdjacent(page);
+      },
+      physics: const BouncingScrollPhysics(),
+      itemBuilder: (context, index) {
+        final state = context.read<ReaderBloc>().state;
+        return MangaImage(
+          image: widget.images[index],
+          fit: BoxFit.fitWidth,
+          sourceId: state.sourceId,
+          mangaId: state.mangaId,
+          chapterId: state.chapterId,
+          imageIndex: index,
+        );
+      },
     );
   }
 }

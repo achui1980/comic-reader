@@ -25,6 +25,10 @@ class MangaImage extends StatefulWidget {
   /// When true, disables gesture mode and auto-zoom scaling.
   /// Used in vertical scroll mode where images should simply fit width.
   final bool disableGesture;
+  /// Alignment for JMC unscrambled images within FittedBox.
+  /// Defaults to topCenter (good for vertical scroll).
+  /// Use Alignment.center for horizontal page view mode.
+  final Alignment jmcAlignment;
 
   const MangaImage({
     super.key,
@@ -35,6 +39,7 @@ class MangaImage extends StatefulWidget {
     this.chapterId,
     this.imageIndex,
     this.disableGesture = false,
+    this.jmcAlignment = Alignment.topCenter,
   });
 
   @override
@@ -186,6 +191,20 @@ class _MangaImageState extends State<MangaImage> {
             }
           });
         },
+        onCompleted: widget.image.scrambleType == ScrambleType.jmc
+            ? (state) {
+                final imageInfo = state.extendedImageInfo;
+                if (imageInfo != null) {
+                  return _UnscrambledImage(
+                    image: imageInfo.image,
+                    fit: widget.fit,
+                    alignment: widget.jmcAlignment,
+                    calculateSegments: _calculateSegments,
+                  );
+                }
+                return state.completedWidget;
+              }
+            : null,
       );
     }
 
@@ -197,6 +216,11 @@ class _MangaImageState extends State<MangaImage> {
         final screenWidth = constraints.maxWidth;
         final screenHeight = constraints.maxHeight;
         final isJmcScrambled = widget.image.scrambleType == ScrambleType.jmc;
+        // Disable gesture mode for JMC scrambled images because they render
+        // via _UnscrambledImage (CustomPaint). The gesture system's transform
+        // conflicts with the FittedBox sizing in _UnscrambledImage, causing
+        // broken display in horizontal page view mode.
+        final useGesture = !widget.disableGesture && !isJmcScrambled;
         return ExtendedImage.network(
           imageUrl,
           fit: widget.fit,
@@ -205,39 +229,34 @@ class _MangaImageState extends State<MangaImage> {
           timeLimit: const Duration(seconds: 15),
           headers: ImageProxy.safeHeaders(widget.image.headers),
           enableLoadState: true,
-          mode: widget.disableGesture
-              ? ExtendedImageMode.none
-              : ExtendedImageMode.gesture,
-          initGestureConfigHandler: widget.disableGesture
+          mode: useGesture
+              ? ExtendedImageMode.gesture
+              : ExtendedImageMode.none,
+          initGestureConfigHandler: !useGesture
               ? null
               : (state) {
                   double initialScale = 1.0;
                   InitialAlignment alignment = InitialAlignment.topCenter;
 
-                  // Skip scaling for JMC scrambled images — they use custom painter
-                  // rendering via _UnscrambledImage which handles its own fitting.
-                  // Applying gesture scale on top would clip the image.
-                  if (!isJmcScrambled) {
-                    final imageInfo = state.extendedImageInfo;
-                    if (imageInfo != null &&
-                        screenWidth > 0 &&
-                        screenHeight > 0) {
-                      final double imgW = imageInfo.image.width.toDouble();
-                      final double imgH = imageInfo.image.height.toDouble();
-                      final double imageAspect = imgW / imgH;
-                      final double screenAspect = screenWidth / screenHeight;
+                  final imageInfo = state.extendedImageInfo;
+                  if (imageInfo != null &&
+                      screenWidth > 0 &&
+                      screenHeight > 0) {
+                    final double imgW = imageInfo.image.width.toDouble();
+                    final double imgH = imageInfo.image.height.toDouble();
+                    final double imageAspect = imgW / imgH;
+                    final double screenAspect = screenWidth / screenHeight;
 
-                      if (imageAspect > screenAspect) {
-                        // Wide image: fitWidth makes it too short. Scale up to fill height.
-                        // With fitWidth, displayed height = screenWidth / imageAspect
-                        // We want displayed height = screenHeight
-                        // scale = screenHeight / (screenWidth / imageAspect)
-                        initialScale =
-                            (screenHeight * imageAspect) / screenWidth;
-                        alignment = InitialAlignment.centerLeft;
-                      }
-                      // Tall image: fitWidth already fills width, user scrolls vertically
+                    if (imageAspect > screenAspect) {
+                      // Wide image: fitWidth makes it too short. Scale up to fill height.
+                      // With fitWidth, displayed height = screenWidth / imageAspect
+                      // We want displayed height = screenHeight
+                      // scale = screenHeight / (screenWidth / imageAspect)
+                      initialScale =
+                          (screenHeight * imageAspect) / screenWidth;
+                      alignment = InitialAlignment.centerLeft;
                     }
+                    // Tall image: fitWidth already fills width, user scrolls vertically
                   }
 
                   const double minScale = 1.0;
@@ -293,6 +312,7 @@ class _MangaImageState extends State<MangaImage> {
                     return _UnscrambledImage(
                       image: imageInfo.image,
                       fit: widget.fit,
+                      alignment: widget.jmcAlignment,
                       calculateSegments: _calculateSegments,
                     );
                   }
@@ -327,12 +347,14 @@ class _MangaImageState extends State<MangaImage> {
 class _UnscrambledImage extends StatelessWidget {
   final ui.Image image;
   final BoxFit fit;
+  final Alignment alignment;
   final int Function(int width, int height) calculateSegments;
 
   const _UnscrambledImage({
     required this.image,
     required this.fit,
     required this.calculateSegments,
+    this.alignment = Alignment.topCenter,
   });
 
   @override
@@ -348,7 +370,7 @@ class _UnscrambledImage extends StatelessWidget {
 
     return FittedBox(
       fit: fit,
-      alignment: Alignment.topCenter,
+      alignment: alignment,
       child: SizedBox(
         width: w,
         height: h,
