@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:logging/logging.dart';
+import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'package:comic_reader/data/local/settings_store.dart' as settings;
@@ -16,6 +17,7 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
   final ReadingHistoryStore _historyStore;
   final settings.SettingsStore _settingsStore;
   Timer? _autoPageTimer;
+  StreamSubscription<ChapterResult>? _chapterStreamSubscription;
 
   ReaderBloc({
     required MangaRepository repository,
@@ -39,6 +41,7 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
     on<StopAutoPageTurn>(_onStopAutoPageTurn);
     on<AutoPageTick>(_onAutoPageTick);
     on<RefreshChapter>(_onRefreshChapter);
+    on<ImagesUpdated>(_onImagesUpdated);
     _applySettings();
   }
 
@@ -84,6 +87,10 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
 
   Future<void> _onLoadChapter(
       LoadChapter event, Emitter<ReaderState> emit) async {
+    // Cancel any existing stream subscription
+    await _chapterStreamSubscription?.cancel();
+    _chapterStreamSubscription = null;
+
     emit(state.copyWith(
       status: ReaderStatus.loading,
       sourceId: event.sourceId,
@@ -91,47 +98,35 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
       chapterId: event.chapterId,
       chapterList: event.chapterList.isNotEmpty ? event.chapterList : null,
       showControls: false,
+      isProgressiveLoading: false,
+      currentPage: event.initialPage,
     ));
 
     try {
-      final result = await _repository.getChapter(
+      final stream = _repository.getChapterStream(
         event.sourceId,
         event.mangaId,
         event.chapterId,
         1,
       );
 
-      // Find current chapter index in the list
-      int chapterIndex = -1;
-      if (state.chapterList.isNotEmpty) {
-        chapterIndex =
-            state.chapterList.indexWhere((c) => c.id == event.chapterId);
-      }
-
-      final initialBoundary = ChapterBoundary(
-        startIndex: 0,
-        chapterId: event.chapterId,
-        chapterTitle: result.chapter.title,
+      _chapterStreamSubscription = stream.listen(
+        (result) {
+          add(ImagesUpdated(
+            images: result.chapter.images,
+            isComplete: false,
+            chapterTitle: result.chapter.title,
+          ));
+        },
+        onDone: () {
+          add(const ImagesUpdated(images: [], isComplete: true));
+        },
+        onError: (e, stack) {
+          debugPrint('[ReaderBloc] Stream error: $e');
+          debugPrint('[ReaderBloc] Stack: ${stack.toString().split('\n').take(5).join('\n')}');
+          add(const ImagesUpdated(images: [], isComplete: true));
+        },
       );
-
-      emit(state.copyWith(
-        status: ReaderStatus.loaded,
-        images: result.chapter.images,
-        currentPage: event.initialPage,
-        totalPages: result.chapter.images.length,
-        chapterTitle: result.chapter.title,
-        chapterId: event.chapterId,
-        currentChapterIndex: chapterIndex,
-        lastLoadedChapterIndex: chapterIndex,
-        errorMessage: null,
-        chapterBoundaries: [initialBoundary],
-        isAppendingNext: false,
-      ));
-      debugPrint('[ReaderBloc] Loaded ${result.chapter.images.length} images');
-      if (result.chapter.images.isNotEmpty) {
-        debugPrint('[ReaderBloc] First image URL: ${result.chapter.images.first.url}');
-      }
-      _historyStore.markChapterRead(event.sourceId, event.mangaId, event.chapterId);
     } catch (e, stack) {
       debugPrint('[ReaderBloc] ERROR loading chapter: $e');
       debugPrint('[ReaderBloc] Stack: ${stack.toString().split('\n').take(5).join('\n')}');
@@ -139,6 +134,50 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
         status: ReaderStatus.error,
         errorMessage: e.toString(),
       ));
+    }
+  }
+
+  void _onImagesUpdated(ImagesUpdated event, Emitter<ReaderState> emit) {
+    if (event.isComplete && event.images.isEmpty) {
+      // Stream completed - mark progressive loading as done
+      emit(state.copyWith(isProgressiveLoading: false));
+      _historyStore.markChapterRead(state.sourceId, state.mangaId, state.chapterId);
+      return;
+    }
+
+    if (state.status == ReaderStatus.loading) {
+      // First batch arrived - transition to loaded
+      int chapterIndex = -1;
+      if (state.chapterList.isNotEmpty) {
+        chapterIndex = state.chapterList.indexWhere((c) => c.id == state.chapterId);
+      }
+      final initialBoundary = ChapterBoundary(
+        startIndex: 0,
+        chapterId: state.chapterId,
+        chapterTitle: event.chapterTitle ?? '',
+      );
+      emit(state.copyWith(
+        status: ReaderStatus.loaded,
+        images: event.images,
+        currentPage: state.currentPage,
+        totalPages: event.images.length,
+        chapterTitle: event.chapterTitle ?? state.chapterTitle,
+        currentChapterIndex: chapterIndex,
+        lastLoadedChapterIndex: chapterIndex,
+        errorMessage: null,
+        chapterBoundaries: [initialBoundary],
+        isAppendingNext: false,
+        isProgressiveLoading: true,
+      ));
+      debugPrint('[ReaderBloc] First batch: ${event.images.length} images (progressive)');
+    } else {
+      // Subsequent batches - update images list
+      emit(state.copyWith(
+        images: event.images,
+        totalPages: event.images.length,
+        isProgressiveLoading: true,
+      ));
+      debugPrint('[ReaderBloc] Updated: ${event.images.where((img) => img.url.isNotEmpty).length}/${event.images.length} resolved');
     }
   }
 
@@ -262,36 +301,16 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
     }
   }
 
-  Future<void> _onRefreshChapter(
-      RefreshChapter event, Emitter<ReaderState> emit) async {
+  void _onRefreshChapter(RefreshChapter event, Emitter<ReaderState> emit) {
     if (state.sourceId.isEmpty || state.mangaId.isEmpty || state.chapterId.isEmpty) return;
 
-    try {
-      final result = await _repository.getChapter(
-        state.sourceId,
-        state.mangaId,
-        state.chapterId,
-        1,
-      );
-
-      final initialBoundary = ChapterBoundary(
-        startIndex: 0,
-        chapterId: state.chapterId,
-        chapterTitle: result.chapter.title,
-      );
-
-      emit(state.copyWith(
-        images: result.chapter.images,
-        totalPages: result.chapter.images.length,
-        currentPage: 0,
-        chapterBoundaries: [initialBoundary],
-        lastLoadedChapterIndex: state.currentChapterIndex,
-        isAppendingNext: false,
-      ));
-    } catch (e) {
-      // Silently fail - keep current images on screen
-      _log.warning('Failed to refresh chapter: $e');
-    }
+    add(LoadChapter(
+      sourceId: state.sourceId,
+      mangaId: state.mangaId,
+      chapterId: state.chapterId,
+      chapterList: state.chapterList,
+      initialPage: state.currentPage,
+    ));
   }
 
   void _onSeekToPage(SeekToPage event, Emitter<ReaderState> emit) {
@@ -307,6 +326,7 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
   @override
   Future<void> close() {
     _autoPageTimer?.cancel();
+    _chapterStreamSubscription?.cancel();
     return super.close();
   }
 }

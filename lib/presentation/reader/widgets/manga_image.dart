@@ -177,6 +177,23 @@ class _MangaImageState extends State<MangaImage> {
   }
 
   Widget _buildImageContent() {
+    // Placeholder for images not yet resolved (progressive loading)
+    if (widget.image.url.isEmpty) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(strokeWidth: 2),
+            SizedBox(height: 8),
+            Text(
+              '加载中...',
+              style: TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+          ],
+        ),
+      );
+    }
+
     // If we have a local file, load from disk (native only)
     if (_localPath != null) {
       return buildFileImage(

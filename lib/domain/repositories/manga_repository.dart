@@ -16,4 +16,7 @@ abstract class MangaRepository {
 
   /// Get chapter content (images)
   Future<ChapterResult> getChapter(String sourceId, String mangaId, String chapterId, int page, {dynamic extra});
+
+  /// Progressive chapter loading - yields partial results as images are resolved.
+  Stream<ChapterResult> getChapterStream(String sourceId, String mangaId, String chapterId, int page, {dynamic extra});
 }

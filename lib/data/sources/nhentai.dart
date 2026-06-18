@@ -138,9 +138,31 @@ class NHentai extends MangaSource {
     }
 
     // Page count from images in the gallery page
-    final imageEls = document.querySelectorAll(
-        '#thumbnail-container img, .thumbs img, img[data-src*="zrocdn"]');
-    final pageCount = imageEls.isNotEmpty ? imageEls.length : _countPages(htmlStr);
+    // Use strict regex to only count actual page thumbnails ({N}t.{ext} pattern)
+    // to match the same logic used in parseChapter()
+    var pageCount = 0;
+    final allImgsForCount = document.querySelectorAll('img[data-src]');
+    for (final img in allImgsForCount) {
+      final dataSrc = img.attributes['data-src'] ?? '';
+      if (dataSrc.contains('zrocdn.xyz/galleries/') &&
+          RegExp(r'/\d+t\.\w+$').hasMatch(dataSrc)) {
+        pageCount++;
+      }
+    }
+    // Fallback: try non-lazy images
+    if (pageCount == 0) {
+      for (final img in document.querySelectorAll('img[src*="zrocdn.xyz"]')) {
+        final src = img.attributes['src'] ?? '';
+        if (src.contains('/galleries/') &&
+            RegExp(r'/\d+t\.\w+$').hasMatch(src)) {
+          pageCount++;
+        }
+      }
+    }
+    // Final fallback: use _countPages regex
+    if (pageCount == 0) {
+      pageCount = _countPages(htmlStr);
+    }
 
     // Single chapter for the gallery
     final chapters = [

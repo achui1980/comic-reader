@@ -117,3 +117,15 @@ class AppendNextChapter extends ReaderEvent {
 class RefreshChapter extends ReaderEvent {
   const RefreshChapter();
 }
+
+/// Internal event: stream delivered new image data
+class ImagesUpdated extends ReaderEvent {
+  final List<ChapterImage> images;
+  final bool isComplete;
+  final String? chapterTitle;
+
+  const ImagesUpdated({required this.images, required this.isComplete, this.chapterTitle});
+
+  @override
+  List<Object?> get props => [images, isComplete, chapterTitle];
+}

@@ -29,6 +29,9 @@ class Wnacg extends MangaSource {
   String? get href => _baseUrl;
 
   @override
+  bool get needsCloudflare => true;
+
+  @override
   List<FilterOption> get discoveryFilters => const [
         FilterOption(
           name: 'category',

@@ -48,6 +48,8 @@ class ReaderState extends Equatable {
   final List<ChapterBoundary> chapterBoundaries;
   /// Whether next chapter is currently loading (for vertical append)
   final bool isAppendingNext;
+  /// Whether images are still being progressively resolved (EH stream)
+  final bool isProgressiveLoading;
 
   const ReaderState({
     this.status = ReaderStatus.initial,
@@ -68,6 +70,7 @@ class ReaderState extends Equatable {
     this.seekPage,
     this.chapterBoundaries = const [],
     this.isAppendingNext = false,
+    this.isProgressiveLoading = false,
   });
 
   ReaderState copyWith({
@@ -89,6 +92,7 @@ class ReaderState extends Equatable {
     int? seekPage,
     List<ChapterBoundary>? chapterBoundaries,
     bool? isAppendingNext,
+    bool? isProgressiveLoading,
   }) {
     return ReaderState(
       status: status ?? this.status,
@@ -109,6 +113,7 @@ class ReaderState extends Equatable {
       seekPage: seekPage,
       chapterBoundaries: chapterBoundaries ?? this.chapterBoundaries,
       isAppendingNext: isAppendingNext ?? this.isAppendingNext,
+      isProgressiveLoading: isProgressiveLoading ?? this.isProgressiveLoading,
     );
   }
 
@@ -144,5 +149,6 @@ class ReaderState extends Equatable {
         seekPage,
         chapterBoundaries,
         isAppendingNext,
+        isProgressiveLoading,
       ];
 }

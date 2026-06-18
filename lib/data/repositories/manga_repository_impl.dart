@@ -275,4 +275,135 @@ class MangaRepositoryImpl implements MangaRepository {
 
     return result;
   }
+
+  @override
+  Stream<ChapterResult> getChapterStream(
+    String sourceId,
+    String mangaId,
+    String chapterId,
+    int page, {
+    dynamic extra,
+  }) async* {
+    final source = _sourceRegistry.get(sourceId);
+    if (source == null) {
+      throw Exception('Source not found: $sourceId');
+    }
+
+    final effectivePage = page == 1 ? source.firstPage : page;
+
+    // Phase 1: Initial fetch
+    final config = source.prepareChapterFetch(mangaId, chapterId, effectivePage, extra: extra);
+    final response = await _httpClient.execute(_mergeHeaders(config, source));
+    var result = source.parseChapter(response.data, mangaId, chapterId, effectivePage);
+
+    // Handle JMC source multi-page images (same as getChapter)
+    if (result.chapter.images.isNotEmpty && result.canLoadMore && result.nextPage != null) {
+      final allImages = List<ChapterImage>.from(result.chapter.images);
+      var canLoadMore = result.canLoadMore;
+      var nextPage = result.nextPage;
+      while (canLoadMore && nextPage != null) {
+        final nextConfig = source.prepareChapterFetch(mangaId, chapterId, nextPage, extra: extra);
+        final nextResponse = await _httpClient.execute(_mergeHeaders(nextConfig, source));
+        final nextResult = source.parseChapter(nextResponse.data, mangaId, chapterId, nextPage);
+        allImages.addAll(nextResult.chapter.images);
+        canLoadMore = nextResult.canLoadMore;
+        nextPage = nextResult.nextPage;
+      }
+      yield ChapterResult(
+        chapter: Chapter(
+          id: result.chapter.id,
+          mangaId: result.chapter.mangaId,
+          title: result.chapter.title,
+          images: allImages,
+        ),
+      );
+      return;
+    }
+
+    // Handle EH-style: images empty + nextExtra has image page URLs
+    if (result.chapter.images.isEmpty && result.nextExtra != null) {
+      var allImagePageUrls = List<dynamic>.from(jsonDecode(result.nextExtra!));
+      debugPrint('[getChapterStream] Starting progressive resolution. Initial URLs: ${allImagePageUrls.length}');
+
+      // Phase 2: Collect all thumbnail pages
+      var currentPage = effectivePage;
+      var canLoadMore = result.canLoadMore;
+      while (canLoadMore && result.nextPage != null) {
+        currentPage = result.nextPage!;
+        final nextConfig = source.prepareChapterFetch(mangaId, chapterId, currentPage, extra: extra);
+        final nextResponse = await _httpClient.execute(_mergeHeaders(nextConfig, source));
+        result = source.parseChapter(nextResponse.data, mangaId, chapterId, currentPage);
+        if (result.nextExtra != null) {
+          final moreUrls = jsonDecode(result.nextExtra!) as List;
+          allImagePageUrls.addAll(moreUrls);
+        }
+        canLoadMore = result.canLoadMore;
+      }
+
+      final totalCount = allImagePageUrls.length;
+      debugPrint('[getChapterStream] Total pages to resolve: $totalCount');
+
+      // Yield initial state: placeholder images (empty URLs) for total count
+      final placeholderImages = List<ChapterImage>.generate(
+        totalCount,
+        (_) => const ChapterImage(url: ''),
+      );
+      yield ChapterResult(
+        chapter: Chapter(
+          id: result.chapter.id,
+          mangaId: result.chapter.mangaId,
+          title: result.chapter.title,
+          images: placeholderImages,
+        ),
+      );
+
+      // Phase 3: Resolve each image page URL progressively
+      final resolvedImages = List<ChapterImage>.from(placeholderImages);
+      const batchSize = 5;
+      for (int i = 0; i < allImagePageUrls.length; i++) {
+        final pageUrl = allImagePageUrls[i];
+        try {
+          final imgConfig = FetchConfig(url: pageUrl as String);
+          final imgResponse = await _httpClient.execute(_mergeHeaders(imgConfig, source));
+          final imgHtml = imgResponse.data as String;
+          String? imgSrc;
+          final srcMatch1 = RegExp(r'<img[^>]+id="img"[^>]+src="([^"]+)"').firstMatch(imgHtml);
+          if (srcMatch1 != null) {
+            imgSrc = srcMatch1.group(1);
+          } else {
+            final srcMatch2 = RegExp(r'<img[^>]+src="([^"]+)"[^>]+id="img"').firstMatch(imgHtml);
+            if (srcMatch2 != null) {
+              imgSrc = srcMatch2.group(1);
+            }
+          }
+          if (imgSrc != null && imgSrc.isNotEmpty) {
+            resolvedImages[i] = ChapterImage(
+              url: imgSrc,
+              headers: source.defaultHeaders != null
+                  ? Map<String, String>.from(source.defaultHeaders!)
+                  : null,
+            );
+          }
+        } catch (e) {
+          debugPrint('[EH-Stream] Failed to resolve image page [$i] $pageUrl: $e');
+        }
+
+        // Yield after every batchSize images or last image
+        if ((i + 1) % batchSize == 0 || i == allImagePageUrls.length - 1) {
+          yield ChapterResult(
+            chapter: Chapter(
+              id: result.chapter.id,
+              mangaId: result.chapter.mangaId,
+              title: result.chapter.title,
+              images: List<ChapterImage>.from(resolvedImages),
+            ),
+          );
+        }
+      }
+      return;
+    }
+
+    // Default: non-EH sources just yield once
+    yield result;
+  }
 }

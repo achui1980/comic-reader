@@ -23,6 +23,12 @@ class _NativeWebViewScreen extends StatefulWidget {
 }
 
 class _NativeWebViewScreenState extends State<_NativeWebViewScreen> {
+  // Use a standard browser UA to avoid Cloudflare blocking WebView
+  static const String _defaultUserAgent =
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) '
+      'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 '
+      'Mobile/15E148 Safari/604.1';
+
   InAppWebViewController? _controller;
   final AuthStore _authStore = GetIt.instance<AuthStore>();
   final SourceRegistry _registry = GetIt.instance<SourceRegistry>();
@@ -58,18 +64,24 @@ class _NativeWebViewScreenState extends State<_NativeWebViewScreen> {
             child: InAppWebView(
               initialUrlRequest: URLRequest(url: WebUri(url)),
               initialSettings: InAppWebViewSettings(
-                userAgent: source?.userAgent,
+                userAgent: source?.userAgent ?? _defaultUserAgent,
                 sharedCookiesEnabled: true,
                 thirdPartyCookiesEnabled: true,
                 javaScriptEnabled: true,
+                domStorageEnabled: true,
+                databaseEnabled: true,
+                cacheEnabled: true,
                 useWideViewPort: true,
                 loadWithOverviewMode: true,
                 supportZoom: true,
                 builtInZoomControls: true,
                 displayZoomControls: false,
-                javaScriptCanOpenWindowsAutomatically: false,
+                javaScriptCanOpenWindowsAutomatically: true,
                 mediaPlaybackRequiresUserGesture: true,
                 allowsInlineMediaPlayback: true,
+                allowsBackForwardNavigationGestures: true,
+                iframeAllow: 'cross-origin-isolated',
+                iframeAllowFullscreen: true,
               ),
               onWebViewCreated: (controller) {
                 _controller = controller;
@@ -92,6 +104,17 @@ class _NativeWebViewScreenState extends State<_NativeWebViewScreen> {
               onLoadStop: (controller, url) async {
                 await _injectCookieExtractor(controller);
               },
+              onCreateWindow: (controller, createWindowAction) async {
+                // Allow Cloudflare Turnstile iframes to open
+                // Return false to let the WebView handle it naturally
+                return false;
+              },
+              onPermissionRequest: (controller, request) async {
+                return PermissionResponse(
+                  resources: request.resources,
+                  action: PermissionResponseAction.GRANT,
+                );
+              },
             ),
           ),
         ],
@@ -107,21 +130,35 @@ class _NativeWebViewScreenState extends State<_NativeWebViewScreen> {
       return;
     }
 
-    await controller.evaluateJavascript(source: '''
-      (function() {
-        try {
-          var cookie = document.cookie || '';
-          var title = document.title || '';
-          if (title !== 'Just a moment...' && cookie.length > 0) {
-            window.flutter_inappwebview.callHandler('onData', {
-              cookie: cookie,
-              userAgent: navigator.userAgent,
-              title: title
-            });
-          }
-        } catch(e) {}
-      })();
-    ''');
+    // Get current URL for CookieManager
+    final currentUrl = await controller.getUrl();
+    if (currentUrl == null) return;
+
+    // Get page title to check if still on challenge page
+    final title = await controller.getTitle() ?? '';
+    if (title == 'Just a moment...') return;
+
+    // Use CookieManager to get ALL cookies including httpOnly (cf_clearance etc.)
+    final cookies =
+        await CookieManager.instance().getCookies(url: currentUrl);
+    if (cookies.isEmpty) return;
+
+    // Build cookie string from CookieManager (includes httpOnly cookies)
+    final cookieStr =
+        cookies.map((c) => '${c.name}=${c.value}').join('; ');
+
+    if (cookieStr.isNotEmpty) {
+      // Get user agent from JS
+      final ua = await controller.evaluateJavascript(
+              source: 'navigator.userAgent') as String? ??
+          '';
+
+      await _onDataReceived({
+        'cookie': cookieStr,
+        'userAgent': ua,
+        'title': title,
+      });
+    }
   }
 
   Future<void> _onDataReceived(Map<String, dynamic> data) async {
