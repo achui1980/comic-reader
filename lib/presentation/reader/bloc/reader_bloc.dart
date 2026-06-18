@@ -38,6 +38,7 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
     on<StartAutoPageTurn>(_onStartAutoPageTurn);
     on<StopAutoPageTurn>(_onStopAutoPageTurn);
     on<AutoPageTick>(_onAutoPageTick);
+    on<RefreshChapter>(_onRefreshChapter);
     _applySettings();
   }
 
@@ -258,6 +259,38 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
     } catch (e, stack) {
       _log.warning('Failed to append next chapter: $e', e, stack);
       emit(state.copyWith(isAppendingNext: false));
+    }
+  }
+
+  Future<void> _onRefreshChapter(
+      RefreshChapter event, Emitter<ReaderState> emit) async {
+    if (state.sourceId.isEmpty || state.mangaId.isEmpty || state.chapterId.isEmpty) return;
+
+    try {
+      final result = await _repository.getChapter(
+        state.sourceId,
+        state.mangaId,
+        state.chapterId,
+        1,
+      );
+
+      final initialBoundary = ChapterBoundary(
+        startIndex: 0,
+        chapterId: state.chapterId,
+        chapterTitle: result.chapter.title,
+      );
+
+      emit(state.copyWith(
+        images: result.chapter.images,
+        totalPages: result.chapter.images.length,
+        currentPage: 0,
+        chapterBoundaries: [initialBoundary],
+        lastLoadedChapterIndex: state.currentChapterIndex,
+        isAppendingNext: false,
+      ));
+    } catch (e) {
+      // Silently fail - keep current images on screen
+      _log.warning('Failed to refresh chapter: $e');
     }
   }
 

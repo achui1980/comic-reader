@@ -37,6 +37,19 @@ class DetailCubit extends Cubit<DetailState> {
     }
   }
 
+  Future<void> refresh() async {
+    try {
+      final manga = await _repository.getMangaInfo(sourceId, mangaId);
+      final isFav = await _favoritesStore.isFavorite(sourceId, mangaId);
+      emit(state.copyWith(status: DetailStatus.loaded, manga: manga, isFavorite: isFav));
+      await loadChapters();
+      final readChapters = await _historyStore.getReadChapters(sourceId, mangaId);
+      emit(state.copyWith(readChapterIds: readChapters));
+    } catch (e) {
+      // Silently fail on refresh - don't show error state since we already have data
+    }
+  }
+
   Future<void> loadChapters() async {
     emit(state.copyWith(chaptersLoading: true));
     try {

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
@@ -75,6 +77,28 @@ class _VerticalReaderState extends State<VerticalReader> {
     // Left/right taps do nothing in vertical mode (scroll is primary navigation)
   }
 
+  Future<void> _onRefresh() {
+    final completer = Completer<void>();
+    final bloc = context.read<ReaderBloc>();
+    bloc.add(const RefreshChapter());
+    // Listen for state change to complete the future
+    late final StreamSubscription sub;
+    sub = bloc.stream.listen((state) {
+      if (state.status == ReaderStatus.loaded) {
+        completer.complete();
+        sub.cancel();
+      }
+    });
+    // Timeout after 10 seconds
+    Future.delayed(const Duration(seconds: 10), () {
+      if (!completer.isCompleted) {
+        completer.complete();
+        sub.cancel();
+      }
+    });
+    return completer.future;
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -84,33 +108,36 @@ class _VerticalReaderState extends State<VerticalReader> {
             prev.isAppendingNext != curr.isAppendingNext ||
             prev.images != curr.images,
         builder: (context, state) {
-          return ListView.builder(
-            controller: _scrollController,
-            itemCount: widget.images.length + (state.isAppendingNext ? 1 : 0),
-            padding: EdgeInsets.zero,
-            itemBuilder: (context, index) {
-              // Loading indicator at the bottom
-              if (index >= widget.images.length) {
-                return const Padding(
-                  padding: EdgeInsets.all(32.0),
-                  child: Center(
-                    child: CircularProgressIndicator(),
+          return RefreshIndicator(
+            onRefresh: _onRefresh,
+            child: ListView.builder(
+              controller: _scrollController,
+              itemCount: widget.images.length + (state.isAppendingNext ? 1 : 0),
+              padding: EdgeInsets.zero,
+              itemBuilder: (context, index) {
+                // Loading indicator at the bottom
+                if (index >= widget.images.length) {
+                  return const Padding(
+                    padding: EdgeInsets.all(32.0),
+                    child: Center(
+                      child: CircularProgressIndicator(),
+                    ),
+                  );
+                }
+                return SizedBox(
+                  width: double.infinity,
+                  child: MangaImage(
+                    image: widget.images[index],
+                    fit: BoxFit.fitWidth,
+                    disableGesture: true,
+                    sourceId: state.sourceId,
+                    mangaId: state.mangaId,
+                    chapterId: state.chapterId,
+                    imageIndex: index,
                   ),
                 );
-              }
-              return SizedBox(
-                width: double.infinity,
-                child: MangaImage(
-                  image: widget.images[index],
-                  fit: BoxFit.fitWidth,
-                  disableGesture: true,
-                  sourceId: state.sourceId,
-                  mangaId: state.mangaId,
-                  chapterId: state.chapterId,
-                  imageIndex: index,
-                ),
-              );
-            },
+              },
+            ),
           );
         },
       ),

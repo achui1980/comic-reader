@@ -112,3 +112,8 @@ class AutoPageTick extends ReaderEvent {
 class AppendNextChapter extends ReaderEvent {
   const AppendNextChapter();
 }
+
+/// Refresh current chapter images (pull-to-refresh)
+class RefreshChapter extends ReaderEvent {
+  const RefreshChapter();
+}

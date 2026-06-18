@@ -22,13 +22,12 @@ class JmComic extends MangaSource {
   static const String _appDataSecret = '185Hcomic3PAPP7R';
   static const String _appVersion = '2.0.21';
 
-  // API domains (shuffled list)
+  // API domains (ordered by reliability)
   static const List<String> _apiDomains = [
-    'www.cdnhjk.net',
     'www.cdngwc.cc',
     'www.cdngwc.net',
     'www.cdngwc.club',
-    'www.cdnhjk.cc',
+    'www.cdnhjk.net',
   ];
 
   // Image CDN domains
@@ -51,14 +50,26 @@ class JmComic extends MangaSource {
   static const int _scramble421926 = 421926;
 
   String? _currentDomain;
+  int _currentDomainIndex = 0;
   int _scrambleId = _scramble220980;
   // Cache timestamp for consistent token in request/response pair
   String? _lastTs;
 
   String get _apiDomain {
-    _currentDomain ??= _apiDomains[Random().nextInt(_apiDomains.length)];
+    _currentDomain ??= _apiDomains[_currentDomainIndex];
     return _currentDomain!;
   }
+
+  /// Switch to the next available API domain (fallback on failure).
+  /// Returns true if a new domain is available, false if all exhausted.
+  bool switchToNextDomain() {
+    _currentDomainIndex = (_currentDomainIndex + 1) % _apiDomains.length;
+    _currentDomain = _apiDomains[_currentDomainIndex];
+    return true;
+  }
+
+  /// Number of fallback retries available (total domains - 1).
+  int get maxDomainRetries => _apiDomains.length - 1;
 
   String get _apiBaseUrl => 'https://$_apiDomain';
 

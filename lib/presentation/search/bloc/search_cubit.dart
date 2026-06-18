@@ -73,4 +73,25 @@ class SearchCubit extends Cubit<SearchState> {
       emit(state.copyWith(status: SearchStatus.loaded));
     }
   }
+
+  Future<void> refresh() async {
+    if (state.keyword.isEmpty) return;
+    final source = _registry.get(state.sourceId);
+    final firstPage = source?.firstPage ?? 1;
+    emit(state.copyWith(
+      status: SearchStatus.loading,
+      currentPage: firstPage,
+      hasMore: true,
+    ));
+    try {
+      final results = await _repository.searchManga(state.sourceId, state.keyword, firstPage, {});
+      emit(state.copyWith(
+        status: SearchStatus.loaded,
+        results: results,
+        hasMore: results.isNotEmpty,
+      ));
+    } catch (e) {
+      emit(state.copyWith(status: SearchStatus.error, errorMessage: e.toString()));
+    }
+  }
 }

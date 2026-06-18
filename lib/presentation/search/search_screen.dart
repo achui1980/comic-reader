@@ -89,17 +89,20 @@ class _SearchViewState extends State<_SearchView> {
               }
               return false;
             },
-            child: ListView.builder(
-              itemCount: state.results.length + (state.hasMore ? 1 : 0),
-              itemBuilder: (context, index) {
-                if (index >= state.results.length) {
-                  return const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                  );
-                }
-                return _SearchResultItem(manga: state.results[index]);
-              },
+            child: RefreshIndicator(
+              onRefresh: () => context.read<SearchCubit>().refresh(),
+              child: ListView.builder(
+                itemCount: state.results.length + (state.hasMore ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index >= state.results.length) {
+                    return const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                    );
+                  }
+                  return _SearchResultItem(manga: state.results[index]);
+                },
+              ),
             ),
           );
         },

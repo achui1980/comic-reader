@@ -106,13 +106,16 @@ class _DetailView extends StatelessWidget {
           final manga = state.manga;
           if (manga == null) return const Scaffold(body: SizedBox.shrink());
           return Scaffold(
-            body: CustomScrollView(
-              slivers: [
-                _buildHeader(context, manga, state.isFavorite),
-                _buildInfo(context, manga),
-                _buildChapterHeader(context, state),
-                _buildChapterGrid(context, state),
-              ],
+            body: RefreshIndicator(
+              onRefresh: () => context.read<DetailCubit>().refresh(),
+              child: CustomScrollView(
+                slivers: [
+                  _buildHeader(context, manga, state.isFavorite),
+                  _buildInfo(context, manga),
+                  _buildChapterHeader(context, state),
+                  _buildChapterGrid(context, state),
+                ],
+              ),
             ),
           );
         },

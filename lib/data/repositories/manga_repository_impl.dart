@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/data/remote/http_client.dart';
@@ -36,6 +37,46 @@ class MangaRepositoryImpl implements MangaRepository {
     return config.copyWith(headers: headers, extra: extra);
   }
 
+  /// Execute a request with domain fallback for JMComic.
+  /// If request fails with a network/timeout error, switches to next domain and retries.
+  Future<Response> _executeWithFallback(
+    FetchConfig config,
+    MangaSource source,
+    FetchConfig Function() rebuildConfig,
+  ) async {
+    if (source is! JmComic) {
+      return _httpClient.execute(config);
+    }
+
+    final jmSource = source;
+    Object? lastError;
+
+    for (int attempt = 0; attempt <= jmSource.maxDomainRetries; attempt++) {
+      try {
+        final effectiveConfig = attempt == 0 ? config : _mergeHeaders(rebuildConfig(), source);
+        return await _httpClient.execute(effectiveConfig);
+      } on DioException catch (e) {
+        lastError = e;
+        if (e.type == DioExceptionType.connectionTimeout ||
+            e.type == DioExceptionType.sendTimeout ||
+            e.type == DioExceptionType.receiveTimeout ||
+            e.type == DioExceptionType.connectionError) {
+          debugPrint('[JMC Fallback] Domain failed (${e.type}), switching to next domain...');
+          jmSource.switchToNextDomain();
+          continue;
+        }
+        // Non-timeout errors (e.g., 403) — also try next domain
+        if (e.response?.statusCode == 403 || e.response?.statusCode == 502 || e.response?.statusCode == 503) {
+          debugPrint('[JMC Fallback] HTTP ${e.response?.statusCode}, switching domain...');
+          jmSource.switchToNextDomain();
+          continue;
+        }
+        rethrow;
+      }
+    }
+    throw lastError ?? Exception('All JMC domains exhausted');
+  }
+
   @override
   Future<List<MangaSummary>> getDiscovery(String sourceId, int page, Map<String, String> filters) async {
     final source = _sourceRegistry.get(sourceId);
@@ -44,7 +85,9 @@ class MangaRepositoryImpl implements MangaRepository {
     var config = source.prepareDiscoveryFetch(page, filters);
     config = _mergeHeaders(config, source);
     debugPrint('[getDiscovery] Fetching page=$page url=${config.url} params=${config.queryParameters}');
-    final response = await _httpClient.execute(config);
+    final response = await _executeWithFallback(
+      config, source, () => source.prepareDiscoveryFetch(page, filters),
+    );
     final results = source.parseDiscovery(response.data);
     debugPrint('[getDiscovery] page=$page returned ${results.length} items${results.isNotEmpty ? ", first: ${results.first.id}" : ""}');
     return results;
@@ -57,7 +100,9 @@ class MangaRepositoryImpl implements MangaRepository {
 
     var config = source.prepareSearchFetch(keyword, page, filters);
     config = _mergeHeaders(config, source);
-    final response = await _httpClient.execute(config);
+    final response = await _executeWithFallback(
+      config, source, () => source.prepareSearchFetch(keyword, page, filters),
+    );
     return source.parseSearch(response.data);
   }
 
@@ -68,7 +113,9 @@ class MangaRepositoryImpl implements MangaRepository {
 
     var config = source.prepareMangaInfoFetch(mangaId);
     config = _mergeHeaders(config, source);
-    final response = await _httpClient.execute(config);
+    final response = await _executeWithFallback(
+      config, source, () => source.prepareMangaInfoFetch(mangaId),
+    );
     return source.parseMangaInfo(response.data, mangaId);
   }
 
@@ -82,7 +129,9 @@ class MangaRepositoryImpl implements MangaRepository {
       return const ChapterListResult(chapters: []);
     }
     config = _mergeHeaders(config, source);
-    final response = await _httpClient.execute(config);
+    final response = await _executeWithFallback(
+      config, source, () => source.prepareChapterListFetch(mangaId, page)!,
+    );
     return source.parseChapterList(response.data, mangaId);
   }
 
@@ -100,7 +149,9 @@ class MangaRepositoryImpl implements MangaRepository {
         var scrambleConfig = source.prepareScrambleFetch(chapterId);
         scrambleConfig = _mergeHeaders(scrambleConfig, source);
         debugPrint('[getChapter] JMC: Fetching scramble_id for chapter $chapterId');
-        final scrambleResponse = await _httpClient.execute(scrambleConfig);
+        final scrambleResponse = await _executeWithFallback(
+          scrambleConfig, source, () => source.prepareScrambleFetch(chapterId),
+        );
         final responseText = scrambleResponse.data?.toString() ?? '';
         source.parseScrambleResponse(responseText);
         debugPrint('[getChapter] JMC: scramble_id updated');
@@ -112,7 +163,9 @@ class MangaRepositoryImpl implements MangaRepository {
     var config = source.prepareChapterFetch(mangaId, chapterId, effectivePage, extra: extra);
     config = _mergeHeaders(config, source);
     debugPrint('[getChapter] Fetching: ${config.url} params=${config.queryParameters}');
-    final response = await _httpClient.execute(config);
+    final response = await _executeWithFallback(
+      config, source, () => source.prepareChapterFetch(mangaId, chapterId, effectivePage, extra: extra),
+    );
     debugPrint('[getChapter] Response type: ${response.data.runtimeType}, length: ${response.data.toString().length}');
     var result = source.parseChapter(response.data, mangaId, chapterId, effectivePage);
     debugPrint('[getChapter] parseChapter result: images=${result.chapter.images.length}, nextExtra=${result.nextExtra != null ? "has ${jsonDecode(result.nextExtra!).length} urls" : "null"}, canLoadMore=${result.canLoadMore}');
