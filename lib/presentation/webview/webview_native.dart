@@ -62,6 +62,14 @@ class _NativeWebViewScreenState extends State<_NativeWebViewScreen> {
                 sharedCookiesEnabled: true,
                 thirdPartyCookiesEnabled: true,
                 javaScriptEnabled: true,
+                useWideViewPort: true,
+                loadWithOverviewMode: true,
+                supportZoom: true,
+                builtInZoomControls: true,
+                displayZoomControls: false,
+                javaScriptCanOpenWindowsAutomatically: false,
+                mediaPlaybackRequiresUserGesture: true,
+                allowsInlineMediaPlayback: true,
               ),
               onWebViewCreated: (controller) {
                 _controller = controller;

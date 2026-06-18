@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/data/remote/http_client.dart';
+import 'package:comic_reader/data/sources/jm_comic.dart';
 import 'package:comic_reader/data/sources/manga_source.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
@@ -92,6 +93,21 @@ class MangaRepositoryImpl implements MangaRepository {
 
     // Use source.firstPage for initial page (E-Hentai is 0-based)
     final effectivePage = page == 1 ? source.firstPage : page;
+
+    // JMC: fetch scramble_id before loading chapter to determine correct unscramble threshold
+    if (source is JmComic) {
+      try {
+        var scrambleConfig = source.prepareScrambleFetch(chapterId);
+        scrambleConfig = _mergeHeaders(scrambleConfig, source);
+        debugPrint('[getChapter] JMC: Fetching scramble_id for chapter $chapterId');
+        final scrambleResponse = await _httpClient.execute(scrambleConfig);
+        final responseText = scrambleResponse.data?.toString() ?? '';
+        source.parseScrambleResponse(responseText);
+        debugPrint('[getChapter] JMC: scramble_id updated');
+      } catch (e) {
+        debugPrint('[getChapter] JMC: Failed to fetch scramble_id: $e (using default)');
+      }
+    }
 
     var config = source.prepareChapterFetch(mangaId, chapterId, effectivePage, extra: extra);
     config = _mergeHeaders(config, source);

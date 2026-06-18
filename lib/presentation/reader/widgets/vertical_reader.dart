@@ -103,6 +103,7 @@ class _VerticalReaderState extends State<VerticalReader> {
                 child: MangaImage(
                   image: widget.images[index],
                   fit: BoxFit.fitWidth,
+                  disableGesture: true,
                   sourceId: state.sourceId,
                   mangaId: state.mangaId,
                   chapterId: state.chapterId,

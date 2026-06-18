@@ -49,6 +49,7 @@ class _SettingsView extends StatelessWidget {
               _buildReadingSection(context, state),
               _buildThemeSection(context, state),
               if (kIsWeb) const _ProxySettingsSection(),
+              if (!kIsWeb) _buildNativeProxySection(context, state),
               _buildPluginSection(context, state),
               _buildDataSection(context),
               _buildAboutSection(context),
@@ -180,6 +181,63 @@ class _SettingsView extends StatelessWidget {
         }),
         const Divider(),
       ],
+    );
+  }
+
+  Widget _buildNativeProxySection(BuildContext context, SettingsState state) {
+    final cubit = context.read<SettingsCubit>();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader('网络代理'),
+        SwitchListTile(
+          title: const Text('启用代理'),
+          subtitle: Text(state.proxyEnabled ? '所有请求通过代理转发' : '直连（不使用代理）'),
+          value: state.proxyEnabled,
+          onChanged: (v) => cubit.setProxyEnabled(v),
+        ),
+        ListTile(
+          title: const Text('代理地址'),
+          subtitle: Text(state.proxyAddress.isEmpty ? '未设置' : state.proxyAddress),
+          enabled: state.proxyEnabled,
+          trailing: const Icon(Icons.edit),
+          onTap: state.proxyEnabled
+              ? () => _showProxyAddressDialog(context, state.proxyAddress)
+              : null,
+        ),
+        const Divider(),
+      ],
+    );
+  }
+
+  void _showProxyAddressDialog(BuildContext context, String currentAddress) {
+    final controller = TextEditingController(text: currentAddress);
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('代理地址'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(
+            hintText: '127.0.0.1:2222',
+            helperText: '格式: host:port',
+          ),
+          autofocus: true,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              context.read<SettingsCubit>().setProxyAddress(controller.text.trim());
+              Navigator.pop(dialogContext);
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
     );
   }
 

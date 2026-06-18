@@ -15,6 +15,8 @@ class AppSettings {
   final bool autoPageTurn;
   final int autoPageTurnInterval; // seconds
   final Set<String> disabledSources;
+  final bool proxyEnabled;
+  final String proxyAddress; // e.g. "127.0.0.1:2222"
 
   const AppSettings({
     this.themeMode = AppThemeMode.system,
@@ -23,6 +25,8 @@ class AppSettings {
     this.autoPageTurn = false,
     this.autoPageTurnInterval = 5,
     this.disabledSources = const {},
+    this.proxyEnabled = false,
+    this.proxyAddress = '127.0.0.1:2222',
   });
 
   AppSettings copyWith({
@@ -32,6 +36,8 @@ class AppSettings {
     bool? autoPageTurn,
     int? autoPageTurnInterval,
     Set<String>? disabledSources,
+    bool? proxyEnabled,
+    String? proxyAddress,
   }) {
     return AppSettings(
       themeMode: themeMode ?? this.themeMode,
@@ -40,6 +46,8 @@ class AppSettings {
       autoPageTurn: autoPageTurn ?? this.autoPageTurn,
       autoPageTurnInterval: autoPageTurnInterval ?? this.autoPageTurnInterval,
       disabledSources: disabledSources ?? this.disabledSources,
+      proxyEnabled: proxyEnabled ?? this.proxyEnabled,
+      proxyAddress: proxyAddress ?? this.proxyAddress,
     );
   }
 
@@ -50,6 +58,8 @@ class AppSettings {
         'autoPageTurn': autoPageTurn,
         'autoPageTurnInterval': autoPageTurnInterval,
         'disabledSources': disabledSources.toList(),
+        'proxyEnabled': proxyEnabled,
+        'proxyAddress': proxyAddress,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -64,6 +74,8 @@ class AppSettings {
               ?.map((e) => e as String)
               .toSet() ??
           {},
+      proxyEnabled: json['proxyEnabled'] as bool? ?? false,
+      proxyAddress: json['proxyAddress'] as String? ?? '127.0.0.1:2222',
     );
   }
 }

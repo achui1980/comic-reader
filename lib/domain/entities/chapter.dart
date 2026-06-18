@@ -23,15 +23,19 @@ class ChapterImage extends Equatable {
   final String url;
   final ScrambleType scrambleType;
   final Map<String, String>? headers;
+  /// The scramble_id threshold used for JMC unscrambling.
+  /// Only relevant when scrambleType == ScrambleType.jmc.
+  final int? scrambleId;
 
   const ChapterImage({
     required this.url,
     this.scrambleType = ScrambleType.none,
     this.headers,
+    this.scrambleId,
   });
 
   @override
-  List<Object?> get props => [url, scrambleType];
+  List<Object?> get props => [url, scrambleType, scrambleId];
 }
 
 class Chapter extends Equatable {

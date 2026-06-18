@@ -1,10 +1,13 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:get_it/get_it.dart';
 import 'package:comic_reader/app/theme/app_theme.dart';
 import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
+import 'package:comic_reader/main.dart';
 import 'settings_state.dart';
 
 class SettingsCubit extends Cubit<SettingsState> {
@@ -94,5 +97,29 @@ class SettingsCubit extends Cubit<SettingsState> {
   /// Get cache size in bytes for display.
   Future<int> getCacheSize() async {
     return await ChapterCacheService().getCacheSize();
+  }
+
+  Future<void> setProxyEnabled(bool enabled) async {
+    final updated = state.settings.copyWith(proxyEnabled: enabled);
+    emit(state.copyWith(settings: updated));
+    await _settingsStore.save(updated);
+    _applyProxySettings(updated);
+  }
+
+  Future<void> setProxyAddress(String address) async {
+    final updated = state.settings.copyWith(proxyAddress: address);
+    emit(state.copyWith(settings: updated));
+    await _settingsStore.save(updated);
+    _applyProxySettings(updated);
+  }
+
+  void _applyProxySettings(AppSettings settings) {
+    if (!kIsWeb) {
+      final overrides = GetIt.instance<MyHttpOverrides>();
+      overrides.updateProxy(
+        enabled: settings.proxyEnabled,
+        address: settings.proxyAddress,
+      );
+    }
   }
 }

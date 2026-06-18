@@ -116,4 +116,16 @@ abstract class MangaSource {
   // --- Chapter Content ---
   FetchConfig prepareChapterFetch(String mangaId, String chapterId, int page, {dynamic extra});
   ChapterResult parseChapter(dynamic response, String mangaId, String chapterId, int page);
+
+  /// Get the web URL for reading a chapter in browser.
+  /// Default implementation uses the URL from prepareChapterFetch.
+  /// Override in subclasses if the browser-readable URL differs from the API URL.
+  String? getChapterWebUrl(String mangaId, String chapterId) {
+    try {
+      final config = prepareChapterFetch(mangaId, chapterId, 1);
+      return config.url;
+    } catch (_) {
+      return null;
+    }
+  }
 }

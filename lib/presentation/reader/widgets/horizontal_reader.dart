@@ -110,7 +110,7 @@ class _HorizontalReaderState extends State<HorizontalReader> {
             final state = context.read<ReaderBloc>().state;
             return MangaImage(
               image: widget.images[index],
-              fit: BoxFit.contain,
+              fit: BoxFit.fitWidth,
               sourceId: state.sourceId,
               mangaId: state.mangaId,
               chapterId: state.chapterId,

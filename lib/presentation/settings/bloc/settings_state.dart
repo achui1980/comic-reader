@@ -20,6 +20,8 @@ class SettingsState extends Equatable {
   bool get autoPageTurn => settings.autoPageTurn;
   int get autoPageTurnInterval => settings.autoPageTurnInterval;
   Set<String> get disabledSources => settings.disabledSources;
+  bool get proxyEnabled => settings.proxyEnabled;
+  String get proxyAddress => settings.proxyAddress;
 
   SettingsState copyWith({
     AppSettings? settings,

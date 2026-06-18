@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:get_it/get_it.dart';
+import 'package:comic_reader/app/router/routes.dart';
+import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_bloc.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_event.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_state.dart';
@@ -17,7 +20,12 @@ class ReaderControls extends StatelessWidget {
         return Column(
           children: [
             // Top bar
-            _TopBar(title: state.chapterTitle ?? ''),
+            _TopBar(
+              title: state.chapterTitle ?? '',
+              sourceId: state.sourceId,
+              mangaId: state.mangaId,
+              chapterId: state.chapterId,
+            ),
             const Spacer(),
             // Bottom bar
             _BottomBar(
@@ -36,7 +44,10 @@ class ReaderControls extends StatelessWidget {
 
 class _TopBar extends StatelessWidget {
   final String title;
-  const _TopBar({required this.title});
+  final String sourceId;
+  final String mangaId;
+  final String chapterId;
+  const _TopBar({required this.title, required this.sourceId, required this.mangaId, required this.chapterId});
 
   @override
   Widget build(BuildContext context) {
@@ -72,6 +83,24 @@ class _TopBar extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
+          ),
+          // Open in built-in browser button
+          IconButton(
+            icon: const Icon(Icons.open_in_browser, color: Colors.white),
+            onPressed: () {
+              final registry = GetIt.instance<SourceRegistry>();
+              final source = registry.get(sourceId);
+              if (source != null) {
+                final url = source.getChapterWebUrl(mangaId, chapterId);
+                if (url != null) {
+                  context.push(
+                    AppRoutes.webviewPath(sourceId),
+                    extra: {'url': url},
+                  );
+                }
+              }
+            },
+            tooltip: '浏览器阅读',
           ),
         ],
       ),

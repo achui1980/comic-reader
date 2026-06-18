@@ -22,6 +22,9 @@ class MangaImage extends StatefulWidget {
   final String? mangaId;
   final String? chapterId;
   final int? imageIndex;
+  /// When true, disables gesture mode and auto-zoom scaling.
+  /// Used in vertical scroll mode where images should simply fit width.
+  final bool disableGesture;
 
   const MangaImage({
     super.key,
@@ -31,6 +34,7 @@ class MangaImage extends StatefulWidget {
     this.mangaId,
     this.chapterId,
     this.imageIndex,
+    this.disableGesture = false,
   });
 
   @override
@@ -109,12 +113,12 @@ class _MangaImageState extends State<MangaImage> {
         ? filename.substring(0, filename.lastIndexOf('.'))
         : filename;
 
-    // scramble_id threshold - default 220980
-    const scramble220980 = 220980;
+    // Use dynamic scramble_id from API if available, otherwise fallback to default
+    final scrambleId = widget.image.scrambleId ?? 220980;
     const scramble268850 = 268850;
     const scramble421926 = 421926;
 
-    if (aid < scramble220980) return 0;
+    if (aid < scrambleId) return 0;
     if (aid < scramble268850) return 10;
 
     final x = aid < scramble421926 ? 10 : 8;
@@ -188,72 +192,132 @@ class _MangaImageState extends State<MangaImage> {
     // Load from network
     final imageUrl = ImageProxy.url(widget.image.url);
     debugPrint('[MangaImage] Loading: $imageUrl');
-    return ExtendedImage.network(
-      imageUrl,
-      fit: widget.fit,
-      cache: true,
-      retries: 3,
-      timeLimit: const Duration(seconds: 15),
-      headers: ImageProxy.safeHeaders(widget.image.headers),
-      enableLoadState: true,
-      loadStateChanged: (state) {
-        switch (state.extendedImageLoadState) {
-          case LoadState.loading:
-            return const Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.white70,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final screenWidth = constraints.maxWidth;
+        final screenHeight = constraints.maxHeight;
+        final isJmcScrambled = widget.image.scrambleType == ScrambleType.jmc;
+        return ExtendedImage.network(
+          imageUrl,
+          fit: widget.fit,
+          cache: true,
+          retries: 3,
+          timeLimit: const Duration(seconds: 15),
+          headers: ImageProxy.safeHeaders(widget.image.headers),
+          enableLoadState: true,
+          mode: widget.disableGesture
+              ? ExtendedImageMode.none
+              : ExtendedImageMode.gesture,
+          initGestureConfigHandler: widget.disableGesture
+              ? null
+              : (state) {
+                  double initialScale = 1.0;
+                  InitialAlignment alignment = InitialAlignment.topCenter;
+
+                  // Skip scaling for JMC scrambled images — they use custom painter
+                  // rendering via _UnscrambledImage which handles its own fitting.
+                  // Applying gesture scale on top would clip the image.
+                  if (!isJmcScrambled) {
+                    final imageInfo = state.extendedImageInfo;
+                    if (imageInfo != null &&
+                        screenWidth > 0 &&
+                        screenHeight > 0) {
+                      final double imgW = imageInfo.image.width.toDouble();
+                      final double imgH = imageInfo.image.height.toDouble();
+                      final double imageAspect = imgW / imgH;
+                      final double screenAspect = screenWidth / screenHeight;
+
+                      if (imageAspect > screenAspect) {
+                        // Wide image: fitWidth makes it too short. Scale up to fill height.
+                        // With fitWidth, displayed height = screenWidth / imageAspect
+                        // We want displayed height = screenHeight
+                        // scale = screenHeight / (screenWidth / imageAspect)
+                        initialScale =
+                            (screenHeight * imageAspect) / screenWidth;
+                        alignment = InitialAlignment.centerLeft;
+                      }
+                      // Tall image: fitWidth already fills width, user scrolls vertically
+                    }
+                  }
+
+                  const double minScale = 1.0;
+                  const double maxScale = 5.0;
+                  initialScale = initialScale.clamp(minScale, maxScale);
+
+                  return GestureConfig(
+                    minScale: minScale,
+                    animationMinScale: 0.8,
+                    maxScale: maxScale,
+                    animationMaxScale: 5.5,
+                    speed: 1.0,
+                    inertialSpeed: 100.0,
+                    initialScale: initialScale,
+                    inPageView: true,
+                    initialAlignment: alignment,
+                  );
+                },
+          loadStateChanged: (state) {
+            switch (state.extendedImageLoadState) {
+              case LoadState.loading:
+                return const Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white70,
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        '加载中...',
+                        style: TextStyle(
+                          color: Colors.white54,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                   ),
-                  SizedBox(height: 8),
-                  Text(
-                    '加载中...',
-                    style: TextStyle(
-                      color: Colors.white54,
-                      fontSize: 12,
+                );
+              case LoadState.completed:
+                // Save to local cache asynchronously
+                if (_canCache) {
+                  _saveToCache(state);
+                }
+
+                // If image needs unscrambling, use custom painter
+                if (widget.image.scrambleType == ScrambleType.jmc) {
+                  final imageInfo = state.extendedImageInfo;
+                  if (imageInfo != null) {
+                    final segs = _calculateSegments(imageInfo.image.width, imageInfo.image.height);
+                    debugPrint('[JMC Unscramble] chapterId=${widget.chapterId}, url=${widget.image.url}, imgSize=${imageInfo.image.width}x${imageInfo.image.height}, segments=$segs');
+                    return _UnscrambledImage(
+                      image: imageInfo.image,
+                      fit: widget.fit,
+                      calculateSegments: _calculateSegments,
+                    );
+                  }
+                }
+
+                return state.completedWidget;
+              case LoadState.failed:
+                debugPrint('[MangaImage] FAILED: ${widget.image.url} - ${state.lastException}');
+                return GestureDetector(
+                  onTap: () => state.reLoadImage(),
+                  child: const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.broken_image_outlined,
+                            size: 48, color: Colors.white54),
+                        SizedBox(height: 8),
+                        Text('点击重试', style: TextStyle(color: Colors.white54)),
+                      ],
                     ),
                   ),
-                ],
-              ),
-            );
-          case LoadState.completed:
-            // Save to local cache asynchronously
-            if (_canCache) {
-              _saveToCache(state);
-            }
-
-            // If image needs unscrambling, use custom painter
-            if (widget.image.scrambleType == ScrambleType.jmc) {
-              final imageInfo = state.extendedImageInfo;
-              if (imageInfo != null) {
-                return _UnscrambledImage(
-                  image: imageInfo.image,
-                  fit: widget.fit,
-                  calculateSegments: _calculateSegments,
                 );
-              }
             }
-
-            return state.completedWidget;
-          case LoadState.failed:
-            debugPrint('[MangaImage] FAILED: ${widget.image.url} - ${state.lastException}');
-            return GestureDetector(
-              onTap: () => state.reLoadImage(),
-              child: const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.broken_image_outlined,
-                        size: 48, color: Colors.white54),
-                    SizedBox(height: 8),
-                    Text('点击重试', style: TextStyle(color: Colors.white54)),
-                  ],
-                ),
-              ),
-            );
-        }
+          },
+        );
       },
     );
   }
@@ -282,9 +346,17 @@ class _UnscrambledImage extends StatelessWidget {
       return RawImage(image: image, fit: fit);
     }
 
-    return CustomPaint(
-      size: Size(w, h),
-      painter: _JmcUnscramblePainter(image: image, segments: segments),
+    return FittedBox(
+      fit: fit,
+      alignment: Alignment.topCenter,
+      child: SizedBox(
+        width: w,
+        height: h,
+        child: CustomPaint(
+          size: Size(w, h),
+          painter: _JmcUnscramblePainter(image: image, segments: segments),
+        ),
+      ),
     );
   }
 }
@@ -305,7 +377,7 @@ class _JmcUnscramblePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final w = image.width.toDouble();
     final h = image.height.toDouble();
-    final paint = Paint();
+    final paint = Paint()..isAntiAlias = false;
 
     final over = h.toInt() % segments;
 
@@ -324,8 +396,11 @@ class _JmcUnscramblePainter extends CustomPainter {
         yDst += over;
       }
 
-      final srcRect = Rect.fromLTWH(0, ySrc, w, segHeight);
-      final dstRect = Rect.fromLTWH(0, yDst, w, segHeight);
+      // Add 0.5px overlap to prevent sub-pixel gaps on iOS
+      final overlap = (i < segments - 1) ? 0.5 : 0.0;
+
+      final srcRect = Rect.fromLTWH(0, ySrc, w, segHeight + overlap);
+      final dstRect = Rect.fromLTWH(0, yDst, w, segHeight + overlap);
       canvas.drawImageRect(image, srcRect, dstRect, paint);
     }
   }

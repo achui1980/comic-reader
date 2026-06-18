@@ -378,9 +378,10 @@ class JmComic extends MangaSource {
     final images = <ChapterImage>[];
     for (int i = 0; i < imageNames.length; i++) {
       final imgName = imageNames[i];
-      final suffix = _getImageSuffix(imgName);
+      // Use the original image name from API (not re-indexed) for correct CDN URL
+      // The filename is needed both for URL construction and scramble hash calculation
       final imgUrl =
-          'https://$_imageDomain/media/photos/$chapterId/${_padIndex(i + 1)}$suffix';
+          'https://$_imageDomain/media/photos/$chapterId/$imgName';
 
       // Determine scramble
       final scrambleType = _getScrambleType(chapterId, imgName);
@@ -389,6 +390,7 @@ class JmComic extends MangaSource {
         url: imgUrl,
         scrambleType: scrambleType,
         headers: _imageHeaders,
+        scrambleId: scrambleType == ScrambleType.jmc ? _scrambleId : null,
       ));
     }
 
