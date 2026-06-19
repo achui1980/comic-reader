@@ -31,6 +31,9 @@ abstract class MangaSource {
   /// Whether this source is disabled
   bool get disabled => false;
 
+  /// Whether this source requires a proxy/VPN (科学上网) to access
+  bool get needsProxy => false;
+
   /// First page number for this source (most sources use 1, some use 0)
   int get firstPage => 1;
 
@@ -95,6 +98,7 @@ abstract class MangaSource {
     score: score,
     href: href,
     disabled: disabled,
+    needsProxy: needsProxy,
   );
 
   // --- Discovery ---

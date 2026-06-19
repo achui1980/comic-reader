@@ -250,7 +250,16 @@ class _SettingsView extends StatelessWidget {
         ...state.plugins.map((plugin) {
           final enabled = !state.disabledSources.contains(plugin.id);
           return ListTile(
-            title: Text(plugin.name),
+            title: Row(
+              children: [
+                Text(plugin.name),
+                if (plugin.needsProxy)
+                  const Padding(
+                    padding: EdgeInsets.only(left: 6),
+                    child: Icon(Icons.vpn_lock, color: Colors.blue, size: 16),
+                  ),
+              ],
+            ),
             subtitle: Text(
               '${plugin.description ?? ''} • 评分: ${plugin.score.toStringAsFixed(1)}',
             ),

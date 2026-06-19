@@ -55,6 +55,9 @@ class CopyManga extends MangaSource {
   String? get href => _baseUrl;
 
   @override
+  bool get needsProxy => true;
+
+  @override
   String? get userAgent => _userAgent;
 
   @override

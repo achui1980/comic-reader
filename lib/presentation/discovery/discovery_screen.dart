@@ -109,9 +109,18 @@ class _DiscoveryView extends StatelessWidget {
         itemBuilder: (ctx, i) => ListTile(
           title: Text(sources[i].name),
           subtitle: Text(sources[i].description ?? ''),
-          trailing: sources[i].requiresLogin && !sources[i].isAuthenticated
-              ? const Icon(Icons.login, color: Colors.orange, size: 18)
-              : null,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (sources[i].needsProxy)
+                const Padding(
+                  padding: EdgeInsets.only(right: 4),
+                  child: Icon(Icons.vpn_lock, color: Colors.blue, size: 18),
+                ),
+              if (sources[i].requiresLogin && !sources[i].isAuthenticated)
+                const Icon(Icons.login, color: Colors.orange, size: 18),
+            ],
+          ),
           onTap: () async {
             Navigator.pop(ctx);
             // If source requires login and is not authenticated, try auto-login

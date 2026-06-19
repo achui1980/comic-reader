@@ -56,6 +56,9 @@ class PicaComic extends MangaSource {
   String? get href => _webUrl;
 
   @override
+  bool get needsProxy => true;
+
+  @override
   Map<String, String>? get defaultHeaders => _defaultHeaders;
 
   @override

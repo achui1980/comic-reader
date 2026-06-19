@@ -40,6 +40,7 @@ class _NativeWebViewScreenState extends State<_NativeWebViewScreen> {
   Widget build(BuildContext context) {
     final source = _registry.get(widget.sourceId);
     final url = widget.initialUrl ?? source?.href ?? '';
+    debugPrint('[WebView] Building with sourceId=${widget.sourceId} url=$url userAgent=${source?.userAgent ?? _defaultUserAgent}');
 
     return Scaffold(
       appBar: AppBar(
@@ -80,8 +81,6 @@ class _NativeWebViewScreenState extends State<_NativeWebViewScreen> {
                 mediaPlaybackRequiresUserGesture: true,
                 allowsInlineMediaPlayback: true,
                 allowsBackForwardNavigationGestures: true,
-                iframeAllow: 'cross-origin-isolated',
-                iframeAllowFullscreen: true,
               ),
               onWebViewCreated: (controller) {
                 _controller = controller;
@@ -101,18 +100,26 @@ class _NativeWebViewScreenState extends State<_NativeWebViewScreen> {
               onTitleChanged: (controller, title) {
                 setState(() => _title = title ?? '验证中...');
               },
+              onLoadStart: (controller, url) {
+                debugPrint('[WebView] onLoadStart: $url');
+              },
               onLoadStop: (controller, url) async {
+                debugPrint('[WebView] onLoadStop: $url');
                 await _injectCookieExtractor(controller);
               },
-              onCreateWindow: (controller, createWindowAction) async {
-                // Allow Cloudflare Turnstile iframes to open
-                // Return false to let the WebView handle it naturally
-                return false;
+              onLoadError: (controller, url, code, message) {
+                debugPrint('[WebView] onLoadError: $url code=$code msg=$message');
               },
-              onPermissionRequest: (controller, request) async {
-                return PermissionResponse(
-                  resources: request.resources,
-                  action: PermissionResponseAction.GRANT,
+              onLoadHttpError: (controller, url, statusCode, description) {
+                debugPrint('[WebView] onLoadHttpError: $url status=$statusCode desc=$description');
+              },
+              onConsoleMessage: (controller, consoleMessage) {
+                debugPrint('[WebView] console: ${consoleMessage.message}');
+              },
+              onReceivedServerTrustAuthRequest: (controller, challenge) async {
+                // Accept all SSL certificates for verification page
+                return ServerTrustAuthResponse(
+                  action: ServerTrustAuthResponseAction.PROCEED,
                 );
               },
             ),

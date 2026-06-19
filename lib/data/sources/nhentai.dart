@@ -31,6 +31,9 @@ class NHentai extends MangaSource {
   String? get href => _baseUrl;
 
   @override
+  bool get needsProxy => true;
+
+  @override
   bool get needsCloudflare => false;
 
   @override

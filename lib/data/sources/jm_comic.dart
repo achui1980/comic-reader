@@ -95,6 +95,9 @@ class JmComic extends MangaSource {
   String? get href => 'https://18comic.vip';
 
   @override
+  bool get needsProxy => true;
+
+  @override
   bool get needsCloudflare => false; // APP API doesn't need CF
 
   @override

@@ -32,6 +32,9 @@ class EHentai extends MangaSource {
   String? get href => _baseUrl;
 
   @override
+  bool get needsProxy => true;
+
+  @override
   int get firstPage => 0;
 
   @override

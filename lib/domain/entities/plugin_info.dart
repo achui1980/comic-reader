@@ -35,6 +35,7 @@ class PluginInfo extends Equatable {
   final double score;
   final String? href;
   final bool disabled;
+  final bool needsProxy;
 
   const PluginInfo({
     required this.id,
@@ -44,8 +45,9 @@ class PluginInfo extends Equatable {
     this.score = 5.0,
     this.href,
     this.disabled = false,
+    this.needsProxy = false,
   });
 
   @override
-  List<Object?> get props => [id, name, shortName, description, score, href, disabled];
+  List<Object?> get props => [id, name, shortName, description, score, href, disabled, needsProxy];
 }
