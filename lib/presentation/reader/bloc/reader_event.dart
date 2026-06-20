@@ -123,9 +123,15 @@ class ImagesUpdated extends ReaderEvent {
   final List<ChapterImage> images;
   final bool isComplete;
   final String? chapterTitle;
+  final String? errorMessage;
 
-  const ImagesUpdated({required this.images, required this.isComplete, this.chapterTitle});
+  const ImagesUpdated({
+    required this.images,
+    required this.isComplete,
+    this.chapterTitle,
+    this.errorMessage,
+  });
 
   @override
-  List<Object?> get props => [images, isComplete, chapterTitle];
+  List<Object?> get props => [images, isComplete, chapterTitle, errorMessage];
 }

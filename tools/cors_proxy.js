@@ -42,15 +42,19 @@ function createProxyAgent(proxyUrl) {
 // Initialize with env var
 createProxyAgent(currentProxyUrl);
 
+function buildCorsHeaders(req) {
+  return {
+    'Access-Control-Allow-Origin': req.headers.origin || '*',
+    'Access-Control-Allow-Methods': req.headers['access-control-request-method'] || 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': req.headers['access-control-request-headers'] || 'Content-Type',
+    'Access-Control-Max-Age': '86400',
+  };
+}
+
 const server = http.createServer((req, res) => {
   // Handle preflight
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': '*',
-      'Access-Control-Max-Age': '86400',
-    });
+    res.writeHead(204, buildCorsHeaders(req));
     res.end();
     return;
   }

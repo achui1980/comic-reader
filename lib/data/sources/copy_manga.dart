@@ -1,4 +1,7 @@
 import 'dart:convert';
+import 'dart:math';
+
+import 'package:crypto/crypto.dart';
 
 import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/core/utils/crypto_utils.dart';
@@ -9,13 +12,26 @@ class CopyManga extends MangaSource {
   static const String sourceId = 'copy';
   static const String _baseUrl = 'https://www.mangacopy.com';
   static const String _apiUrl = 'https://api.mangacopy.com/api/v3';
+  static const String _appApiUrl = 'https://api.copy-manga.com/api/v3';
+  static const String _appVersion = '3.0.6';
+  static const String _appSignatureSecret =
+      'M2FmMDg1OTAzMTEwMzJlZmUwNjYwNTUwYTA1NjNhNTM=';
+  static const String _appUmString = 'b4c89ca4104ea9a97750314d791520ac';
 
   String _mangaKey = _defaultKey;
+  final Random _random = Random();
+  late final String _deviceInfo = _generateDeviceInfo();
+  late final String _device = _generateDevice();
+  late final String _pseudoId = _generatePseudoId();
 
   static const _defaultKey = 'xxymanga.zzl.key';
 
-  static final _mangaKeyPattern = RegExp(r"var ccx = '(.*?)'");
-  static final _chapterKeyPattern = RegExp(r"var ccy = '(.*?)'");
+  static final _mangaKeyPattern = RegExp(r"var cc(?:x|z) = '(.*?)'");
+  static final _chapterKeyPattern = RegExp(r"var cc(?:y|t) = '(.*?)'");
+  static final _chapterContentKeyPattern =
+      RegExp(r'class="imageData"[^>]+contentkey="([^"]+)"');
+  static final _chapterContentKeyScriptPattern =
+      RegExp(r"var contentKey = '(.*?)'");
   static final _imageUrlPattern = RegExp(r'\.c[0-9]+x\.');
 
   static const Map<String, String> _fetchHeaders = {
@@ -362,17 +378,27 @@ class CopyManga extends MangaSource {
   FetchConfig prepareChapterFetch(String mangaId, String chapterId, int page,
       {dynamic extra}) {
     return FetchConfig(
-      url: '$_baseUrl/comic/$mangaId/chapter/$chapterId',
-      headers: {
-        'User-Agent': _userAgent,
-        'Referer': '$_baseUrl/comic/$mangaId',
+      url: '$_appApiUrl/comic/$mangaId/chapter2/$chapterId',
+      headers: _buildAppHeaders(),
+      queryParameters: {
+        'in_mainland': 'true',
+        'request_id': '',
       },
     );
   }
 
   @override
+  String? getChapterWebUrl(String mangaId, String chapterId) {
+    return '$_baseUrl/comic/$mangaId/chapter/$chapterId';
+  }
+
+  @override
   ChapterResult parseChapter(
       dynamic response, String mangaId, String chapterId, int page) {
+    if (response is Map<String, dynamic>) {
+      return _parseChapterFromApi(response, mangaId, chapterId);
+    }
+
     final html = response as String;
 
     // Extract title from header
@@ -387,10 +413,11 @@ class CopyManga extends MangaSource {
     final keyMatch = _chapterKeyPattern.firstMatch(html);
     final key = keyMatch?.group(1) ?? _defaultKey;
 
-    // Extract encrypted image data from div.imageData contentkey attribute
-    final dataMatch =
-        RegExp(r'class="imageData"[^>]+contentkey="([^"]+)"').firstMatch(html);
-    if (dataMatch == null) {
+    // Support both the older imageData contentkey attribute and the newer
+    // script-level contentKey variable used by the live site.
+    final dataMatch = _chapterContentKeyPattern.firstMatch(html);
+    final scriptDataMatch = _chapterContentKeyScriptPattern.firstMatch(html);
+    if (dataMatch == null && scriptDataMatch == null) {
       return ChapterResult(
         chapter: Chapter(
           id: chapterId,
@@ -402,7 +429,19 @@ class CopyManga extends MangaSource {
       );
     }
 
-    final encryptedData = dataMatch.group(1)!;
+    final encryptedData = dataMatch?.group(1) ?? scriptDataMatch!.group(1)!;
+    if (encryptedData.length < 16) {
+      return ChapterResult(
+        chapter: Chapter(
+          id: chapterId,
+          mangaId: mangaId,
+          title: title,
+          images: const [],
+          headers: _imageHeaders,
+        ),
+      );
+    }
+
     final decrypted = aesDecrypt(encryptedData, key);
     final imageList = _parseJson(decrypted) as List;
 
@@ -421,6 +460,116 @@ class CopyManga extends MangaSource {
         headers: _imageHeaders,
       ),
     );
+  }
+
+  ChapterResult _parseChapterFromApi(
+    Map<String, dynamic> response,
+    String mangaId,
+    String chapterId,
+  ) {
+    if (response['code'] != 200) {
+      throw Exception('CopyManga chapter API failed: ${response['message']}');
+    }
+
+    final results = response['results'] as Map<String, dynamic>?;
+    final chapterData = results?['chapter'] as Map<String, dynamic>?;
+    if (chapterData == null) {
+      throw Exception('CopyManga chapter API returned empty chapter data');
+    }
+
+    final title = chapterData['name'] as String? ?? '';
+    final contents = chapterData['contents'] as List? ?? const [];
+    final rawImages = contents.map((item) {
+      final url = (item as Map<String, dynamic>)['url'] as String;
+      return ChapterImage(
+        url: url.replaceAll(_imageUrlPattern, '.c1500x.'),
+        headers: _imageHeaders,
+      );
+    }).toList();
+
+    final words = chapterData['words'] as List?;
+    final images = (words != null && words.length == rawImages.length)
+        ? _reorderImages(rawImages, words)
+        : rawImages;
+
+    return ChapterResult(
+      chapter: Chapter(
+        id: chapterId,
+        mangaId: mangaId,
+        title: title,
+        images: images,
+        headers: _imageHeaders,
+      ),
+    );
+  }
+
+  List<ChapterImage> _reorderImages(List<ChapterImage> images, List words) {
+    final reordered = List<ChapterImage?>.filled(images.length, null);
+
+    for (var i = 0; i < images.length; i++) {
+      final order = int.tryParse('${words[i]}');
+      if (order == null || order < 0 || order >= images.length) {
+        return images;
+      }
+      reordered[order] = images[i];
+    }
+
+    if (reordered.any((image) => image == null)) {
+      return images;
+    }
+
+    return reordered.cast<ChapterImage>();
+  }
+
+  Map<String, String> _buildAppHeaders() {
+    final now = DateTime.now();
+    final timestamp = (now.millisecondsSinceEpoch ~/ 1000).toString();
+    final date =
+        '${now.year}.${now.month.toString().padLeft(2, '0')}.${now.day.toString().padLeft(2, '0')}';
+    final signature = Hmac(
+      sha256,
+      base64Decode(_appSignatureSecret),
+    ).convert(utf8.encode(timestamp)).toString();
+
+    return {
+      'User-Agent': 'COPY/$_appVersion',
+      'source': 'copyApp',
+      'deviceinfo': _deviceInfo,
+      'dt': date,
+      'platform': '3',
+      'referer': 'com.copymanga.app-$_appVersion',
+      'version': _appVersion,
+      'device': _device,
+      'pseudoid': _pseudoId,
+      'Accept': 'application/json',
+      'region': '0',
+      'authorization': 'Token',
+      'umstring': _appUmString,
+      'x-auth-timestamp': timestamp,
+      'x-auth-signature': signature,
+    };
+  }
+
+  String _generateDeviceInfo() {
+    final first = 1000000 + _random.nextInt(9000000);
+    final second = 1000 + _random.nextInt(9000);
+    return '${first}V-$second';
+  }
+
+  String _generateDevice() {
+    String randomUpper() => String.fromCharCode(65 + _random.nextInt(26));
+    String randomDigit() => _random.nextInt(10).toString();
+
+    return '${randomUpper()}${randomUpper()}${randomDigit()}${randomUpper()}.${randomDigit()}${randomDigit()}${randomDigit()}${randomDigit()}${randomDigit()}${randomDigit()}.${randomDigit()}${randomDigit()}${randomDigit()}';
+  }
+
+  String _generatePseudoId() {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final buffer = StringBuffer();
+    for (var i = 0; i < 16; i++) {
+      buffer.write(chars[_random.nextInt(chars.length)]);
+    }
+    return buffer.toString();
   }
 
   dynamic _parseJson(String text) {

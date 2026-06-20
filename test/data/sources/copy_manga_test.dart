@@ -67,8 +67,13 @@ void main() {
 
     test('prepareChapterFetch builds correct URL', () {
       final config = source.prepareChapterFetch('one-piece', 'ch-001', 1);
-      expect(config.url,
-          'https://www.mangacopy.com/comic/one-piece/chapter/ch-001');
+      expect(
+        config.url,
+        'https://api.copy-manga.com/api/v3/comic/one-piece/chapter2/ch-001',
+      );
+      expect(config.queryParameters?['in_mainland'], 'true');
+      expect(config.queryParameters?['request_id'], '');
+      expect(config.headers?['source'], 'copyApp');
     });
   });
 
@@ -156,6 +161,72 @@ void main() {
       expect(result[0].title, 'Found Manga');
       expect(result[0].id, 'found-manga');
     });
+
+    test('parseChapterList supports manga key from ccz variable', () {
+      const mangaKey = 'op0zzpvv.nmn.00p';
+      source.parseMangaInfo('''
+        <script>
+          var ccz = '$mangaKey';
+        </script>
+      ''', 'haizeiwang');
+
+      final encryptedChapters = _encryptCopyPayload('''
+        {"build":{"path_word":"haizeiwang"},"groups":{"default":{"chapters":[{"id":"ch-001","name":"第1话"}]}}}
+      ''', mangaKey);
+
+      final result = source.parseChapterList({
+        'code': 200,
+        'results': encryptedChapters,
+      }, 'haizeiwang');
+
+      expect(result.chapters, hasLength(1));
+      expect(result.chapters.first.id, 'ch-001');
+      expect(result.chapters.first.mangaId, 'haizeiwang');
+      expect(result.chapters.first.title, '第1话');
+    });
+
+    test('parseChapter supports cct and contentKey variables', () {
+      const chapterKey = 'op0zzpvv.nmn.00p';
+      final encryptedImages = _encryptCopyPayload('''
+        [{"url":"https://img.example.com/page1.c800x.jpg"}]
+      ''', chapterKey);
+
+      final result = source.parseChapter('''
+        <h4 class="header">海贼王/1卷</h4>
+        <script>
+          var cct = '$chapterKey';
+          var contentKey = '$encryptedImages';
+        </script>
+      ''', 'haizeiwang', 'ch-001', 1);
+
+      expect(result.chapter.title, '1卷');
+      expect(result.chapter.images, hasLength(1));
+      expect(
+        result.chapter.images.first.url,
+        'https://img.example.com/page1.c1500x.jpg',
+      );
+    });
+
+    test('parseChapter supports app chapter2 response', () {
+      final result = source.parseChapter({
+        'code': 200,
+        'results': {
+          'chapter': {
+            'name': '1卷',
+            'contents': [
+              {'url': 'https://img.example.com/page2.c800x.jpg'},
+              {'url': 'https://img.example.com/page1.c800x.jpg'},
+            ],
+            'words': [1, 0],
+          },
+        },
+      }, 'haizeiwang', 'ch-001', 1);
+
+      expect(result.chapter.title, '1卷');
+      expect(result.chapter.images, hasLength(2));
+      expect(result.chapter.images[0].url, 'https://img.example.com/page1.c1500x.jpg');
+      expect(result.chapter.images[1].url, 'https://img.example.com/page2.c1500x.jpg');
+    });
   });
 
   group('crypto', () {
@@ -183,4 +254,17 @@ void main() {
       expect(result, plaintext);
     });
   });
+}
+
+String _encryptCopyPayload(String plaintext, String keyStr) {
+  const ivStr = 'abcdefghijklmnop';
+  final key = encrypt.Key.fromUtf8(keyStr);
+  final iv = encrypt.IV.fromUtf8(ivStr);
+  final encrypter = encrypt.Encrypter(
+    encrypt.AES(key, mode: encrypt.AESMode.cbc, padding: 'PKCS7'),
+  );
+  final encrypted = encrypter.encrypt(plaintext, iv: iv);
+  final hexCiphertext =
+      encrypted.bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  return '$ivStr$hexCiphertext';
 }

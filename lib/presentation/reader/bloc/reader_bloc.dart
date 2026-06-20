@@ -124,7 +124,11 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
         onError: (e, stack) {
           debugPrint('[ReaderBloc] Stream error: $e');
           debugPrint('[ReaderBloc] Stack: ${stack.toString().split('\n').take(5).join('\n')}');
-          add(const ImagesUpdated(images: [], isComplete: true));
+          add(ImagesUpdated(
+            images: const [],
+            isComplete: true,
+            errorMessage: e.toString(),
+          ));
         },
       );
     } catch (e, stack) {
@@ -139,6 +143,15 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
 
   void _onImagesUpdated(ImagesUpdated event, Emitter<ReaderState> emit) {
     if (event.isComplete && event.images.isEmpty) {
+      if (state.status == ReaderStatus.loading) {
+        emit(state.copyWith(
+          status: ReaderStatus.error,
+          errorMessage: event.errorMessage ?? '未能加载章节内容',
+          isProgressiveLoading: false,
+        ));
+        return;
+      }
+
       // Stream completed - mark progressive loading as done
       emit(state.copyWith(isProgressiveLoading: false));
       _historyStore.markChapterRead(state.sourceId, state.mangaId, state.chapterId);
