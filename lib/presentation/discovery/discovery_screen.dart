@@ -184,11 +184,15 @@ class _DiscoveryView extends StatelessWidget {
                 if (isCfError)
                   FilledButton.icon(
                     onPressed: () async {
-                      await showCloudflareDialog(
+                      final verified = await showCloudflareDialog(
                         context,
                         sourceId: state.sourceId,
                         sourceName: GetIt.instance<SourceRegistry>().get(state.sourceId)?.name,
                       );
+                      // Auto-retry after returning from verification WebView
+                      if (verified && context.mounted) {
+                        context.read<DiscoveryCubit>().loadDiscovery();
+                      }
                     },
                     icon: const Icon(Icons.verified_user_outlined, size: 18),
                     label: const Text('去验证'),

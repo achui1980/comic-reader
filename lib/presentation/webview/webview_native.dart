@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:get_it/get_it.dart';
 import 'package:comic_reader/data/local/auth_store.dart';
+import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 
 Widget buildWebViewScreen({
@@ -35,6 +38,43 @@ class _NativeWebViewScreenState extends State<_NativeWebViewScreen> {
   String _title = '验证中...';
   double _progress = 0;
   bool _verified = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _configureProxy();
+  }
+
+  /// Configure WebView proxy to match app settings.
+  /// InAppWebView's ProxyController only works on Android.
+  /// On macOS/iOS (WKWebView), system proxy settings are used automatically.
+  /// We log the proxy state for debugging.
+  Future<void> _configureProxy() async {
+    final settingsStore = GetIt.instance<SettingsStore>();
+    final settings = await settingsStore.load();
+    debugPrint('[WebView] Proxy config: enabled=${settings.proxyEnabled} address=${settings.proxyAddress}');
+
+    if (settings.proxyEnabled && settings.proxyAddress.isNotEmpty) {
+      if (Platform.isAndroid) {
+        // Android: use InAppWebView's ProxyController
+        final proxyController = ProxyController.instance();
+        await proxyController.clearProxyOverride();
+        await proxyController.setProxyOverride(
+          settings: ProxySettings(
+            proxyRules: [
+              ProxyRule(url: 'http://${settings.proxyAddress}'),
+            ],
+          ),
+        );
+        debugPrint('[WebView] Android proxy set to: ${settings.proxyAddress}');
+      } else {
+        // macOS/iOS: WKWebView respects system proxy settings
+        // Log a hint if proxy is enabled in app but might not be in system
+        debugPrint('[WebView] macOS/iOS: WKWebView uses system proxy settings.');
+        debugPrint('[WebView] Make sure system proxy is configured to: ${settings.proxyAddress}');
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -143,28 +183,83 @@ class _NativeWebViewScreenState extends State<_NativeWebViewScreen> {
 
     // Get page title to check if still on challenge page
     final title = await controller.getTitle() ?? '';
-    if (title == 'Just a moment...') return;
+    debugPrint('[WebView] Page title: "$title"');
+    if (title == 'Just a moment...' ||
+        title.contains('Attention Required') ||
+        title == '403 Forbidden') {
+      debugPrint('[WebView] Still on CF challenge page, skipping cookie extraction');
+      return;
+    }
 
-    // Use CookieManager to get ALL cookies including httpOnly (cf_clearance etc.)
+    // Strategy 1: Use CookieManager to get cookies (works on most platforms)
     final cookies =
         await CookieManager.instance().getCookies(url: currentUrl);
-    if (cookies.isEmpty) return;
+    debugPrint('[WebView] CookieManager returned ${cookies.length} cookies');
+    for (final c in cookies) {
+      debugPrint('[WebView]   cookie: ${c.name}=${c.value.toString().substring(0, (c.value.toString().length > 20) ? 20 : c.value.toString().length)}... (httpOnly=${c.isHttpOnly})');
+    }
 
-    // Build cookie string from CookieManager (includes httpOnly cookies)
-    final cookieStr =
+    // Build cookie string from CookieManager
+    String cookieStr =
         cookies.map((c) => '${c.name}=${c.value}').join('; ');
+
+    // Strategy 2: If CookieManager didn't get cf_clearance, try JS document.cookie
+    // as a supplement (note: JS can't access httpOnly cookies, but on some macOS
+    // WKWebView versions, CookieManager also can't access them)
+    if (!cookieStr.contains('cf_clearance')) {
+      debugPrint('[WebView] cf_clearance NOT found via CookieManager, trying JS fallback...');
+      final jsCookies = await controller.evaluateJavascript(
+              source: 'document.cookie') as String? ??
+          '';
+      debugPrint('[WebView] JS document.cookie: $jsCookies');
+      if (jsCookies.contains('cf_clearance')) {
+        // Merge JS cookies with CookieManager cookies
+        if (cookieStr.isNotEmpty) {
+          cookieStr = '$cookieStr; $jsCookies';
+        } else {
+          cookieStr = jsCookies;
+        }
+      } else if (cookieStr.isEmpty && jsCookies.isNotEmpty) {
+        cookieStr = jsCookies;
+      }
+    }
+
+    // Strategy 3: If still no cf_clearance, try getting cookies for the base domain
+    // (handles cases where cookie domain is .wnacg.com but URL is www.wnacg.com)
+    if (!cookieStr.contains('cf_clearance') && currentUrl.host.startsWith('www.')) {
+      final baseDomain = currentUrl.host.substring(4); // remove "www."
+      final baseUrl = WebUri('https://$baseDomain/');
+      debugPrint('[WebView] Trying base domain cookies for: $baseUrl');
+      final baseCookies = await CookieManager.instance().getCookies(url: baseUrl);
+      for (final c in baseCookies) {
+        if (c.name == 'cf_clearance') {
+          debugPrint('[WebView] Found cf_clearance from base domain!');
+          if (cookieStr.isNotEmpty) {
+            cookieStr = '$cookieStr; ${c.name}=${c.value}';
+          } else {
+            cookieStr = '${c.name}=${c.value}';
+          }
+          break;
+        }
+      }
+    }
+
+    debugPrint('[WebView] Final cookie string (${cookieStr.length} chars): ${cookieStr.substring(0, cookieStr.length > 80 ? 80 : cookieStr.length)}...');
 
     if (cookieStr.isNotEmpty) {
       // Get user agent from JS
       final ua = await controller.evaluateJavascript(
               source: 'navigator.userAgent') as String? ??
           '';
+      debugPrint('[WebView] User-Agent: $ua');
 
       await _onDataReceived({
         'cookie': cookieStr,
         'userAgent': ua,
         'title': title,
       });
+    } else {
+      debugPrint('[WebView] WARNING: No cookies obtained after all strategies!');
     }
   }
 

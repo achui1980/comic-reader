@@ -4,7 +4,7 @@ import 'package:comic_reader/app/router/routes.dart';
 import 'package:comic_reader/data/remote/cloudflare_interceptor.dart';
 
 /// Shows a dialog prompting the user to complete Cloudflare verification.
-/// Returns true if user chose to navigate to verify, false otherwise.
+/// Returns true if user navigated to WebView and returned (regardless of result).
 Future<bool> showCloudflareDialog(BuildContext context, {String? sourceId, String? sourceName}) async {
   final result = await showDialog<bool>(
     context: context,
@@ -31,7 +31,8 @@ Future<bool> showCloudflareDialog(BuildContext context, {String? sourceId, Strin
   );
 
   if (result == true && sourceId != null && context.mounted) {
-    context.push(AppRoutes.webviewPath(sourceId));
+    // await push so caller knows when user returns from WebView
+    await context.push(AppRoutes.webviewPath(sourceId));
     return true;
   }
   return false;
