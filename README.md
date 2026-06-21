@@ -57,28 +57,13 @@
 
 ## 截图
 
-> 截图待添加。运行 app 后手动截图放入 `screenshots/` 目录：
+| 书架 | 书架2 | 发现 |
+|:----:|:-----:|:----:|
+| ![书架](docs/snapshoots/home.png) | ![书架2](docs/snapshoots/home2.png) | ![发现](docs/snapshoots/discovery.png) |
 
-```
-screenshots/
-├── home.png        # 书架首页
-├── discovery.png   # 发现页
-├── detail.png      # 漫画详情
-├── reader.png      # 阅读器
-└── settings.png    # 设置页
-```
-
-添加截图后取消下面的注释：
-
-<!--
-| 书架 | 发现 | 阅读器 |
-|:----:|:----:|:------:|
-| ![书架](screenshots/home.png) | ![发现](screenshots/discovery.png) | ![阅读器](screenshots/reader.png) |
-
-| 详情 | 设置 |
-|:----:|:----:|
-| ![详情](screenshots/detail.png) | ![设置](screenshots/settings.png) |
--->
+| 详情 | 详情2 | 设置 |
+|:----:|:-----:|:----:|
+| ![详情](docs/snapshoots/detail1.png) | ![详情2](docs/snapshoots/detail2.png) | ![设置](docs/snapshoots/setting.png) |
 
 ---
 
