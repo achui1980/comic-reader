@@ -1,0 +1,13 @@
+# Sequential Violet
+
+## Design Philosophy
+
+Sequential Violet is the visual language of narrative anticipation rendered in chromatic depth. It draws from the kinetic energy trapped within comic panels — the moment before dialogue escapes a speech bubble, the tension of a page about to be turned. This philosophy treats the icon as a compressed universe: a single frame that contains the entire promise of storytelling.
+
+The palette lives within a singular spectral corridor — violet to deep indigo — where warmth and coolness coexist in the same hue family. This constraint creates visual cohesion that reads as intentional at every scale, from 16 pixels to 1024. The violet spectrum is not merely decorative; it is structural, defining foreground from background through saturation shifts rather than hue changes. Every gradient is meticulously calibrated, the product of painstaking attention to luminance relationships that ensure legibility persists when the form shrinks to its smallest expression.
+
+Form language borrows from sequential art's essential vocabulary: the rounded rectangle of a speech bubble, the angular geometry of a book's spine, the implied motion of pages in flight. These elements are distilled to their purest geometric essence — no detail survives that does not serve recognition at thumbnail scale. The craftsmanship lies not in complexity but in the precise calibration of proportions: the exact curvature where a bubble feels alive rather than clinical, the precise angle where a book suggests openness without losing solidity. This is master-level execution through restraint.
+
+Space is treated architecturally. Negative space breathes between elements with the same intentionality as a panel gutter separates sequential moments. The composition follows a diagonal energy — bottom-left to upper-right — that creates forward momentum, the universal reading direction transformed into visual dynamism. Every millimeter of spacing is labored over with the care of someone who understands that at small sizes, the spaces between things matter more than the things themselves.
+
+Light behaves as narrative device. A subtle inner glow on the speech bubble suggests the luminosity of words waiting to be read. The book form catches light from above-left, establishing dimensionality through minimal means — a single highlight edge, a shadow that grounds without weighing down. The result must appear as though countless hours were spent achieving this economy: the paradox of effortless appearance born from exhaustive refinement by someone at the absolute top of their field.
