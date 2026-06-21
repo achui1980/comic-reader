@@ -1,0 +1,173 @@
+# Comic Reader - 多平台发布 workflow
+# 触发方式:
+#   1. 手动触发: Actions -> Release Build -> Run workflow
+#   2. 打 tag: git tag v1.0.0 && git push --tags
+#
+# 产物: macOS DMG + Windows zip，自动上传到 GitHub Release
+
+name: Release Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (留空则从 pubspec.yaml 读取)'
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  # ===== macOS 构建 =====
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Get version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build macOS
+        run: flutter build macos --release
+
+      - name: Install create-dmg
+        run: brew install create-dmg
+
+      - name: Generate .icns for DMG
+        run: |
+          ICON_SOURCE="macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_1024.png"
+          mkdir -p /tmp/icon.iconset
+          sips -z 16 16     "$ICON_SOURCE" --out /tmp/icon.iconset/icon_16x16.png      > /dev/null 2>&1
+          sips -z 32 32     "$ICON_SOURCE" --out /tmp/icon.iconset/icon_16x16@2x.png   > /dev/null 2>&1
+          sips -z 32 32     "$ICON_SOURCE" --out /tmp/icon.iconset/icon_32x32.png      > /dev/null 2>&1
+          sips -z 64 64     "$ICON_SOURCE" --out /tmp/icon.iconset/icon_32x32@2x.png   > /dev/null 2>&1
+          sips -z 128 128   "$ICON_SOURCE" --out /tmp/icon.iconset/icon_128x128.png    > /dev/null 2>&1
+          sips -z 256 256   "$ICON_SOURCE" --out /tmp/icon.iconset/icon_128x128@2x.png > /dev/null 2>&1
+          sips -z 256 256   "$ICON_SOURCE" --out /tmp/icon.iconset/icon_256x256.png    > /dev/null 2>&1
+          sips -z 512 512   "$ICON_SOURCE" --out /tmp/icon.iconset/icon_256x256@2x.png > /dev/null 2>&1
+          sips -z 512 512   "$ICON_SOURCE" --out /tmp/icon.iconset/icon_512x512.png    > /dev/null 2>&1
+          cp "$ICON_SOURCE"              /tmp/icon.iconset/icon_512x512@2x.png
+          iconutil -c icns /tmp/icon.iconset -o /tmp/app_icon.icns
+
+      - name: Create DMG
+        run: |
+          create-dmg \
+            --volname "ComicReader" \
+            --volicon "/tmp/app_icon.icns" \
+            --window-size 600 400 \
+            --icon-size 128 \
+            --icon "comic_reader.app" 150 200 \
+            --app-drop-link 450 200 \
+            --no-internet-enable \
+            "ComicReader-${{ steps.version.outputs.version }}-macOS.dmg" \
+            "build/macos/Build/Products/Release/comic_reader.app" \
+            || true
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: "*.dmg"
+
+  # ===== Windows 构建 =====
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build Windows
+        run: flutter build windows --release
+
+      - name: Package Windows zip
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "ComicReader-${version}-Windows.zip"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: "*.zip"
+
+  # ===== 发布到 GitHub Release =====
+  release:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Comic Reader v${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            artifacts/macos-dmg/*.dmg
+            artifacts/windows-zip/*.zip
+          body: |
+            ## Comic Reader v${{ steps.version.outputs.version }}
+
+            ### 下载
+
+            | 平台 | 文件 | 说明 |
+            |------|------|------|
+            | macOS | `ComicReader-${{ steps.version.outputs.version }}-macOS.dmg` | 要求 macOS 11.0+ |
+            | Windows | `ComicReader-${{ steps.version.outputs.version }}-Windows.zip` | 解压即用 |
+
+            ### macOS 安装说明
+            1. 双击 DMG → 拖 app 到 Applications
+            2. 首次打开：**右键点击 app → 打开 → 确认**
+            3. 或终端执行：`xattr -cr /Applications/comic_reader.app`
+
+            ### Windows 安装说明
+            1. 解压 zip 到任意目录
+            2. 双击 `comic_reader.exe` 运行
