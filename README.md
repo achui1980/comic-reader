@@ -24,12 +24,12 @@
 | 源 | 说明 | 特殊要求 |
 |----|------|---------|
 | 包子漫画 | 国漫/日漫/韩漫 | - |
-| 拷贝漫画 | 综合漫画 | - |
-| E-Hentai | E-Hentai Galleries | 部分内容需 Cookie |
-| 禁漫天堂 | APP API 模式 | 无需 CF 验证 |
-| 漫画柜 | 综合漫画 | 需代理 |
-| NHentai | English doujinshi | - |
-| 哔咔漫画 | 需账号登录 | Email/Password |
+| 拷贝漫画 | 综合漫画 | 科学上网 |
+| E-Hentai | E-Hentai Galleries | 科学上网 |
+| 禁漫天堂 | APP API 模式 | 无需 CF 验证, 科学上网 |
+| 漫画柜 | 综合漫画 | 科学上网 |
+| NHentai | English doujinshi | 科学上网 |
+| 哔咔漫画 | 需账号登录 | Email/Password内置 |
 | 绅士漫画 | 紳士漫畫 | 需 Cloudflare 验证 |
 
 ### 阅读体验
