@@ -2,12 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:get_it/get_it.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/core/utils/responsive.dart';
-import 'package:comic_reader/core/utils/image_proxy.dart';
+import 'package:comic_reader/presentation/common/manga_cover_image.dart';
 import 'package:comic_reader/presentation/common/pica_login_dialog.dart';
 import 'package:comic_reader/app/router/routes.dart';
 import 'package:comic_reader/presentation/common/cloudflare_dialog.dart';
@@ -258,15 +257,11 @@ class _MangaCard extends StatelessWidget {
           Expanded(
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: CachedNetworkImage(
-                imageUrl: ImageProxy.url(manga.coverUrl),
-                httpHeaders: ImageProxy.safeHeaders(manga.headers),
+              child: MangaCoverImage(
+                imageUrl: manga.coverUrl,
+                headers: manga.headers,
+                sourceId: manga.sourceId,
                 fit: BoxFit.cover,
-                placeholder: (_, __) => Container(color: Colors.grey.shade200),
-                errorWidget: (_, __, ___) => Container(
-                  color: Colors.grey.shade300,
-                  child: const Icon(Icons.broken_image),
-                ),
               ),
             ),
           ),

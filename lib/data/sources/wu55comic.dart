@@ -217,17 +217,13 @@ class Wu55Comic extends MangaSource {
     }
 
     // Cover - first element with data-src attribute
-    // Note: Cover images use the same encrypted CDN URLs as chapter images.
-    // These cannot be loaded directly as network images (returns 404).
-    // Set to empty string for now; the UI will show a placeholder.
-    // TODO: Implement async cover decryption in the UI layer.
+    // Cover image - encrypted CDN URL, will be decrypted lazily in the UI
     String coverUrl = '';
-    // We still extract it for potential future use
     final dataSrcEls = document.querySelectorAll('[data-src]');
     for (final el in dataSrcEls) {
       final src = el.attributes['data-src'] ?? '';
-      if (src.isNotEmpty) {
-        // coverUrl = src;  // Disabled: encrypted URL causes 404
+      if (src.isNotEmpty && src.contains('/static/upload/book/')) {
+        coverUrl = src;
         break;
       }
     }
@@ -368,17 +364,17 @@ class Wu55Comic extends MangaSource {
       if (seenIds.contains(mangaId)) continue;
       seenIds.add(mangaId);
 
-      // Cover image - look for img/element with data-src inside or near the link
-      // Note: These are encrypted CDN URLs that cannot be loaded directly.
-      // Set to empty to avoid 404 errors; UI will show placeholder.
+      // Cover image - encrypted CDN URL, will be decrypted lazily in the UI
       String coverUrl = '';
-      // final imgEl = link.querySelector('[data-src]') ??
-      //     link.querySelector('img');
-      // if (imgEl != null) {
-      //   coverUrl = imgEl.attributes['data-src'] ??
-      //       imgEl.attributes['src'] ??
-      //       '';
-      // }
+      final imgEl = link.querySelector('[data-src]') ??
+          link.querySelector('img');
+      if (imgEl != null) {
+        final src = imgEl.attributes['data-src'] ??
+            imgEl.attributes['src'] ?? '';
+        if (src.contains('/static/upload/book/')) {
+          coverUrl = src;
+        }
+      }
 
       // Title - extract from text content or title attribute
       String title = link.attributes['title']?.trim() ?? '';

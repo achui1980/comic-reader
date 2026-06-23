@@ -2,13 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import 'package:get_it/get_it.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
-import 'package:comic_reader/core/utils/image_proxy.dart';
+import 'package:comic_reader/presentation/common/manga_cover_image.dart';
 import 'package:comic_reader/app/router/routes.dart';
 import 'package:comic_reader/presentation/common/cloudflare_dialog.dart';
 import 'bloc/detail_cubit.dart';
@@ -141,9 +140,10 @@ class _DetailView extends StatelessWidget {
         background: Stack(
           fit: StackFit.expand,
           children: [
-            CachedNetworkImage(
-              imageUrl: ImageProxy.url(manga.coverUrl),
-              httpHeaders: ImageProxy.safeHeaders(manga.headers),
+            MangaCoverImage(
+              imageUrl: manga.coverUrl,
+              headers: manga.headers,
+              sourceId: manga.sourceId,
               fit: BoxFit.cover,
             ),
             const DecoratedBox(
