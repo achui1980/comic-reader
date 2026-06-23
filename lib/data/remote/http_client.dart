@@ -19,6 +19,7 @@ class HttpClient {
       receiveTimeout: config.timeout,
       sendTimeout: config.timeout,
       extra: config.extra,
+      responseType: config.responseType,
     );
 
     return _dio.request(

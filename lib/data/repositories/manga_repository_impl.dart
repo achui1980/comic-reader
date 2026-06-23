@@ -7,6 +7,8 @@ import 'package:comic_reader/data/remote/http_client.dart';
 import 'package:comic_reader/data/sources/jm_comic.dart';
 import 'package:comic_reader/data/sources/manga_source.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
+import 'package:comic_reader/data/sources/wu55comic.dart';
+import 'package:comic_reader/data/sources/wu55comic_decoder.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 
@@ -37,18 +39,41 @@ class MangaRepositoryImpl implements MangaRepository {
     return config.copyWith(headers: headers, extra: extra);
   }
 
-  /// Execute a request with domain fallback for JMComic.
+  /// Execute a request with domain fallback for JMComic and domain discovery for Wu55Comic.
   /// If request fails with a network/timeout error, switches to next domain and retries.
   Future<Response> _executeWithFallback(
     FetchConfig config,
     MangaSource source,
     FetchConfig Function() rebuildConfig,
   ) async {
-    if (source is! JmComic) {
+    if (source is! JmComic && source is! Wu55Comic) {
       return _httpClient.execute(config);
     }
 
-    final jmSource = source;
+    // For Wu55Comic: try execute, on failure attempt domain discovery + retry
+    if (source is Wu55Comic) {
+      try {
+        return await _httpClient.execute(config);
+      } catch (e) {
+        debugPrint('[Wu55] Request failed: $e, trying domain discovery...');
+        try {
+          final discoveryConfig = source.prepareDomainDiscoveryFetch();
+          final discoveryResponse = await _httpClient.execute(discoveryConfig);
+          final changed = source.parseDomainDiscovery(discoveryResponse.data);
+          if (changed) {
+            debugPrint('[Wu55] Domain updated to: ${source.baseUrl}');
+            final newConfig = rebuildConfig();
+            return await _httpClient.execute(_mergeHeaders(newConfig, source));
+          }
+        } catch (de) {
+          debugPrint('[Wu55] Domain discovery also failed: $de');
+        }
+        rethrow;
+      }
+    }
+
+    // For JmComic: rotate through fallback domains
+    final jmSource = source as JmComic;
     Object? lastError;
 
     for (int attempt = 0; attempt <= jmSource.maxDomainRetries; attempt++) {
@@ -193,6 +218,81 @@ class MangaRepositoryImpl implements MangaRepository {
           title: result.chapter.title,
           images: allImages,
         ),
+      );
+    }
+
+    // Handle wu55comic encrypted images: download shards, decrypt, convert to data URIs
+    if (source is Wu55Comic && result.chapter.images.isNotEmpty) {
+      debugPrint('[getChapter] Wu55: Decrypting ${result.chapter.images.length} images...');
+      final decryptedImages = <ChapterImage>[];
+
+      for (int i = 0; i < result.chapter.images.length; i++) {
+        final img = result.chapter.images[i];
+        if (img.scrambleType != ScrambleType.wu55) {
+          decryptedImages.add(img);
+          continue;
+        }
+
+        try {
+          // Build shard URLs
+          final shardUrls = Wu55ComicDecoder.buildShardUrls(img.url);
+
+          // Download both shards as bytes
+          final shard0Config = FetchConfig(
+            url: shardUrls[0],
+            responseType: ResponseType.bytes,
+            headers: img.headers,
+          );
+          final shard1Config = FetchConfig(
+            url: shardUrls[1],
+            responseType: ResponseType.bytes,
+            headers: img.headers,
+          );
+
+          final shard0Response = await _httpClient.execute(_mergeHeaders(shard0Config, source));
+          final shard1Response = await _httpClient.execute(_mergeHeaders(shard1Config, source));
+
+          // Combine shards
+          final shard0Bytes = shard0Response.data as List<int>;
+          final shard1Bytes = shard1Response.data as List<int>;
+          final combined = Uint8List.fromList([...shard0Bytes, ...shard1Bytes]);
+
+          // Decrypt and restore
+          final decoded = Wu55ComicDecoder.decode(combined);
+
+          // Convert to data URI
+          final base64Data = base64Encode(decoded.imageBytes);
+          final dataUri = 'data:${decoded.mimeType};base64,$base64Data';
+
+          decryptedImages.add(ChapterImage(
+            url: dataUri,
+            scrambleType: decoded.needsUnscramble ? ScrambleType.wu55 : ScrambleType.none,
+            wu55BookId: decoded.bookId,
+            wu55PageNumber: decoded.pageNumber,
+          ));
+
+          debugPrint('[getChapter] Wu55: Image ${i + 1} decrypted (${decoded.mimeType}, unscramble=${decoded.needsUnscramble})');
+        } catch (e) {
+          debugPrint('[getChapter] Wu55: Failed to decrypt image ${i + 1}: $e');
+          // Keep original URL as fallback (won't display correctly but allows retry)
+          decryptedImages.add(img);
+        }
+
+        // Small delay between requests to avoid being rate-limited
+        if (i < result.chapter.images.length - 1) {
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+      }
+
+      result = ChapterResult(
+        chapter: Chapter(
+          id: result.chapter.id,
+          mangaId: result.chapter.mangaId,
+          title: result.chapter.title,
+          images: decryptedImages,
+          headers: result.chapter.headers,
+        ),
+        canLoadMore: false,
       );
     }
 
@@ -398,6 +498,75 @@ class MangaRepositoryImpl implements MangaRepository {
               images: List<ChapterImage>.from(resolvedImages),
             ),
           );
+        }
+      }
+      return;
+    }
+
+    // Handle wu55comic encrypted images in stream path
+    if (source is Wu55Comic && result.chapter.images.isNotEmpty) {
+      debugPrint('[getChapterStream] Wu55: Decrypting ${result.chapter.images.length} images...');
+      final decryptedImages = <ChapterImage>[];
+
+      for (int i = 0; i < result.chapter.images.length; i++) {
+        final img = result.chapter.images[i];
+        if (img.scrambleType != ScrambleType.wu55) {
+          decryptedImages.add(img);
+          continue;
+        }
+
+        try {
+          final shardUrls = Wu55ComicDecoder.buildShardUrls(img.url);
+          final shard0Config = FetchConfig(
+            url: shardUrls[0],
+            responseType: ResponseType.bytes,
+            headers: img.headers,
+          );
+          final shard1Config = FetchConfig(
+            url: shardUrls[1],
+            responseType: ResponseType.bytes,
+            headers: img.headers,
+          );
+
+          final shard0Response = await _httpClient.execute(_mergeHeaders(shard0Config, source));
+          final shard1Response = await _httpClient.execute(_mergeHeaders(shard1Config, source));
+
+          final shard0Bytes = shard0Response.data as List<int>;
+          final shard1Bytes = shard1Response.data as List<int>;
+          final combined = Uint8List.fromList([...shard0Bytes, ...shard1Bytes]);
+
+          final decoded = Wu55ComicDecoder.decode(combined);
+          final base64Data = base64Encode(decoded.imageBytes);
+          final dataUri = 'data:${decoded.mimeType};base64,$base64Data';
+
+          decryptedImages.add(ChapterImage(
+            url: dataUri,
+            scrambleType: decoded.needsUnscramble ? ScrambleType.wu55 : ScrambleType.none,
+            wu55BookId: decoded.bookId,
+            wu55PageNumber: decoded.pageNumber,
+          ));
+
+          debugPrint('[getChapterStream] Wu55: Image ${i + 1}/${result.chapter.images.length} decrypted');
+        } catch (e) {
+          debugPrint('[getChapterStream] Wu55: Failed to decrypt image ${i + 1}: $e');
+          decryptedImages.add(img);
+        }
+
+        // Yield progress every 5 images so UI can start showing
+        if ((i + 1) % 5 == 0 || i == result.chapter.images.length - 1) {
+          yield ChapterResult(
+            chapter: Chapter(
+              id: result.chapter.id,
+              mangaId: result.chapter.mangaId,
+              title: result.chapter.title,
+              images: List<ChapterImage>.from(decryptedImages),
+            ),
+          );
+        }
+
+        // Small delay to avoid rate-limiting
+        if (i < result.chapter.images.length - 1) {
+          await Future.delayed(const Duration(milliseconds: 50));
         }
       }
       return;

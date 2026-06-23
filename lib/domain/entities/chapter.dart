@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-enum ScrambleType { none, jmc, rm5 }
+enum ScrambleType { none, jmc, rm5, wu55 }
 
 class ChapterItem extends Equatable {
   final String id;
@@ -26,16 +26,24 @@ class ChapterImage extends Equatable {
   /// The scramble_id threshold used for JMC unscrambling.
   /// Only relevant when scrambleType == ScrambleType.jmc.
   final int? scrambleId;
+  /// wu55comic book ID, used for slice count calculation.
+  /// Only relevant when scrambleType == ScrambleType.wu55.
+  final int? wu55BookId;
+  /// wu55comic page number (1-based index), used for slice count calculation.
+  /// Only relevant when scrambleType == ScrambleType.wu55.
+  final int? wu55PageNumber;
 
   const ChapterImage({
     required this.url,
     this.scrambleType = ScrambleType.none,
     this.headers,
     this.scrambleId,
+    this.wu55BookId,
+    this.wu55PageNumber,
   });
 
   @override
-  List<Object?> get props => [url, scrambleType, scrambleId];
+  List<Object?> get props => [url, scrambleType, scrambleId, wu55BookId, wu55PageNumber];
 }
 
 class Chapter extends Equatable {

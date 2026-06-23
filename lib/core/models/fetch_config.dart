@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart' show ResponseType;
+
 enum HttpMethod { get, post }
 
 class FetchConfig {
@@ -8,6 +10,7 @@ class FetchConfig {
   final dynamic body;
   final Duration? timeout;
   final Map<String, dynamic>? extra;
+  final ResponseType? responseType;
 
   const FetchConfig({
     required this.url,
@@ -17,6 +20,7 @@ class FetchConfig {
     this.body,
     this.timeout,
     this.extra,
+    this.responseType,
   });
 
   FetchConfig copyWith({
@@ -27,6 +31,7 @@ class FetchConfig {
     dynamic body,
     Duration? timeout,
     Map<String, dynamic>? extra,
+    ResponseType? responseType,
   }) {
     return FetchConfig(
       url: url ?? this.url,
@@ -36,6 +41,7 @@ class FetchConfig {
       body: body ?? this.body,
       timeout: timeout ?? this.timeout,
       extra: extra ?? this.extra,
+      responseType: responseType ?? this.responseType,
     );
   }
 }

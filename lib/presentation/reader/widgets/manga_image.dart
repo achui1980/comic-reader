@@ -1,15 +1,16 @@
 import 'dart:ui' as ui;
+import 'dart:convert' show base64Decode, utf8;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:extended_image/extended_image.dart';
 import 'package:crypto/crypto.dart' as crypto_lib;
-import 'dart:convert' show utf8;
 import 'package:get_it/get_it.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
 import 'package:comic_reader/core/utils/save_image.dart';
+import 'package:comic_reader/data/sources/wu55comic_decoder.dart';
 import 'package:comic_reader/presentation/reader/widgets/manga_image_file.dart'
     if (dart.library.io) 'package:comic_reader/presentation/reader/widgets/manga_image_file_io.dart';
 
@@ -176,6 +177,58 @@ class _MangaImageState extends State<MangaImage> {
     }
   }
 
+  /// Build image from data: URI (for pre-decoded images like wu55comic)
+  Widget _buildMemoryImage() {
+    try {
+      final uri = widget.image.url;
+      // Parse "data:image/jpeg;base64,XXXXX"
+      final commaIdx = uri.indexOf(',');
+      if (commaIdx < 0) {
+        return const Center(child: Text('Invalid data URI'));
+      }
+      final base64Data = uri.substring(commaIdx + 1);
+      final bytes = base64Decode(base64Data);
+
+      // If wu55 scrambled, use custom unscramble painter
+      if (widget.image.scrambleType == ScrambleType.wu55) {
+        return _Wu55MemoryImage(
+          imageBytes: Uint8List.fromList(bytes),
+          fit: widget.fit,
+          alignment: widget.jmcAlignment,
+          bookId: widget.image.wu55BookId ?? 0,
+          pageNumber: widget.image.wu55PageNumber ?? 0,
+        );
+      }
+
+      // Not scrambled, render directly
+      return Image.memory(
+        Uint8List.fromList(bytes),
+        fit: widget.fit,
+        errorBuilder: (_, error, __) => const Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.broken_image_outlined, size: 48, color: Colors.white54),
+              SizedBox(height: 8),
+              Text('图片解码失败', style: TextStyle(color: Colors.white54)),
+            ],
+          ),
+        ),
+      );
+    } catch (e) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, size: 48, color: Colors.white54),
+            const SizedBox(height: 8),
+            Text('数据错误: $e', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+          ],
+        ),
+      );
+    }
+  }
+
   Widget _buildImageContent() {
     // Placeholder for images not yet resolved (progressive loading)
     if (widget.image.url.isEmpty) {
@@ -226,6 +279,11 @@ class _MangaImageState extends State<MangaImage> {
     }
 
     // Load from network
+    // Handle data: URIs (pre-decoded binary, e.g. wu55comic)
+    if (widget.image.url.startsWith('data:')) {
+      return _buildMemoryImage();
+    }
+
     final imageUrl = ImageProxy.url(widget.image.url);
     debugPrint('[MangaImage] Loading: $imageUrl');
     return LayoutBuilder(
@@ -447,5 +505,103 @@ class _JmcUnscramblePainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _JmcUnscramblePainter oldDelegate) {
     return oldDelegate.image != image || oldDelegate.segments != segments;
+  }
+}
+
+/// Displays a wu55 memory image with slice unscrambling.
+/// Decodes bytes to ui.Image, then uses CustomPainter to rearrange slices.
+class _Wu55MemoryImage extends StatefulWidget {
+  final Uint8List imageBytes;
+  final BoxFit fit;
+  final Alignment alignment;
+  final int bookId;
+  final int pageNumber;
+
+  const _Wu55MemoryImage({
+    required this.imageBytes,
+    required this.fit,
+    required this.alignment,
+    required this.bookId,
+    required this.pageNumber,
+  });
+
+  @override
+  State<_Wu55MemoryImage> createState() => _Wu55MemoryImageState();
+}
+
+class _Wu55MemoryImageState extends State<_Wu55MemoryImage> {
+  ui.Image? _image;
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _decodeImage();
+  }
+
+  Future<void> _decodeImage() async {
+    try {
+      final codec = await ui.instantiateImageCodec(widget.imageBytes);
+      final frame = await codec.getNextFrame();
+      if (mounted) {
+        setState(() {
+          _image = frame.image;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = e.toString();
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    }
+    if (_error != null || _image == null) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.broken_image_outlined, size: 48, color: Colors.white54),
+            SizedBox(height: 8),
+            Text('解码失败', style: TextStyle(color: Colors.white54)),
+          ],
+        ),
+      );
+    }
+
+    final image = _image!;
+    final sliceCount = Wu55ComicDecoder.getSliceCount(widget.bookId, widget.pageNumber);
+    final w = image.width.toDouble();
+    final h = image.height.toDouble();
+
+    print('[Wu55Unscramble] bookId=${widget.bookId}, pageNumber=${widget.pageNumber}, '
+        'sliceCount=$sliceCount, imageSize=${w.toInt()}x${h.toInt()}, '
+        'base_h=${(h ~/ sliceCount)}, remainder=${h.toInt() % sliceCount}');
+
+    if (sliceCount <= 0) {
+      return RawImage(image: image, fit: widget.fit);
+    }
+
+    return FittedBox(
+      fit: widget.fit,
+      alignment: widget.alignment,
+      child: SizedBox(
+        width: w,
+        height: h,
+        child: CustomPaint(
+          size: Size(w, h),
+          painter: _JmcUnscramblePainter(image: image, segments: sliceCount),
+        ),
+      ),
+    );
   }
 }

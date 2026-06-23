@@ -23,6 +23,7 @@ on:
           - all
           - macos
           - windows
+          - android
   push:
     tags:
       - 'v*'
@@ -31,7 +32,7 @@ jobs:
   # ===== macOS 构建 =====
   build-macos:
     runs-on: macos-latest
-    if: github.event.inputs.platform != 'windows'
+    if: github.event.inputs.platform == 'macos' || github.event.inputs.platform == 'all' || github.event.inputs.platform == ''
     steps:
       - uses: actions/checkout@v4
 
@@ -94,7 +95,7 @@ jobs:
   # ===== Windows 构建 =====
   build-windows:
     runs-on: windows-latest
-    if: github.event.inputs.platform != 'macos'
+    if: github.event.inputs.platform == 'windows' || github.event.inputs.platform == 'all' || github.event.inputs.platform == ''
     steps:
       - uses: actions/checkout@v4
 
@@ -128,9 +129,48 @@ jobs:
           name: windows-zip
           path: "*.zip"
 
+  # ===== Android 构建 =====
+  build-android:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.platform == 'android' || github.event.inputs.platform == 'all' || github.event.inputs.platform == ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Get version
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Rename APK
+        run: |
+          mv build/app/outputs/flutter-apk/app-release.apk "ComicReader-${{ steps.version.outputs.version }}-Android.apk"
+
+      - name: Upload Android artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: "*.apk"
+
   # ===== 发布到 GitHub Release =====
   release:
-    needs: [build-macos, build-windows]
+    needs: [build-macos, build-windows, build-android]
     runs-on: ubuntu-latest
     if: |
       always() &&
@@ -167,6 +207,7 @@ jobs:
           files: |
             artifacts/macos-dmg/*.dmg
             artifacts/windows-zip/*.zip
+            artifacts/android-apk/*.apk
           body: |
             ## Comic Reader v${{ steps.version.outputs.version }}
 
@@ -176,6 +217,7 @@ jobs:
             |------|------|------|
             | macOS | `ComicReader-${{ steps.version.outputs.version }}-macOS.dmg` | 要求 macOS 11.0+ |
             | Windows | `ComicReader-${{ steps.version.outputs.version }}-Windows.zip` | 解压即用 |
+            | Android | `ComicReader-${{ steps.version.outputs.version }}-Android.apk` | 要求 Android 5.0+ |
 
             ### macOS 安装说明
             1. 双击 DMG → 拖 app 到 Applications

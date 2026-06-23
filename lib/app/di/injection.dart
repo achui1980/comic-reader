@@ -13,6 +13,7 @@ import 'package:comic_reader/data/sources/pica_comic.dart';
 import 'package:comic_reader/data/sources/wnacg.dart';
 import 'package:comic_reader/data/sources/ehentai.dart';
 import 'package:comic_reader/data/sources/baozi_manga.dart';
+import 'package:comic_reader/data/sources/wu55comic.dart';
 import 'package:comic_reader/data/repositories/manga_repository_impl.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
@@ -72,6 +73,7 @@ void configureDependencies() {
   registry.register(Wnacg());
   registry.register(EHentai());
   registry.register(BaoziManga());
+  registry.register(Wu55Comic());
   getIt.registerSingleton<SourceRegistry>(registry);
 
   // Repository
