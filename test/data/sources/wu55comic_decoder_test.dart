@@ -103,9 +103,10 @@ void main() {
 
     test('matches manual MD5 calculation', () {
       // Manual calculation for bookId=3751, pageNumber=13411
+      // JS passes as strings, so get_corp_count does string concat: "3751" + "13411" = "375113411"
       const bookId = 3751;
       const pageNumber = 13411;
-      final input = '${bookId + pageNumber}';
+      final input = '$bookId$pageNumber';
       final hash = md5.convert(utf8.encode(input)).toString();
       final lastChar = hash[hash.length - 1];
       final lastCharCode = lastChar.codeUnitAt(0);
@@ -357,6 +358,64 @@ void main() {
       // Verify JPEG header was restored
       expect(result.imageBytes[0], 0xFF);
       expect(result.imageBytes[1], 0xD8);
+    });
+
+    test('decodeShards decrypts each shard independently', () {
+      // Build a fake "decrypted" image payload
+      final payload = Uint8List(200);
+      payload[0] = 0; // JPEG
+      payload[1] = 0; // monga
+      payload[2] = 1000 ~/ 256;
+      payload[3] = 1000 % 256;
+      payload[4] = 0;
+      payload[5] = 0;
+      payload[6] = 500 ~/ 256;
+      payload[7] = 500 % 256;
+      for (int i = 8; i < 200; i++) {
+        payload[i] = (i * 3) & 0xFF;
+      }
+
+      // Split payload in half, encrypt each separately (simulating server)
+      final half = payload.length ~/ 2;
+      final part1 = Uint8List.sublistView(payload, 0, half);
+      final part2 = Uint8List.sublistView(payload, half);
+      final encShard0 = Wu55ComicDecoder.encryptAES(part1);
+      final encShard1 = Wu55ComicDecoder.encryptAES(part2);
+
+      // Decode through the shards pipeline
+      final result = Wu55ComicDecoder.decodeShards([encShard0, encShard1]);
+
+      expect(result.needsUnscramble, true);
+      expect(result.bookId, 1000);
+      expect(result.pageNumber, 500);
+      expect(result.mimeType, 'image/jpeg');
+      expect(result.imageBytes[0], 0xFF);
+      expect(result.imageBytes[1], 0xD8);
+    });
+
+    test('decodeShards gives different result from combined decrypt', () {
+      // If shards are encrypted separately, combining before decrypt is WRONG
+      final payload = Uint8List(200);
+      payload[0] = 0; // JPEG
+      payload[1] = 0; // monga
+      for (int i = 2; i < 200; i++) {
+        payload[i] = (i * 7) & 0xFF;
+      }
+
+      final half = payload.length ~/ 2;
+      final part1 = Uint8List.sublistView(payload, 0, half);
+      final part2 = Uint8List.sublistView(payload, half);
+      final encShard0 = Wu55ComicDecoder.encryptAES(part1);
+      final encShard1 = Wu55ComicDecoder.encryptAES(part2);
+
+      // Correct: decrypt each shard separately
+      final correct = Wu55ComicDecoder.decodeShards([encShard0, encShard1]);
+      // Wrong: combine then decrypt as one
+      final combined = Uint8List.fromList([...encShard0, ...encShard1]);
+      final wrong = Wu55ComicDecoder.decode(combined);
+
+      // The results should differ (demonstrating the bug we fixed)
+      expect(correct.imageBytes, isNot(equals(wrong.imageBytes)));
     });
   });
 }

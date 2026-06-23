@@ -194,18 +194,46 @@ class Wu55ComicDecoder {
   ///
   /// Formula: `44 + (md5("$bookId$pageNumber").lastChar.codeUnitAt(0) % 10) * 4`
   /// Range: 44, 48, 52, 56, 60, 64, 68, 72, 76, 80
+  ///
+  /// NOTE: JS passes book_id and page_number as STRINGS ("" + number),
+  /// so `e + a` in get_corp_count is STRING CONCATENATION, not numeric addition.
+  /// e.g., book_id=5336, page_number=1814840 → md5("53361814840") not md5("1820176")
   static int getSliceCount(int bookId, int pageNumber) {
-    // JS does numeric addition: get_corp_count(book_id, page_number) { c = e + a; md5(c)... }
-    final input = '${bookId + pageNumber}';
+    // JS does: c = e + a where e="5336", a="1814840" → "53361814840" (string concat)
+    final input = '$bookId$pageNumber';
     final hash = md5.convert(utf8.encode(input)).toString();
     final lastChar = hash[hash.length - 1];
     final lastCharCode = lastChar.codeUnitAt(0);
     return 44 + (lastCharCode % 10) * 4;
   }
 
-  /// Full decode pipeline: decrypt combined shard data and restore image.
+  /// Full decode pipeline: decrypt each shard separately then combine.
+  ///
+  /// IMPORTANT: Each shard must be decrypted independently (with its own IV),
+  /// then concatenated. This is because the server encrypts each shard as a
+  /// separate AES-CBC stream. Combining before decryption would corrupt the
+  /// data at the shard boundary (wrong CBC chaining).
   static Wu55ImageDecodeResult decode(Uint8List combinedShardData) {
+    // Legacy single-buffer API: decrypt as one block (for backward compat)
     final decrypted = decryptAES(combinedShardData);
     return restoreImage(decrypted);
+  }
+
+  /// Decode from individual shard buffers (correct method).
+  ///
+  /// Each shard is decrypted separately with the same key/IV, then
+  /// the decrypted results are concatenated.
+  static Wu55ImageDecodeResult decodeShards(List<Uint8List> shards) {
+    final decryptedParts = shards.map((shard) => decryptAES(shard)).toList();
+    // Concatenate decrypted parts
+    final totalLength =
+        decryptedParts.fold<int>(0, (sum, part) => sum + part.length);
+    final combined = Uint8List(totalLength);
+    int offset = 0;
+    for (final part in decryptedParts) {
+      combined.setRange(offset, offset + part.length, part);
+      offset += part.length;
+    }
+    return restoreImage(combined);
   }
 }

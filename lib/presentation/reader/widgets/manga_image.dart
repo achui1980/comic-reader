@@ -281,6 +281,8 @@ class _MangaImageState extends State<MangaImage> {
     // Load from network
     // Handle data: URIs (pre-decoded binary, e.g. wu55comic)
     if (widget.image.url.startsWith('data:')) {
+      debugPrint('[MangaImage] data: URI detected, scrambleType=${widget.image.scrambleType}, '
+          'bookId=${widget.image.wu55BookId}, pageNumber=${widget.image.wu55PageNumber}');
       return _buildMemoryImage();
     }
 
@@ -474,9 +476,16 @@ class _JmcUnscramblePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final w = image.width.toDouble();
     final h = image.height.toDouble();
-    final paint = Paint()..isAntiAlias = false;
+    final paint = Paint()
+      ..isAntiAlias = false
+      ..filterQuality = FilterQuality.none;
 
     final over = h.toInt() % segments;
+
+    // Only add overlap for low segment counts (JMC: 2-20 segments).
+    // For high segment counts (wu55: 44-80 segments), overlap causes visible
+    // artifacts because strips are very narrow (~10px).
+    final useOverlap = segments <= 20;
 
     for (int i = 0; i < segments; i++) {
       final move = (h ~/ segments).toDouble();
@@ -493,8 +502,8 @@ class _JmcUnscramblePainter extends CustomPainter {
         yDst += over;
       }
 
-      // Add 0.5px overlap to prevent sub-pixel gaps on iOS
-      final overlap = (i < segments - 1) ? 0.5 : 0.0;
+      // Add 0.5px overlap to prevent sub-pixel gaps on iOS (low segment counts only)
+      final overlap = (useOverlap && i < segments - 1) ? 0.5 : 0.0;
 
       final srcRect = Rect.fromLTWH(0, ySrc, w, segHeight + overlap);
       final dstRect = Rect.fromLTWH(0, yDst, w, segHeight + overlap);
@@ -580,12 +589,10 @@ class _Wu55MemoryImageState extends State<_Wu55MemoryImage> {
 
     final image = _image!;
     final sliceCount = Wu55ComicDecoder.getSliceCount(widget.bookId, widget.pageNumber);
+    debugPrint('[Wu55Unscramble] bookId=${widget.bookId}, pageNumber=${widget.pageNumber}, '
+        'imageSize=${image.width}x${image.height}, sliceCount=$sliceCount');
     final w = image.width.toDouble();
     final h = image.height.toDouble();
-
-    print('[Wu55Unscramble] bookId=${widget.bookId}, pageNumber=${widget.pageNumber}, '
-        'sliceCount=$sliceCount, imageSize=${w.toInt()}x${h.toInt()}, '
-        'base_h=${(h ~/ sliceCount)}, remainder=${h.toInt() % sliceCount}');
 
     if (sliceCount <= 0) {
       return RawImage(image: image, fit: widget.fit);

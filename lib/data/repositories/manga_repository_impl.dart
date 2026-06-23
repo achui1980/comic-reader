@@ -222,66 +222,24 @@ class MangaRepositoryImpl implements MangaRepository {
     }
 
     // Handle wu55comic encrypted images: download shards, decrypt, convert to data URIs
+    // Optimized: parallel shard downloads + batch processing (3 images concurrently)
     if (source is Wu55Comic && result.chapter.images.isNotEmpty) {
       debugPrint('[getChapter] Wu55: Decrypting ${result.chapter.images.length} images...');
-      final decryptedImages = <ChapterImage>[];
+      final decryptedImages = List<ChapterImage?>.filled(result.chapter.images.length, null);
+      const batchSize = 3;
 
-      for (int i = 0; i < result.chapter.images.length; i++) {
-        final img = result.chapter.images[i];
-        if (img.scrambleType != ScrambleType.wu55) {
-          decryptedImages.add(img);
-          continue;
+      for (int batchStart = 0; batchStart < result.chapter.images.length; batchStart += batchSize) {
+        final batchEnd = (batchStart + batchSize).clamp(0, result.chapter.images.length);
+        final futures = <Future<void>>[];
+
+        for (int i = batchStart; i < batchEnd; i++) {
+          futures.add(_decryptWu55Image(result.chapter.images[i], i, source).then((img) {
+            decryptedImages[i] = img;
+          }));
         }
 
-        try {
-          // Build shard URLs
-          final shardUrls = Wu55ComicDecoder.buildShardUrls(img.url);
-
-          // Download both shards as bytes
-          final shard0Config = FetchConfig(
-            url: shardUrls[0],
-            responseType: ResponseType.bytes,
-            headers: img.headers,
-          );
-          final shard1Config = FetchConfig(
-            url: shardUrls[1],
-            responseType: ResponseType.bytes,
-            headers: img.headers,
-          );
-
-          final shard0Response = await _httpClient.execute(_mergeHeaders(shard0Config, source));
-          final shard1Response = await _httpClient.execute(_mergeHeaders(shard1Config, source));
-
-          // Combine shards
-          final shard0Bytes = shard0Response.data as List<int>;
-          final shard1Bytes = shard1Response.data as List<int>;
-          final combined = Uint8List.fromList([...shard0Bytes, ...shard1Bytes]);
-
-          // Decrypt and restore
-          final decoded = Wu55ComicDecoder.decode(combined);
-
-          // Convert to data URI
-          final base64Data = base64Encode(decoded.imageBytes);
-          final dataUri = 'data:${decoded.mimeType};base64,$base64Data';
-
-          decryptedImages.add(ChapterImage(
-            url: dataUri,
-            scrambleType: decoded.needsUnscramble ? ScrambleType.wu55 : ScrambleType.none,
-            wu55BookId: decoded.bookId,
-            wu55PageNumber: decoded.pageNumber,
-          ));
-
-          debugPrint('[getChapter] Wu55: Image ${i + 1} decrypted (${decoded.mimeType}, unscramble=${decoded.needsUnscramble})');
-        } catch (e) {
-          debugPrint('[getChapter] Wu55: Failed to decrypt image ${i + 1}: $e');
-          // Keep original URL as fallback (won't display correctly but allows retry)
-          decryptedImages.add(img);
-        }
-
-        // Small delay between requests to avoid being rate-limited
-        if (i < result.chapter.images.length - 1) {
-          await Future.delayed(const Duration(milliseconds: 100));
-        }
+        await Future.wait(futures);
+        debugPrint('[getChapter] Wu55: Batch ${batchStart ~/ batchSize + 1} done ($batchEnd/${result.chapter.images.length})');
       }
 
       result = ChapterResult(
@@ -289,7 +247,7 @@ class MangaRepositoryImpl implements MangaRepository {
           id: result.chapter.id,
           mangaId: result.chapter.mangaId,
           title: result.chapter.title,
-          images: decryptedImages,
+          images: decryptedImages.map((e) => e!).toList(),
           headers: result.chapter.headers,
         ),
         canLoadMore: false,
@@ -504,75 +462,79 @@ class MangaRepositoryImpl implements MangaRepository {
     }
 
     // Handle wu55comic encrypted images in stream path
+    // Optimized: parallel shard downloads + batch processing with progressive yield
     if (source is Wu55Comic && result.chapter.images.isNotEmpty) {
       debugPrint('[getChapterStream] Wu55: Decrypting ${result.chapter.images.length} images...');
       final decryptedImages = <ChapterImage>[];
+      const batchSize = 3;
 
-      for (int i = 0; i < result.chapter.images.length; i++) {
-        final img = result.chapter.images[i];
-        if (img.scrambleType != ScrambleType.wu55) {
-          decryptedImages.add(img);
-          continue;
+      for (int batchStart = 0; batchStart < result.chapter.images.length; batchStart += batchSize) {
+        final batchEnd = (batchStart + batchSize).clamp(0, result.chapter.images.length);
+        final futures = <Future<ChapterImage>>[];
+
+        for (int i = batchStart; i < batchEnd; i++) {
+          futures.add(_decryptWu55Image(result.chapter.images[i], i, source));
         }
 
-        try {
-          final shardUrls = Wu55ComicDecoder.buildShardUrls(img.url);
-          final shard0Config = FetchConfig(
-            url: shardUrls[0],
-            responseType: ResponseType.bytes,
-            headers: img.headers,
-          );
-          final shard1Config = FetchConfig(
-            url: shardUrls[1],
-            responseType: ResponseType.bytes,
-            headers: img.headers,
-          );
+        final batchResults = await Future.wait(futures);
+        decryptedImages.addAll(batchResults);
 
-          final shard0Response = await _httpClient.execute(_mergeHeaders(shard0Config, source));
-          final shard1Response = await _httpClient.execute(_mergeHeaders(shard1Config, source));
-
-          final shard0Bytes = shard0Response.data as List<int>;
-          final shard1Bytes = shard1Response.data as List<int>;
-          final combined = Uint8List.fromList([...shard0Bytes, ...shard1Bytes]);
-
-          final decoded = Wu55ComicDecoder.decode(combined);
-          final base64Data = base64Encode(decoded.imageBytes);
-          final dataUri = 'data:${decoded.mimeType};base64,$base64Data';
-
-          decryptedImages.add(ChapterImage(
-            url: dataUri,
-            scrambleType: decoded.needsUnscramble ? ScrambleType.wu55 : ScrambleType.none,
-            wu55BookId: decoded.bookId,
-            wu55PageNumber: decoded.pageNumber,
-          ));
-
-          debugPrint('[getChapterStream] Wu55: Image ${i + 1}/${result.chapter.images.length} decrypted');
-        } catch (e) {
-          debugPrint('[getChapterStream] Wu55: Failed to decrypt image ${i + 1}: $e');
-          decryptedImages.add(img);
-        }
-
-        // Yield progress every 5 images so UI can start showing
-        if ((i + 1) % 5 == 0 || i == result.chapter.images.length - 1) {
-          yield ChapterResult(
-            chapter: Chapter(
-              id: result.chapter.id,
-              mangaId: result.chapter.mangaId,
-              title: result.chapter.title,
-              images: List<ChapterImage>.from(decryptedImages),
-            ),
-          );
-        }
-
-        // Small delay to avoid rate-limiting
-        if (i < result.chapter.images.length - 1) {
-          await Future.delayed(const Duration(milliseconds: 50));
-        }
+        // Yield progress after each batch so UI can start showing images
+        yield ChapterResult(
+          chapter: Chapter(
+            id: result.chapter.id,
+            mangaId: result.chapter.mangaId,
+            title: result.chapter.title,
+            images: List<ChapterImage>.from(decryptedImages),
+          ),
+        );
+        debugPrint('[getChapterStream] Wu55: ${decryptedImages.length}/${result.chapter.images.length} decrypted');
       }
       return;
     }
 
     // Default: non-EH sources just yield once
     yield result;
+  }
+
+  /// Decrypt a single wu55comic image: download shards in parallel, AES decrypt, return data URI.
+  Future<ChapterImage> _decryptWu55Image(ChapterImage img, int index, Wu55Comic source) async {
+    if (img.scrambleType != ScrambleType.wu55) return img;
+
+    try {
+      final shardUrls = Wu55ComicDecoder.buildShardUrls(img.url);
+
+      // Download both shards in parallel
+      final responses = await Future.wait([
+        _httpClient.execute(_mergeHeaders(FetchConfig(
+          url: shardUrls[0],
+          responseType: ResponseType.bytes,
+          headers: img.headers,
+        ), source)),
+        _httpClient.execute(_mergeHeaders(FetchConfig(
+          url: shardUrls[1],
+          responseType: ResponseType.bytes,
+          headers: img.headers,
+        ), source)),
+      ]);
+
+      final shard0Bytes = Uint8List.fromList(responses[0].data as List<int>);
+      final shard1Bytes = Uint8List.fromList(responses[1].data as List<int>);
+
+      // Each shard is an independent AES-CBC stream
+      final decoded = Wu55ComicDecoder.decodeShards([shard0Bytes, shard1Bytes]);
+      final base64Data = base64Encode(decoded.imageBytes);
+      final dataUri = 'data:${decoded.mimeType};base64,$base64Data';
+
+      return ChapterImage(
+        url: dataUri,
+        scrambleType: decoded.needsUnscramble ? ScrambleType.wu55 : ScrambleType.none,
+        wu55BookId: decoded.bookId,
+        wu55PageNumber: decoded.pageNumber,
+      );
+    } catch (e) {
+      debugPrint('[Wu55] Failed to decrypt image ${index + 1}: $e');
+      return img; // fallback to original
+    }
   }
 }
