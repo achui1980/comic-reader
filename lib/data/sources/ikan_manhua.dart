@@ -278,14 +278,97 @@ class IkanManhua extends MangaSource {
 
   @override
   FetchConfig prepareMangaInfoFetch(String mangaId) {
-    // TODO: Task 4
-    throw UnimplementedError();
+    return FetchConfig(
+      url: '$_baseUrl/book/$mangaId',
+      headers: defaultHeaders,
+    );
   }
 
   @override
   MangaDetail parseMangaInfo(dynamic response, String mangaId) {
-    // TODO: Task 4
-    throw UnimplementedError();
+    final html = response as String;
+    final document = html_parser.parse(html);
+
+    // Title
+    final title = document.querySelector('h1')?.text.trim() ?? '';
+
+    // Metadata paragraphs (author, status, tags, region)
+    String author = '';
+    MangaStatus status = MangaStatus.unknown;
+    List<String> tags = [];
+    String? description;
+
+    final metaParagraphs = document.querySelectorAll('p.text-sm.text-gray-700');
+    for (final p in metaParagraphs) {
+      final text = p.text.trim();
+      if (text.startsWith('作者：') || text.startsWith('作者:')) {
+        author = text.replaceFirst(RegExp(r'^作者[：:]'), '').trim();
+      } else if (text.startsWith('状态：') || text.startsWith('状态:') ||
+                 text.startsWith('狀態：') || text.startsWith('狀態:')) {
+        if (text.contains('完结') || text.contains('完結')) {
+          status = MangaStatus.completed;
+        } else if (text.contains('连载') || text.contains('連載')) {
+          status = MangaStatus.ongoing;
+        }
+      } else if (text.startsWith('标签：') || text.startsWith('标签:') ||
+                 text.startsWith('標籤：') || text.startsWith('標籤:')) {
+        final tagText = text.replaceFirst(RegExp(r'^(标签|標籤)[：:]'), '').trim();
+        tags = tagText.split(RegExp(r'[,，、\s]+'))
+            .where((t) => t.isNotEmpty)
+            .toList();
+      } else if (!text.startsWith('地区') && !text.startsWith('地區') &&
+                 !text.startsWith('浏览') && !text.startsWith('瀏覽') &&
+                 text.length > 20) {
+        // Long text not matching known prefixes is likely the description
+        description ??= text;
+      }
+    }
+
+    // Also check for description in a dedicated section below metadata
+    if (description == null) {
+      final descEl = document.querySelector('.mt-4 p.text-sm.text-gray-700');
+      description = descEl?.text.trim();
+    }
+
+    // Cover URL
+    final coverUrl = '$_imageCdn/$mangaId/cover.jpg';
+
+    // Chapters — extract from all <a href="/chapter/{id}"> links
+    final chapterLinks = document.querySelectorAll('a[href^="/chapter/"]');
+    final chapters = <ChapterItem>[];
+    final seenChapterIds = <String>{};
+
+    for (final link in chapterLinks) {
+      final chapterHref = link.attributes['href'] ?? '';
+      final chapterMatch = RegExp(r'/chapter/(\d+)').firstMatch(chapterHref);
+      if (chapterMatch == null) continue;
+
+      final chapterId = chapterMatch.group(1)!;
+      if (seenChapterIds.contains(chapterId)) continue;
+      seenChapterIds.add(chapterId);
+
+      final chapterTitle = link.text.trim();
+      if (chapterTitle.isEmpty) continue;
+
+      chapters.add(ChapterItem(
+        id: chapterId,
+        mangaId: mangaId,
+        title: chapterTitle,
+      ));
+    }
+
+    return MangaDetail(
+      id: mangaId,
+      sourceId: sourceId,
+      title: title,
+      coverUrl: coverUrl,
+      description: description,
+      author: author,
+      tags: tags,
+      status: status,
+      chapters: chapters,
+      headers: defaultHeaders,
+    );
   }
 
   // --- Chapter List ---
