@@ -388,14 +388,44 @@ class IkanManhua extends MangaSource {
   @override
   FetchConfig prepareChapterFetch(String mangaId, String chapterId, int page,
       {dynamic extra}) {
-    // TODO: Task 5
-    throw UnimplementedError();
+    return FetchConfig(
+      url: '$_baseUrl/chapter/$chapterId',
+      headers: defaultHeaders,
+    );
   }
 
   @override
   ChapterResult parseChapter(
       dynamic response, String mangaId, String chapterId, int page) {
-    // TODO: Task 5
-    throw UnimplementedError();
+    final html = response as String;
+    final document = html_parser.parse(html);
+
+    // Chapter title from the subtitle element
+    final title =
+        document.querySelector('p.text-lg.text-gray-700')?.text.trim() ??
+            document.querySelector('h1')?.text.trim() ??
+            '第?話';
+
+    // Extract all chapter images from img tags pointing to the CDN
+    final imgElements = document.querySelectorAll('img[src*="jjmh.cc"]');
+    final images = <ChapterImage>[];
+
+    for (final img in imgElements) {
+      final src = img.attributes['src'];
+      if (src == null || src.isEmpty) continue;
+      // Skip cover images (they contain /cover.jpg)
+      if (src.contains('/cover.jpg')) continue;
+      images.add(ChapterImage(url: src, headers: defaultHeaders));
+    }
+
+    return ChapterResult(
+      chapter: Chapter(
+        id: chapterId,
+        mangaId: mangaId,
+        title: title,
+        images: images,
+        headers: defaultHeaders,
+      ),
+    );
   }
 }
