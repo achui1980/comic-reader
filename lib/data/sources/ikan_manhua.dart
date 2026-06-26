@@ -260,14 +260,18 @@ class IkanManhua extends MangaSource {
   @override
   FetchConfig prepareSearchFetch(
       String keyword, int page, Map<String, String> filters) {
-    // TODO: Task 3
-    throw UnimplementedError();
+    return FetchConfig(
+      url: '$_baseUrl/search',
+      queryParameters: {'keyword': keyword},
+      headers: defaultHeaders,
+    );
   }
 
   @override
   List<MangaSummary> parseSearch(dynamic response) {
-    // TODO: Task 3
-    throw UnimplementedError();
+    final html = response as String;
+    final document = html_parser.parse(html);
+    return _parseGridCards(document);
   }
 
   // --- Manga Info ---
