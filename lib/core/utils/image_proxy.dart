@@ -23,14 +23,19 @@ class ImageProxy {
   }
 
   /// Filter headers for image loading.
-  /// On web, removes headers that browsers refuse to set (Referer, User-Agent, etc.)
-  /// since the CORS proxy handles them automatically.
+  /// On web, converts browser-unsafe headers (Referer, User-Agent) to
+  /// X-Proxy-* prefixed versions so the CORS proxy can restore them.
   /// On native, returns headers unchanged.
   static Map<String, String>? safeHeaders(Map<String, String>? headers) {
     if (!kIsWeb || headers == null || headers.isEmpty) return headers;
     final filtered = <String, String>{};
     for (final entry in headers.entries) {
-      if (!_unsafeHeaders.contains(entry.key.toLowerCase())) {
+      final lower = entry.key.toLowerCase();
+      if (lower == 'referer') {
+        filtered['X-Proxy-Referer'] = entry.value;
+      } else if (lower == 'user-agent') {
+        filtered['X-Proxy-User-Agent'] = entry.value;
+      } else if (!_unsafeHeaders.contains(lower)) {
         filtered[entry.key] = entry.value;
       }
     }
