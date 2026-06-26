@@ -16,6 +16,7 @@ import 'package:comic_reader/data/sources/baozi_manga.dart';
 import 'package:comic_reader/data/sources/wu55comic.dart';
 import 'package:comic_reader/data/sources/goda_manga.dart';
 import 'package:comic_reader/data/sources/ikan_manhua.dart';
+import 'package:comic_reader/data/sources/komiic.dart';
 import 'package:comic_reader/data/repositories/manga_repository_impl.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
@@ -78,6 +79,7 @@ void configureDependencies() {
   registry.register(Wu55Comic());
   registry.register(GodaManga());
   registry.register(IkanManhua());
+  registry.register(Komiic());
   getIt.registerSingleton<SourceRegistry>(registry);
 
   // Repository
