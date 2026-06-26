@@ -394,7 +394,7 @@ class Komiic extends MangaSource {
 
     final chapterItems = items.map<ChapterItem>((item) {
       final ch = item as Map<String, dynamic>;
-      final serial = ch['serial'] as int? ?? 0;
+      final serial = ch['serial']?.toString() ?? '0';
       final title = isBookType ? '第$serial卷' : '第$serial話';
 
       return ChapterItem(
