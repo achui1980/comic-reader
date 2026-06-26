@@ -414,12 +414,64 @@ class Komiic extends MangaSource {
   @override
   FetchConfig prepareChapterFetch(String mangaId, String chapterId, int page,
       {dynamic extra}) {
-    throw UnimplementedError();
+    const operationName = 'imagesByChapterId';
+    const query = '''query imagesByChapterId(\$chapterId: ID!) {
+  imagesByChapterId(chapterId: \$chapterId) {
+    id kid height width
+  }
+}''';
+
+    return FetchConfig(
+      url: _apiUrl,
+      method: HttpMethod.post,
+      headers: defaultHeaders,
+      body: _buildGraphqlBody(operationName, query, {'chapterId': chapterId}),
+      extra: {'mangaId': mangaId, 'chapterId': chapterId},
+    );
   }
 
   @override
   ChapterResult parseChapter(
       dynamic response, String mangaId, String chapterId, int page) {
-    throw UnimplementedError();
+    final Map<String, dynamic> json;
+    if (response is String) {
+      json = jsonDecode(response) as Map<String, dynamic>;
+    } else {
+      json = response as Map<String, dynamic>;
+    }
+
+    final data = json['data'] as Map<String, dynamic>?;
+    final imagesList = data?['imagesByChapterId'] as List<dynamic>? ?? [];
+
+    // Build image headers with the required Referer
+    final imageHeaders = {
+      'User-Agent': _userAgent,
+      'Referer': '$_baseUrl/comic/$mangaId/chapter/$chapterId/images/all',
+    };
+
+    final images = imagesList.map<ChapterImage>((item) {
+      final img = item as Map<String, dynamic>;
+      final kid = img['kid'] as String;
+
+      return ChapterImage(
+        url: '$_baseUrl/api/image/$kid',
+        headers: imageHeaders,
+      );
+    }).toList();
+
+    return ChapterResult(
+      chapter: Chapter(
+        id: chapterId,
+        mangaId: mangaId,
+        title: '',
+        images: images,
+      ),
+      canLoadMore: false,
+    );
+  }
+
+  @override
+  String? getChapterWebUrl(String mangaId, String chapterId) {
+    return '$_baseUrl/comic/$mangaId/chapter/$chapterId/images/all';
   }
 }
