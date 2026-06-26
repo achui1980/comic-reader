@@ -287,23 +287,127 @@ class Komiic extends MangaSource {
   // --- Manga Info ---
   @override
   FetchConfig prepareMangaInfoFetch(String mangaId) {
-    throw UnimplementedError();
+    const operationName = 'comicById';
+    const query = '''query comicById(\$comicId: ID!) {
+  comicById(comicId: \$comicId) {
+    id title description status imageUrl
+    authors { id name }
+    categories { id name }
+    dateUpdated
+  }
+}''';
+
+    return FetchConfig(
+      url: _apiUrl,
+      method: HttpMethod.post,
+      headers: defaultHeaders,
+      body: _buildGraphqlBody(operationName, query, {'comicId': mangaId}),
+    );
   }
 
   @override
   MangaDetail parseMangaInfo(dynamic response, String mangaId) {
-    throw UnimplementedError();
+    final Map<String, dynamic> json;
+    if (response is String) {
+      json = jsonDecode(response) as Map<String, dynamic>;
+    } else {
+      json = response as Map<String, dynamic>;
+    }
+
+    final data = json['data'] as Map<String, dynamic>?;
+    final comic = data?['comicById'] as Map<String, dynamic>? ?? {};
+
+    final authors = (comic['authors'] as List<dynamic>?)
+            ?.map((a) => (a as Map<String, dynamic>)['name'] as String)
+            .join(', ') ??
+        '';
+
+    final categories = (comic['categories'] as List<dynamic>?)
+            ?.map((c) => (c as Map<String, dynamic>)['name'] as String)
+            .toList() ??
+        [];
+
+    final statusStr = comic['status'] as String? ?? '';
+    final status = switch (statusStr) {
+      'ONGOING' => MangaStatus.ongoing,
+      'END' => MangaStatus.completed,
+      _ => MangaStatus.unknown,
+    };
+
+    return MangaDetail(
+      id: mangaId,
+      sourceId: sourceId,
+      title: comic['title'] as String? ?? '',
+      coverUrl: comic['imageUrl'] as String? ?? '',
+      description: comic['description'] as String?,
+      author: authors,
+      tags: categories,
+      status: status,
+      updateTime: comic['dateUpdated'] as String?,
+    );
   }
 
   // --- Chapter List ---
   @override
   FetchConfig? prepareChapterListFetch(String mangaId, int page) {
-    throw UnimplementedError();
+    // API returns all chapters at once, no pagination needed
+    if (page > 1) return null;
+
+    const operationName = 'chapterByComicId';
+    const query = '''query chapterByComicId(\$comicId: ID!) {
+  chaptersByComicId(comicId: \$comicId) {
+    id serial type size dateCreated dateUpdated
+  }
+}''';
+
+    return FetchConfig(
+      url: _apiUrl,
+      method: HttpMethod.post,
+      headers: defaultHeaders,
+      body: _buildGraphqlBody(operationName, query, {'comicId': mangaId}),
+    );
   }
 
   @override
   ChapterListResult parseChapterList(dynamic response, String mangaId) {
-    throw UnimplementedError();
+    final Map<String, dynamic> json;
+    if (response is String) {
+      json = jsonDecode(response) as Map<String, dynamic>;
+    } else {
+      json = response as Map<String, dynamic>;
+    }
+
+    final data = json['data'] as Map<String, dynamic>?;
+    final chaptersList = data?['chaptersByComicId'] as List<dynamic>? ?? [];
+
+    // Separate by type: prefer 'chapter' over 'book'
+    final chapters = chaptersList
+        .where((c) => (c as Map<String, dynamic>)['type'] == 'chapter')
+        .toList();
+    final books = chaptersList
+        .where((c) => (c as Map<String, dynamic>)['type'] == 'book')
+        .toList();
+
+    // Use chapters if available, otherwise fall back to books
+    final items = chapters.isNotEmpty ? chapters : books;
+    final isBookType = chapters.isEmpty && books.isNotEmpty;
+
+    final chapterItems = items.map<ChapterItem>((item) {
+      final ch = item as Map<String, dynamic>;
+      final serial = ch['serial'] as int? ?? 0;
+      final title = isBookType ? '第$serial卷' : '第$serial話';
+
+      return ChapterItem(
+        id: ch['id'].toString(),
+        mangaId: mangaId,
+        title: title,
+      );
+    }).toList();
+
+    return ChapterListResult(
+      chapters: chapterItems,
+      canLoadMore: false,
+    );
   }
 
   // --- Chapter Content ---
