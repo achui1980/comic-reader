@@ -184,6 +184,8 @@ const server = http.createServer((req, res) => {
       headers['referer'] = 'https://nhentai.to';
     } else if (host.includes('picacomic.com')) {
       headers['referer'] = 'https://picacomic.com';
+    } else if (host.includes('hitomi.la') || host.includes('gold-usergeneratedcontent.net')) {
+      headers['referer'] = 'https://hitomi.la/';
     }
   }
 

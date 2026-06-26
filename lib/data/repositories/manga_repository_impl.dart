@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/data/remote/http_client.dart';
+import 'package:comic_reader/data/sources/hitomi.dart';
 import 'package:comic_reader/data/sources/jm_comic.dart';
 import 'package:comic_reader/data/sources/manga_source.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
@@ -113,6 +114,12 @@ class MangaRepositoryImpl implements MangaRepository {
     final response = await _executeWithFallback(
       config, source, () => source.prepareDiscoveryFetch(page, filters),
     );
+
+    // Hitomi: nozomi returns only IDs; enrich with galleryblock HTML
+    if (source is Hitomi) {
+      return _enrichHitomiResults(source, response.data);
+    }
+
     final results = source.parseDiscovery(response.data);
     debugPrint('[getDiscovery] page=$page returned ${results.length} items${results.isNotEmpty ? ", first: ${results.first.id}" : ""}');
     return results;
@@ -128,6 +135,12 @@ class MangaRepositoryImpl implements MangaRepository {
     final response = await _executeWithFallback(
       config, source, () => source.prepareSearchFetch(keyword, page, filters),
     );
+
+    // Hitomi: nozomi returns only IDs; enrich with galleryblock HTML
+    if (source is Hitomi) {
+      return _enrichHitomiResults(source, response.data);
+    }
+
     return source.parseSearch(response.data);
   }
 
@@ -135,6 +148,18 @@ class MangaRepositoryImpl implements MangaRepository {
   Future<MangaDetail> getMangaInfo(String sourceId, String mangaId) async {
     final source = _sourceRegistry.get(sourceId);
     if (source == null) throw Exception('Source not found: $sourceId');
+
+    // Hitomi: ensure gg.js is loaded before parsing manga info (needed for cover URL)
+    if (source is Hitomi && source.needsGgRefresh) {
+      try {
+        var ggConfig = source.prepareGgFetch();
+        ggConfig = _mergeHeaders(ggConfig, source);
+        final ggResponse = await _httpClient.execute(ggConfig);
+        source.parseGgResponse(ggResponse.data?.toString() ?? '');
+      } catch (e) {
+        debugPrint('[getMangaInfo] Hitomi: Failed to fetch gg.js: $e');
+      }
+    }
 
     var config = source.prepareMangaInfoFetch(mangaId);
     config = _mergeHeaders(config, source);
@@ -182,6 +207,20 @@ class MangaRepositoryImpl implements MangaRepository {
         debugPrint('[getChapter] JMC: scramble_id updated');
       } catch (e) {
         debugPrint('[getChapter] JMC: Failed to fetch scramble_id: $e (using default)');
+      }
+    }
+
+    // Hitomi: fetch gg.js before chapter to determine image CDN subdomain routing
+    if (source is Hitomi && source.needsGgRefresh) {
+      try {
+        var ggConfig = source.prepareGgFetch();
+        ggConfig = _mergeHeaders(ggConfig, source);
+        debugPrint('[getChapter] Hitomi: Fetching gg.js');
+        final ggResponse = await _httpClient.execute(ggConfig);
+        source.parseGgResponse(ggResponse.data?.toString() ?? '');
+        debugPrint('[getChapter] Hitomi: gg.js updated');
+      } catch (e) {
+        debugPrint('[getChapter] Hitomi: Failed to fetch gg.js: $e (using fallback)');
       }
     }
 
@@ -536,5 +575,39 @@ class MangaRepositoryImpl implements MangaRepository {
       debugPrint('[Wu55] Failed to decrypt image ${index + 1}: $e');
       return img; // fallback to original
     }
+  }
+
+  /// Hitomi: enrich nozomi ID list with galleryblock HTML to get titles and covers.
+  /// Fetches galleryblock/{id}.html in parallel for each ID.
+  Future<List<MangaSummary>> _enrichHitomiResults(Hitomi source, dynamic responseData) async {
+    final ids = source.parseNozomiIds(responseData);
+    debugPrint('[Hitomi] Enriching ${ids.length} gallery IDs with galleryblock...');
+
+    if (ids.isEmpty) return [];
+
+    // Fetch galleryblock HTML for each ID in parallel
+    final futures = ids.map((id) async {
+      try {
+        var config = source.prepareGalleryBlockFetch(id);
+        config = _mergeHeaders(config, source);
+        final response = await _httpClient.execute(config);
+        final html = response.data?.toString() ?? '';
+        return source.parseGalleryBlock(html, id);
+      } catch (e) {
+        debugPrint('[Hitomi] Failed to fetch galleryblock for $id: $e');
+        // Return a placeholder if fetch fails
+        return MangaSummary(
+          id: id,
+          sourceId: Hitomi.sourceId,
+          title: 'Gallery #$id',
+          coverUrl: '',
+        );
+      }
+    }).toList();
+
+    final results = await Future.wait(futures);
+    final summaries = results.whereType<MangaSummary>().toList();
+    debugPrint('[Hitomi] Enriched ${summaries.length} items, first: ${summaries.isNotEmpty ? summaries.first.id : "none"}');
+    return summaries;
   }
 }
