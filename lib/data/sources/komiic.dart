@@ -229,12 +229,59 @@ class Komiic extends MangaSource {
   @override
   FetchConfig prepareSearchFetch(
       String keyword, int page, Map<String, String> filters) {
-    throw UnimplementedError();
+    const operationName = 'searchComicAndAuthor';
+    const query = '''query searchComicAndAuthor(\$keyword: String!) {
+  searchComicsAndAuthors(keyword: \$keyword) {
+    comics {
+      id title status imageUrl
+      authors { id name }
+      categories { id name }
+    }
+  }
+}''';
+
+    return FetchConfig(
+      url: _apiUrl,
+      method: HttpMethod.post,
+      headers: defaultHeaders,
+      body: _buildGraphqlBody(operationName, query, {'keyword': keyword}),
+    );
   }
 
   @override
   List<MangaSummary> parseSearch(dynamic response) {
-    throw UnimplementedError();
+    final Map<String, dynamic> json;
+    if (response is String) {
+      json = jsonDecode(response) as Map<String, dynamic>;
+    } else {
+      json = response as Map<String, dynamic>;
+    }
+
+    final data = json['data'] as Map<String, dynamic>?;
+    if (data == null) return [];
+
+    final searchResult =
+        data['searchComicsAndAuthors'] as Map<String, dynamic>?;
+    if (searchResult == null) return [];
+
+    final comics = searchResult['comics'] as List<dynamic>?;
+    if (comics == null) return [];
+
+    return comics.map<MangaSummary>((item) {
+      final comic = item as Map<String, dynamic>;
+      final authors = (comic['authors'] as List<dynamic>?)
+              ?.map((a) => (a as Map<String, dynamic>)['name'] as String)
+              .join(', ') ??
+          '';
+
+      return MangaSummary(
+        id: comic['id'].toString(),
+        sourceId: sourceId,
+        title: comic['title'] as String? ?? '',
+        coverUrl: comic['imageUrl'] as String? ?? '',
+        author: authors,
+      );
+    }).toList();
   }
 
   // --- Manga Info ---
