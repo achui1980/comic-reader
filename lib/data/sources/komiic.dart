@@ -128,12 +128,101 @@ class Komiic extends MangaSource {
   // --- Discovery ---
   @override
   FetchConfig prepareDiscoveryFetch(int page, Map<String, String> filters) {
-    throw UnimplementedError();
+    final mode = filters['mode'] ?? 'hot';
+    final orderBy = filters['orderBy'] ?? 'DATE_UPDATED';
+    final status = filters['status'] ?? '';
+    final category = filters['category'] ?? '';
+
+    final pagination = {
+      'offset': (page - 1) * _pageSize,
+      'limit': _pageSize,
+      'orderBy': orderBy,
+      'status': status,
+      'asc': false,
+    };
+
+    String operationName;
+    String query;
+    Map<String, dynamic> variables;
+
+    if (mode == 'category' && category.isNotEmpty) {
+      operationName = 'comicByCategories';
+      query = '''query comicByCategories(\$categoryId: [ID!]!, \$pagination: Pagination!) {
+  comics: comicByCategories(categoryId: \$categoryId, pagination: \$pagination) {
+    id title status imageUrl
+    authors { id name }
+    categories { id name }
+  }
+}''';
+      variables = {
+        'categoryId': [category],
+        'pagination': pagination,
+      };
+    } else if (mode == 'recent') {
+      operationName = 'recentUpdate';
+      query = '''query recentUpdate(\$pagination: Pagination!) {
+  comics: recentUpdate(pagination: \$pagination) {
+    id title status imageUrl
+    authors { id name }
+    categories { id name }
+  }
+}''';
+      variables = {'pagination': pagination};
+    } else {
+      operationName = 'hotComics';
+      query = '''query hotComics(\$pagination: Pagination!) {
+  comics: hotComics(pagination: \$pagination) {
+    id title status imageUrl
+    authors { id name }
+    categories { id name }
+  }
+}''';
+      variables = {'pagination': pagination};
+    }
+
+    return FetchConfig(
+      url: _apiUrl,
+      method: HttpMethod.post,
+      headers: defaultHeaders,
+      body: _buildGraphqlBody(operationName, query, variables),
+    );
   }
 
   @override
   List<MangaSummary> parseDiscovery(dynamic response) {
-    throw UnimplementedError();
+    return _parseComicsList(response);
+  }
+
+  /// Shared parser for comic list responses (discovery, search, category)
+  List<MangaSummary> _parseComicsList(dynamic response) {
+    final Map<String, dynamic> json;
+    if (response is String) {
+      json = jsonDecode(response) as Map<String, dynamic>;
+    } else {
+      json = response as Map<String, dynamic>;
+    }
+
+    final data = json['data'] as Map<String, dynamic>?;
+    if (data == null) return [];
+
+    final List<dynamic>? comics = data['comics'] as List<dynamic>?;
+    if (comics == null) return [];
+
+    return comics.map<MangaSummary>((item) {
+      final comic = item as Map<String, dynamic>;
+      final authors = (comic['authors'] as List<dynamic>?)
+              ?.map((a) => (a as Map<String, dynamic>)['name'] as String)
+              .join(', ') ??
+          '';
+
+      return MangaSummary(
+        id: comic['id'].toString(),
+        sourceId: sourceId,
+        title: comic['title'] as String? ?? '',
+        coverUrl: comic['imageUrl'] as String? ?? '',
+        author: authors,
+      );
+    }).toList();
   }
 
   // --- Search ---
