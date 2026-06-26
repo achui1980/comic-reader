@@ -233,3 +233,8 @@ git push --tags
 ## 许可证
 
 MIT License
+
+
+https://hitomi.la/index-chinese.html
+
+https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json

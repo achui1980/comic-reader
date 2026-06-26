@@ -24,6 +24,42 @@
 - `lib/data/repositories/manga_repository_impl.dart` is the core fetch pipeline: it merges stored auth headers into requests, routes all network access through `HttpClient`, handles JMComic domain fallback, expands paginated chapter fetches, and resolves E-Hentai image-page indirection.
 - Routing lives in `lib/app/router/app_router.dart` and `lib/app/router/routes.dart`. The shell tabs are home, discovery, and settings; search/detail/reader/webview are full-screen routes outside the shell.
 
+## Adding A New Data Source
+
+This is the most common task in this repo. Steps:
+
+1. Create `lib/data/sources/your_source.dart` extending `MangaSource`.
+2. Import and register it in `lib/app/di/injection.dart` via `registry.register(YourSource())`.
+3. Run `flutter analyze lib/data/sources/your_source.dart` to verify.
+
+**Design pattern — Prepare/Parse separation:**
+- `prepare*Fetch()` builds a `FetchConfig` (URL, headers, params). It does NO network I/O.
+- `parse*()` receives the raw response and returns domain entities.
+- The framework calls HTTP between them — sources never touch `HttpClient` directly.
+
+**Key method pairs to implement:**
+- `prepareDiscoveryFetch` / `parseDiscovery` → `List<MangaSummary>`
+- `prepareSearchFetch` / `parseSearch` → `List<MangaSummary>`
+- `prepareMangaInfoFetch` / `parseMangaInfo` → `MangaDetail` (with `chapters` list)
+- `prepareChapterListFetch` / `parseChapterList` → return `null` from prepare if chapters are embedded in the info page
+- `prepareChapterFetch` / `parseChapter` → `ChapterResult` (images + pagination)
+
+**Common pitfalls when scraping HTML sources:**
+- Many Chinese manga sites use `onclick="send_app_msg(...)"` or similar JS callbacks instead of `<a href>` links. Always inspect the actual HTML with curl before assuming standard anchor tags.
+- Image elements often use `data-src` (lazy loading) with `src` set to a placeholder GIF. Always check `data-src` first.
+- Cover images may use a different CDN subdomain than chapter images.
+- Chapter IDs should be stable identifiers derivable from the URL structure (e.g., `section_chapter` format).
+- If a source returns paginated chapters, implement `canLoadMore`/`nextPage` in `ChapterResult`.
+
+**Data model quick reference:**
+- `MangaSummary`: id, sourceId, title, coverUrl, author, latestChapter?, updateTime?, headers?
+- `MangaDetail`: adds description?, tags, status (ongoing/completed/unknown), chapters
+- `ChapterItem`: id, mangaId, title, href?
+- `ChapterImage`: url, scrambleType (default none), headers?
+- `ChapterResult`: chapter (with images), canLoadMore, nextPage?, nextExtra?
+- `FetchConfig`: url, method?, headers?, queryParameters?, body?, timeout?, extra?, responseType?
+- `FilterOption` / `FilterChoice`: for discovery/search filter dropdowns
+
 ## Platform And Storage Quirks
 - Native builds trust all SSL certs in `MyHttpOverrides`; when proxying on Android emulators, `127.0.0.1`/`localhost` is rewritten to `10.0.2.2`.
 - Web requests are expected to flow through the local CORS proxy at `http://localhost:9090/`. `CorsProxyInterceptor`, `ImageProxy`, the web settings UI, and the Pica token registration flow all depend on that server being up.
