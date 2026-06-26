@@ -123,14 +123,136 @@ class IkanManhua extends MangaSource {
 
   @override
   FetchConfig prepareDiscoveryFetch(int page, Map<String, String> filters) {
-    // TODO: Task 2
-    throw UnimplementedError();
+    final mode = filters['mode'] ?? 'books';
+
+    if (mode == 'rank') {
+      // Rank page has no pagination; page > 1 will return empty in parse
+      return FetchConfig(
+        url: '$_baseUrl/rank',
+        headers: defaultHeaders,
+        extra: {
+          'mode': 'rank',
+          'rank_type': filters['rank_type'] ?? 'popular',
+          'page': page,
+        },
+      );
+    }
+
+    // Category browsing mode with filters
+    final queryParams = <String, dynamic>{};
+    final tag = filters['tag'] ?? '';
+    final region = filters['region'] ?? '';
+    final status = filters['status'] ?? '';
+    if (tag.isNotEmpty) queryParams['tag'] = tag;
+    if (region.isNotEmpty) queryParams['region'] = region;
+    if (status.isNotEmpty) queryParams['status'] = status;
+    queryParams['page'] = page.toString();
+
+    return FetchConfig(
+      url: '$_baseUrl/books',
+      queryParameters: queryParams,
+      headers: defaultHeaders,
+    );
   }
 
   @override
   List<MangaSummary> parseDiscovery(dynamic response) {
-    // TODO: Task 2
-    throw UnimplementedError();
+    final html = response as String;
+    final document = html_parser.parse(html);
+
+    // Rank page has a tablist element; books page does not
+    if (document.querySelector('[role="tablist"]') != null) {
+      return _parseRankPage(document);
+    }
+
+    return _parseGridCards(document);
+  }
+
+  /// Parse grid cards from /books or /search pages.
+  /// Cards are <a href="/book/{id}"> with nested img and title.
+  List<MangaSummary> _parseGridCards(dynamic document) {
+    final cards = document.querySelectorAll('a[href^="/book/"]');
+    final results = <MangaSummary>[];
+    final seen = <String>{};
+
+    for (final card in cards) {
+      final href = card.attributes['href'] ?? '';
+      final match = RegExp(r'/book/(\d+)').firstMatch(href);
+      if (match == null) continue;
+
+      final mangaId = match.group(1)!;
+      if (seen.contains(mangaId)) continue;
+      seen.add(mangaId);
+
+      final titleEl = card.querySelector('.line-clamp-1');
+      final title = titleEl?.text.trim() ?? '';
+      if (title.isEmpty) continue;
+
+      final imgEl = card.querySelector('img');
+      final coverUrl = imgEl?.attributes['src'] ??
+          '$_imageCdn/$mangaId/cover.jpg';
+
+      results.add(MangaSummary(
+        id: mangaId,
+        sourceId: sourceId,
+        title: title,
+        coverUrl: coverUrl,
+        headers: defaultHeaders,
+      ));
+    }
+
+    return results;
+  }
+
+  /// Parse rank page — all tabs content is SSR'd in HTML.
+  /// Each rank item is an <a href="/book/{id}"> with title/author inside.
+  List<MangaSummary> _parseRankPage(dynamic document) {
+    // Rank page renders all tab panels; items have a different structure
+    // They use flex layout with ranking number, cover, and info
+    final cards = document.querySelectorAll('a[href^="/book/"]');
+    final results = <MangaSummary>[];
+    final seen = <String>{};
+
+    for (final card in cards) {
+      final href = card.attributes['href'] ?? '';
+      final match = RegExp(r'/book/(\d+)').firstMatch(href);
+      if (match == null) continue;
+
+      final mangaId = match.group(1)!;
+      if (seen.contains(mangaId)) continue;
+      seen.add(mangaId);
+
+      // Title is in h3 element
+      final titleEl = card.querySelector('h3');
+      final title = titleEl?.text.trim() ?? '';
+      if (title.isEmpty) continue;
+
+      // Author from <p> containing "作者："
+      String author = '';
+      final paragraphs = card.querySelectorAll('p');
+      for (final p in paragraphs) {
+        final text = p.text.trim();
+        if (text.startsWith('作者：') || text.startsWith('作者:')) {
+          author = text.replaceFirst(RegExp(r'^作者[：:]'), '').trim();
+          break;
+        }
+      }
+
+      final imgEl = card.querySelector('img');
+      final coverUrl = imgEl?.attributes['src'] ??
+          '$_imageCdn/$mangaId/cover.jpg';
+
+      results.add(MangaSummary(
+        id: mangaId,
+        sourceId: sourceId,
+        title: title,
+        coverUrl: coverUrl,
+        author: author,
+        headers: defaultHeaders,
+      ));
+    }
+
+    return results;
   }
 
   // --- Search ---
