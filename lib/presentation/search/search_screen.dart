@@ -41,6 +41,25 @@ class _SearchViewState extends State<_SearchView> {
     super.dispose();
   }
 
+  void _showSourcePicker(BuildContext context, SearchCubit cubit) {
+    final sources = cubit.registry.enabled;
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => ListView.builder(
+        shrinkWrap: true,
+        itemCount: sources.length,
+        itemBuilder: (ctx, i) => ListTile(
+          title: Text(sources[i].name),
+          subtitle: Text(sources[i].description ?? ''),
+          onTap: () {
+            Navigator.pop(ctx);
+            cubit.changeSource(sources[i].id);
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -62,49 +81,80 @@ class _SearchViewState extends State<_SearchView> {
           ),
         ],
       ),
-      body: BlocBuilder<SearchCubit, SearchState>(
-        builder: (context, state) {
-          if (state.status == SearchStatus.initial) {
-            return const Center(
-              child: Text('输入关键词搜索', style: TextStyle(color: Colors.grey)),
-            );
-          }
-          if (state.status == SearchStatus.loading) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (state.status == SearchStatus.error) {
-            return Center(child: Text(state.errorMessage ?? '搜索失败'));
-          }
-          if (state.results.isEmpty) {
-            return const Center(
-              child: Text('没有找到结果', style: TextStyle(color: Colors.grey)),
-            );
-          }
-          return NotificationListener<ScrollNotification>(
-            onNotification: (notification) {
-              if (notification is ScrollEndNotification &&
-                  notification.metrics.extentAfter < 200) {
-                context.read<SearchCubit>().loadMore();
-              }
-              return false;
+      body: Column(
+        children: [
+          // Source selector bar
+          BlocBuilder<SearchCubit, SearchState>(
+            buildWhen: (prev, curr) => prev.sourceId != curr.sourceId,
+            builder: (context, state) {
+              final cubit = context.read<SearchCubit>();
+              final source = cubit.registry.get(state.sourceId);
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                child: GestureDetector(
+                  onTap: () => _showSourcePicker(context, cubit),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.source_outlined, size: 16, color: Colors.grey),
+                      const SizedBox(width: 6),
+                      Text(
+                        source?.name ?? '选择源',
+                        style: const TextStyle(fontSize: 13, color: Colors.blue),
+                      ),
+                      const Icon(Icons.arrow_drop_down, size: 18, color: Colors.blue),
+                    ],
+                  ),
+                ),
+              );
             },
-            child: RefreshIndicator(
-              onRefresh: () => context.read<SearchCubit>().refresh(),
-              child: ListView.builder(
-                itemCount: state.results.length + (state.hasMore ? 1 : 0),
-                itemBuilder: (context, index) {
-                  if (index >= state.results.length) {
-                    return const Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                    );
-                  }
-                  return _SearchResultItem(manga: state.results[index]);
-                },
-              ),
+          ),
+          Expanded(
+            child: BlocBuilder<SearchCubit, SearchState>(
+              builder: (context, state) {
+                if (state.status == SearchStatus.initial) {
+                  return const Center(
+                    child: Text('输入关键词搜索', style: TextStyle(color: Colors.grey)),
+                  );
+                }
+                if (state.status == SearchStatus.loading) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (state.status == SearchStatus.error) {
+                  return Center(child: Text(state.errorMessage ?? '搜索失败'));
+                }
+                if (state.results.isEmpty) {
+                  return const Center(
+                    child: Text('没有找到结果', style: TextStyle(color: Colors.grey)),
+                  );
+                }
+                return NotificationListener<ScrollNotification>(
+                  onNotification: (notification) {
+                    if (notification is ScrollEndNotification &&
+                        notification.metrics.extentAfter < 200) {
+                      context.read<SearchCubit>().loadMore();
+                    }
+                    return false;
+                  },
+                  child: RefreshIndicator(
+                    onRefresh: () => context.read<SearchCubit>().refresh(),
+                    child: ListView.builder(
+                      itemCount: state.results.length + (state.hasMore ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (index >= state.results.length) {
+                          return const Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                          );
+                        }
+                        return _SearchResultItem(manga: state.results[index]);
+                      },
+                    ),
+                  ),
+                );
+              },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }

@@ -14,12 +14,25 @@ class SearchCubit extends Cubit<SearchState> {
         _registry = registry,
         super(const SearchState());
 
-  void init() {
-    final source = _registry.defaultSource;
-    if (source != null) {
-      emit(state.copyWith(sourceId: source.id));
+  void init([String? initialSourceId]) {
+    final id = initialSourceId ?? _registry.defaultSource?.id ?? '';
+    if (id.isNotEmpty) {
+      emit(state.copyWith(sourceId: id));
     }
   }
+
+  void changeSource(String sourceId) {
+    if (sourceId == state.sourceId) return;
+    final source = _registry.get(sourceId);
+    if (source == null) return;
+    emit(state.copyWith(sourceId: sourceId, results: [], status: SearchStatus.initial));
+    // Re-search if there's an existing keyword
+    if (state.keyword.isNotEmpty) {
+      search(state.keyword);
+    }
+  }
+
+  SourceRegistry get registry => _registry;
 
   Future<void> search(String keyword) async {
     if (keyword.trim().isEmpty) return;
