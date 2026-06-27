@@ -186,6 +186,8 @@ const server = http.createServer((req, res) => {
       headers['referer'] = 'https://picacomic.com';
     } else if (host.includes('hitomi.la') || host.includes('gold-usergeneratedcontent.net')) {
       headers['referer'] = 'https://hitomi.la/';
+    } else if (host.includes('zaimanhua.com')) {
+      headers['referer'] = 'https://www.zaimanhua.com/';
     }
   }
 
@@ -217,6 +219,12 @@ const server = http.createServer((req, res) => {
     const client = parsed.protocol === 'https:' ? https : http;
     headers.host = parsed.host;
 
+    // Bypass upstream proxy for hosts that don't need it
+    // v4api.zaimanhua.com can be accessed directly; images.zaimanhua.com still needs proxy
+    const hostname = parsed.hostname || '';
+    const bypassProxy = hostname === 'v4api.zaimanhua.com' || hostname === 'www.zaimanhua.com';
+    const effectiveAgent = bypassProxy ? undefined : (proxyAgent || undefined);
+
     const proxyReq = client.request(
       {
         hostname: parsed.hostname,
@@ -224,7 +232,7 @@ const server = http.createServer((req, res) => {
         path: parsed.path,
         method: req.method,
         headers: headers,
-        agent: proxyAgent || undefined,
+        agent: effectiveAgent,
         timeout: 30000, // 30s timeout for upstream connection
       },
       (proxyRes) => {
