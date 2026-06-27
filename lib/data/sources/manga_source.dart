@@ -58,6 +58,11 @@ abstract class MangaSource {
   /// Whether this source requires Cloudflare verification.
   bool get needsCloudflare => false;
 
+  /// URL to open for Cloudflare verification.
+  /// Override when the CF-protected domain differs from [href].
+  /// Returns null to use [href] as default.
+  String? get cloudflareUrl => null;
+
   /// Extra headers from stored auth data (cookies, etc.)
   /// These are merged into every request's headers.
   final Map<String, String> _extraHeaders = {};

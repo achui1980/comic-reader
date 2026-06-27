@@ -9,7 +9,7 @@ class ImageProxy {
   static const String _proxyBaseUrl = 'http://localhost:9090/';
 
   /// Browser-unsafe headers that cannot be set on web XMLHttpRequest/img tags.
-  static const _unsafeHeaders = {'referer', 'user-agent', 'x-requested-with'};
+  static const _unsafeHeaders = {'referer', 'user-agent', 'x-requested-with', 'cookie'};
 
   /// Returns a URL that can be loaded in the current platform.
   /// On web: proxied through localhost:9090
@@ -35,6 +35,8 @@ class ImageProxy {
         filtered['X-Proxy-Referer'] = entry.value;
       } else if (lower == 'user-agent') {
         filtered['X-Proxy-User-Agent'] = entry.value;
+      } else if (lower == 'cookie') {
+        filtered['X-Proxy-Cookie'] = entry.value;
       } else if (!_unsafeHeaders.contains(lower)) {
         filtered[entry.key] = entry.value;
       }

@@ -36,7 +36,7 @@ class _WebCookieInputScreenState extends State<_WebCookieInputScreen> {
 
   String get _siteUrl {
     final source = _registry.get(widget.sourceId);
-    return widget.initialUrl ?? source?.href ?? '';
+    return widget.initialUrl ?? source?.cloudflareUrl ?? source?.href ?? '';
   }
 
   String get _sourceName {

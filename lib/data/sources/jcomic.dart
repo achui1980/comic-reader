@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:html/parser.dart' as html_parser;
 
 import 'package:comic_reader/core/models/fetch_config.dart';
@@ -6,8 +8,8 @@ import 'package:comic_reader/domain/entities/entities.dart';
 
 /// JComic (jcomic.net) data source.
 ///
-/// Traditional Chinese manga site. HTML-based, no auth/login required,
-/// no Cloudflare protection. Images served via AWS S3 presigned URLs.
+/// Traditional Chinese manga site. HTML-based, no auth/login required.
+/// Images served via AWS S3 presigned URLs behind Cloudflare protection.
 class JComic extends MangaSource {
   static const String sourceId = 'jcomic';
   static const String _baseUrl = 'https://jcomic.net';
@@ -52,7 +54,49 @@ class JComic extends MangaSource {
   bool get needsProxy => false;
 
   @override
-  bool get needsCloudflare => false;
+  bool get needsCloudflare => true;
+
+  /// CF verification must target the image CDN domain, not the main site.
+  @override
+  String? get cloudflareUrl => 'https://images.jcomic.net';
+
+  /// Dynamic image headers that include CF cookie when available.
+  Map<String, String> get _imageHeaders {
+    final headers = <String, String>{'Referer': 'https://jcomic.net'};
+    final cookie = extraHeaders['Cookie'];
+    if (cookie != null && cookie.isNotEmpty) {
+      headers['Cookie'] = cookie;
+    }
+    final ua = extraHeaders['User-Agent'];
+    if (ua != null && ua.isNotEmpty) {
+      headers['User-Agent'] = ua;
+    }
+    return headers;
+  }
+
+  /// After CF verification, also register cookie with CORS proxy for web images.
+  @override
+  void syncExtraData(Map<String, dynamic> data) {
+    super.syncExtraData(data);
+    _registerCorsProxyCookie(data['cookie'] as String?);
+  }
+
+  /// Register CF cookie with the CORS proxy's __host_token for images.jcomic.net.
+  void _registerCorsProxyCookie(String? cookie) {
+    if (!kIsWeb || cookie == null || cookie.isEmpty) return;
+    try {
+      Dio().post(
+        'http://localhost:9090/__host_token',
+        data: {
+          'host': 'images.jcomic.net',
+          'token': cookie,
+          'header': 'Cookie',
+        },
+      );
+    } catch (_) {
+      // Non-critical: proxy may not be running
+    }
+  }
 
   // --- Filters ---
 
@@ -168,7 +212,7 @@ class JComic extends MangaSource {
           coverUrl: coverUrl,
           author: author,
           updateTime: updateTime,
-          headers: const {'Referer': 'https://jcomic.net'},
+          headers: _imageHeaders,
         ));
       }
     }
@@ -327,7 +371,7 @@ class JComic extends MangaSource {
       tags: tags,
       status: MangaStatus.unknown,
       updateTime: updateTime,
-      headers: const {'Referer': 'https://jcomic.net'},
+      headers: _imageHeaders,
       chapters: chapters,
     );
   }
@@ -374,7 +418,7 @@ class JComic extends MangaSource {
       author: author,
       tags: tags,
       status: MangaStatus.unknown,
-      headers: const {'Referer': 'https://jcomic.net'},
+      headers: _imageHeaders,
       chapters: chapters,
     );
   }
@@ -427,7 +471,7 @@ class JComic extends MangaSource {
       if (src.contains('images.jcomic.net')) {
         images.add(ChapterImage(
           url: src,
-          headers: const {'Referer': 'https://jcomic.net'},
+          headers: _imageHeaders,
         ));
       }
     }
@@ -449,7 +493,7 @@ class JComic extends MangaSource {
         mangaId: mangaId,
         title: title,
         images: images,
-        headers: const {'Referer': 'https://jcomic.net'},
+        headers: _imageHeaders,
       ),
       canLoadMore: false,
     );

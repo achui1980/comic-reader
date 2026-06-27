@@ -188,6 +188,8 @@ const server = http.createServer((req, res) => {
       headers['referer'] = 'https://hitomi.la/';
     } else if (host.includes('zaimanhua.com')) {
       headers['referer'] = 'https://www.zaimanhua.com/';
+    } else if (host.includes('jcomic.net')) {
+      headers['referer'] = 'https://jcomic.net';
     }
   }
 

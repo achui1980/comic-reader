@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/data/remote/http_client.dart';
+import 'package:comic_reader/data/remote/cloudflare_interceptor.dart';
 import 'package:comic_reader/data/sources/hitomi.dart';
 import 'package:comic_reader/data/sources/jm_comic.dart';
 import 'package:comic_reader/data/sources/manga_source.dart';
@@ -38,6 +39,45 @@ class MangaRepositoryImpl implements MangaRepository {
       ...source.extraHeaders,
     };
     return config.copyWith(headers: headers, extra: extra);
+  }
+
+  /// Preflight check: HEAD-request the first image to detect CF on image CDN.
+  /// Throws [CloudflareException] so the UI can prompt CF verification.
+  Future<void> _preflightImageCf(MangaSource source, ChapterImage image) async {
+    try {
+      final preflightConfig = FetchConfig(
+        url: image.url,
+        headers: {
+          ...?source.defaultHeaders,
+          ...source.extraHeaders,
+        },
+        responseType: ResponseType.plain,
+      );
+      final merged = _mergeHeaders(preflightConfig, source);
+      await _httpClient.execute(merged);
+      // If we get here, image CDN is accessible — no CF block.
+    } on DioException catch (e) {
+      // If the interceptor already converted it to CloudflareException, rethrow
+      if (e.error is CloudflareException) rethrow;
+      // Manual detection for 403 without interceptor catching it
+      if (e.response?.statusCode == 403) {
+        final body = e.response?.data?.toString() ?? '';
+        if (body.contains('cloudflare') || body.contains('Cloudflare') ||
+            body.contains('cf_chl_opt') || body.contains('challenges.cloudflare.com')) {
+          throw DioException(
+            requestOptions: e.requestOptions,
+            response: e.response,
+            type: DioExceptionType.unknown,
+            error: CloudflareException(
+              sourceId: source.id,
+              url: source.cloudflareUrl ?? image.url,
+            ),
+          );
+        }
+      }
+      // Non-CF error — don't block chapter loading
+      debugPrint('[_preflightImageCf] Non-CF error: $e');
+    }
   }
 
   /// Execute a request with domain fallback for JMComic and domain discovery for Wu55Comic.
@@ -234,6 +274,15 @@ class MangaRepositoryImpl implements MangaRepository {
     var result = source.parseChapter(response.data, mangaId, chapterId, effectivePage);
     debugPrint('[getChapter] parseChapter result: images=${result.chapter.images.length}, nextExtra=${result.nextExtra != null ? "has ${jsonDecode(result.nextExtra!).length} urls" : "null"}, canLoadMore=${result.canLoadMore}');
 
+    // Preflight check: if this source has a separate CF-protected image CDN,
+    // test the first image URL via Dio to detect CF challenges early.
+    // This triggers CloudflareException before the reader tries loading images.
+    if (source.cloudflareUrl != null &&
+        result.chapter.images.isNotEmpty &&
+        !source.extraHeaders.containsKey('Cookie')) {
+      await _preflightImageCf(source, result.chapter.images.first);
+    }
+
     // Handle sources with paginated image lists (e.g., PicaComic returns ~40 images per API page)
     // If images were returned directly AND there are more pages, fetch all remaining pages
     if (result.chapter.images.isNotEmpty && result.canLoadMore && result.nextPage != null) {
@@ -392,6 +441,13 @@ class MangaRepositoryImpl implements MangaRepository {
     final config = source.prepareChapterFetch(mangaId, chapterId, effectivePage, extra: extra);
     final response = await _httpClient.execute(_mergeHeaders(config, source));
     var result = source.parseChapter(response.data, mangaId, chapterId, effectivePage);
+
+    // Preflight: detect CF on image CDN before streaming images to reader
+    if (source.cloudflareUrl != null &&
+        result.chapter.images.isNotEmpty &&
+        !source.extraHeaders.containsKey('Cookie')) {
+      await _preflightImageCf(source, result.chapter.images.first);
+    }
 
     // Handle JMC source multi-page images (same as getChapter)
     if (result.chapter.images.isNotEmpty && result.canLoadMore && result.nextPage != null) {

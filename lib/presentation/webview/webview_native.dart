@@ -79,7 +79,7 @@ class _NativeWebViewScreenState extends State<_NativeWebViewScreen> {
   @override
   Widget build(BuildContext context) {
     final source = _registry.get(widget.sourceId);
-    final url = widget.initialUrl ?? source?.href ?? '';
+    final url = widget.initialUrl ?? source?.cloudflareUrl ?? source?.href ?? '';
     debugPrint('[WebView] Building with sourceId=${widget.sourceId} url=$url userAgent=${source?.userAgent ?? _defaultUserAgent}');
 
     return Scaffold(

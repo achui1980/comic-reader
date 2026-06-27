@@ -6,6 +6,8 @@ import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'package:comic_reader/data/local/settings_store.dart' show SettingsStore;
+import 'package:comic_reader/data/sources/source_registry.dart';
+import 'package:comic_reader/presentation/common/cloudflare_dialog.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_bloc.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_event.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_state.dart';
@@ -116,29 +118,57 @@ class _ReaderScreenState extends State<ReaderScreen> {
           child: CircularProgressIndicator(color: Colors.white),
         );
       case ReaderStatus.error:
+        final isCfError = state.errorMessage?.contains('CloudflareException') == true ||
+            state.errorMessage?.contains('Cloudflare') == true;
         return Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline,
-                  color: Colors.white54, size: 48),
+              Icon(
+                isCfError ? Icons.shield_outlined : Icons.error_outline,
+                color: isCfError ? Colors.orange : Colors.white54,
+                size: 48,
+              ),
               const SizedBox(height: 16),
               Text(
-                state.errorMessage ?? '加载失败',
+                isCfError ? '需要完成 Cloudflare 验证' : (state.errorMessage ?? '加载失败'),
                 style: const TextStyle(color: Colors.white70),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: () => _bloc.add(LoadChapter(
-                  sourceId: widget.sourceId,
-                  mangaId: widget.mangaId,
-                  chapterId: state.chapterId.isNotEmpty
-                      ? state.chapterId
-                      : widget.chapterId,
-                )),
-                child: const Text('重试'),
-              ),
+              if (isCfError)
+                FilledButton.icon(
+                  onPressed: () async {
+                    final sourceName = GetIt.instance<SourceRegistry>().get(widget.sourceId)?.name;
+                    final verified = await showCloudflareDialog(
+                      context,
+                      sourceId: widget.sourceId,
+                      sourceName: sourceName,
+                    );
+                    if (verified && context.mounted) {
+                      _bloc.add(LoadChapter(
+                        sourceId: widget.sourceId,
+                        mangaId: widget.mangaId,
+                        chapterId: state.chapterId.isNotEmpty
+                            ? state.chapterId
+                            : widget.chapterId,
+                      ));
+                    }
+                  },
+                  icon: const Icon(Icons.verified_user_outlined, size: 18),
+                  label: const Text('去验证'),
+                )
+              else
+                ElevatedButton(
+                  onPressed: () => _bloc.add(LoadChapter(
+                    sourceId: widget.sourceId,
+                    mangaId: widget.mangaId,
+                    chapterId: state.chapterId.isNotEmpty
+                        ? state.chapterId
+                        : widget.chapterId,
+                  )),
+                  child: const Text('重试'),
+                ),
             ],
           ),
         );
