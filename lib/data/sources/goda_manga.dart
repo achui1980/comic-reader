@@ -99,7 +99,7 @@ class GodaManga extends MangaSource {
           choices: [
             FilterChoice(label: '全部', value: 'all'),
             FilterChoice(label: '连载中', value: 'serial'),
-            FilterChoice(label: '已完结', value: 'over'),
+            FilterChoice(label: '已完结', value: 'pub'),
           ],
         ),
       ];
@@ -192,23 +192,65 @@ class GodaManga extends MangaSource {
     return results;
   }
 
-  // ====== Search (not implemented yet) ======
+  // ====== Search ======
 
   @override
   FetchConfig prepareSearchFetch(
       String keyword, int page, Map<String, String> filters) {
-    // Search not yet implemented - return a dummy config
     return FetchConfig(
-      url: '$_webUrl/search',
-      queryParameters: {'q': keyword},
+      url: '$_baseUrl/search',
+      queryParameters: {'q': keyword, 'page': '$page'},
       headers: defaultHeaders,
     );
   }
 
   @override
   List<MangaSummary> parseSearch(dynamic response) {
-    // Search not yet implemented
-    return [];
+    final htmlStr = response as String;
+    final document = html_parser.parse(htmlStr);
+
+    final results = <MangaSummary>[];
+    // Search results use .comics-card structure
+    final cards = document.querySelectorAll('.comics-card');
+
+    for (final card in cards) {
+      final posterEl = card.querySelector('.comics-card__poster');
+      final onclick = posterEl?.attributes['onclick'] ?? '';
+      final slugMatch = _onclickSlugPattern.firstMatch(onclick);
+      if (slugMatch == null) continue;
+      final slug = slugMatch.group(1)!;
+
+      final imgEl = card.querySelector('img');
+      final coverSrc =
+          imgEl?.attributes['data-src'] ?? imgEl?.attributes['src'] ?? '';
+      final coverUrl = (coverSrc.isNotEmpty &&
+              !coverSrc.contains('default_cover'))
+          ? coverSrc
+          : '$_coverCdn/$slug.jpg?w=285&h=380&q=100';
+
+      final title = posterEl?.attributes['aria-label'] ??
+          card.querySelector('.comics-card__title h3')?.text.trim() ??
+          card.querySelector('.comics-card__title')?.text.trim() ??
+          '';
+
+      final author =
+          card.querySelector('small.tags')?.text.trim() ??
+          card.querySelector('.tags')?.text.trim() ??
+          '';
+
+      if (title.isNotEmpty) {
+        results.add(MangaSummary(
+          id: slug,
+          sourceId: sourceId,
+          title: title,
+          coverUrl: coverUrl,
+          author: author,
+          headers: defaultHeaders,
+        ));
+      }
+    }
+
+    return results;
   }
 
   // ====== Manga Info ======
@@ -218,6 +260,8 @@ class GodaManga extends MangaSource {
     return FetchConfig(
       url: '$_baseUrl/comic/$mangaId',
       headers: defaultHeaders,
+      // Large pages (500KB+) with all chapters embedded need longer timeout
+      timeout: const Duration(seconds: 120),
     );
   }
 
@@ -313,8 +357,21 @@ class GodaManga extends MangaSource {
       }
     }
 
-    // Reverse to get chronological order (oldest first)
-    final orderedChapters = chapters.reversed.toList();
+    // Sort by chapter index numerically (oldest first)
+    // The HTML has two sections: a "latest" section (descending, ~25 items)
+    // followed by a "full list" section (ascending). Simple reverse doesn't work
+    // because dedup preserves insertion order across both sections.
+    chapters.sort((a, b) {
+      final aParts = a.id.split('_');
+      final bParts = b.id.split('_');
+      final aSection = int.tryParse(aParts[0]) ?? 0;
+      final bSection = int.tryParse(bParts[0]) ?? 0;
+      if (aSection != bSection) return aSection.compareTo(bSection);
+      final aChapter = int.tryParse(aParts.length > 1 ? aParts[1] : '0') ?? 0;
+      final bChapter = int.tryParse(bParts.length > 1 ? bParts[1] : '0') ?? 0;
+      return aChapter.compareTo(bChapter);
+    });
+    final orderedChapters = chapters;
 
     return MangaDetail(
       id: mangaId,
