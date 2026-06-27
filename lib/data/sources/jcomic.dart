@@ -56,7 +56,15 @@ class JComic extends MangaSource {
   @override
   bool get needsCloudflare => true;
 
-  /// CF verification must target the image CDN domain, not the main site.
+  /// Web platform loads images directly via HTML <img> (no CORS proxy)
+  /// because images.jcomic.net has Cloudflare protection that requires
+  /// browser cookies the proxy cannot provide.
+  @override
+  bool get webDirectImage => true;
+
+  /// CF verification targets the image CDN where Cloudflare protection exists.
+  /// On web: user should open images.jcomic.net in a new tab to pass CF challenge.
+  /// On native: WebView opens this URL for CF cookie extraction.
   @override
   String? get cloudflareUrl => 'https://images.jcomic.net';
 

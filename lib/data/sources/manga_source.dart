@@ -58,6 +58,12 @@ abstract class MangaSource {
   /// Whether this source requires Cloudflare verification.
   bool get needsCloudflare => false;
 
+  /// Whether image loading on web should bypass CORS proxy and use a raw
+  /// HTML <img> element. Useful when the image CDN has Cloudflare protection
+  /// that requires browser cookies (which the CORS proxy cannot provide).
+  /// The user must have passed the CF challenge in the same browser session.
+  bool get webDirectImage => false;
+
   /// URL to open for Cloudflare verification.
   /// Override when the CF-protected domain differs from [href].
   /// Returns null to use [href] as default.

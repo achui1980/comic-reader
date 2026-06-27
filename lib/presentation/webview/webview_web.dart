@@ -18,6 +18,8 @@ Widget buildWebViewScreen({
 /// 1. Open the site in a new tab
 /// 2. Complete CF verification manually
 /// 3. Copy cookies from browser DevTools and paste here
+///
+/// For sources with webDirectImage=true, skip cookie pasting (browser handles it).
 class _WebCookieInputScreen extends StatefulWidget {
   final String sourceId;
   final String? initialUrl;
@@ -41,6 +43,11 @@ class _WebCookieInputScreenState extends State<_WebCookieInputScreen> {
 
   String get _sourceName {
     return _registry.get(widget.sourceId)?.name ?? widget.sourceId;
+  }
+
+  bool get _isWebDirect {
+    final source = _registry.get(widget.sourceId);
+    return source?.webDirectImage ?? false;
   }
 
   @override
@@ -104,139 +111,199 @@ class _WebCookieInputScreenState extends State<_WebCookieInputScreen> {
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 600),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Step 1
-                _buildStepCard(
-                  step: 1,
-                  title: '在新标签页打开网站',
-                  content: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '点击下方按钮，在新标签页中打开 $_sourceName。完成 Cloudflare 验证（等待几秒即可通过）。',
-                      ),
-                      const SizedBox(height: 12),
-                      FilledButton.icon(
-                        onPressed: _openInNewTab,
-                        icon: const Icon(Icons.open_in_new),
-                        label: Text('打开 $_sourceName'),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Step 2
-                _buildStepCard(
-                  step: 2,
-                  title: '复制 Cookie',
-                  content: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('验证通过后，按 F12 打开开发者工具：'),
-                      const SizedBox(height: 8),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade100,
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: Colors.grey.shade300),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _buildCodeStep('1. 切换到 Console（控制台）标签'),
-                            _buildCodeStep('2. 输入: document.cookie'),
-                            _buildCodeStep('3. 按 Enter，复制输出的内容'),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          const Icon(Icons.info_outline, size: 16, color: Colors.blue),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(
-                              '或者：Application → Cookies → 复制 cf_clearance 的值',
-                              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Step 3
-                _buildStepCard(
-                  step: 3,
-                  title: '粘贴 Cookie',
-                  content: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('将复制的 Cookie 粘贴到下方输入框：'),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _cookieController,
-                        maxLines: 3,
-                        decoration: InputDecoration(
-                          hintText: '粘贴 document.cookie 的完整输出\n或者粘贴 cf_clearance 的值',
-                          border: const OutlineInputBorder(),
-                          suffixIcon: IconButton(
-                            icon: const Icon(Icons.paste),
-                            tooltip: '粘贴',
-                            onPressed: () async {
-                              final data = await Clipboard.getData('text/plain');
-                              if (data?.text != null) {
-                                _cookieController.text = data!.text!;
-                              }
-                            },
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: FilledButton.icon(
-                          onPressed: _saveCookie,
-                          icon: const Icon(Icons.save),
-                          label: const Text('保存 Cookie'),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                if (_saved) ...[
-                  const SizedBox(height: 24),
-                  Card(
-                    color: Colors.green.shade50,
-                    child: const Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Row(
-                        children: [
-                          Icon(Icons.check_circle, color: Colors.green),
-                          SizedBox(width: 12),
-                          Expanded(
-                            child: Text(
-                              '验证完成！返回上一页重新加载即可。',
-                              style: TextStyle(color: Colors.green),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
+            child: _isWebDirect ? _buildWebDirectFlow() : _buildCookiePasteFlow(),
           ),
         ),
       ),
+    );
+  }
+
+  /// Simplified flow for webDirectImage sources: just open and come back.
+  Widget _buildWebDirectFlow() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildStepCard(
+          step: 1,
+          title: '在新标签页打开验证',
+          content: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '点击下方按钮，在新标签页中打开 $_sourceName 的图片服务器。'
+                '等待 Cloudflare 验证通过（通常几秒钟）。',
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: _openInNewTab,
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('打开验证页面'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        _buildStepCard(
+          step: 2,
+          title: '返回刷新',
+          content: const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '验证通过后，直接返回本页面并刷新漫画页即可。'
+                '浏览器会自动使用已获取的 Cookie 加载图片。',
+              ),
+              SizedBox(height: 8),
+              Row(
+                children: [
+                  Icon(Icons.info_outline, size: 16, color: Colors.blue),
+                  SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      '无需复制粘贴 Cookie，浏览器会自动处理。',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Full cookie-paste flow for other sources.
+  Widget _buildCookiePasteFlow() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Step 1
+        _buildStepCard(
+          step: 1,
+          title: '在新标签页打开网站',
+          content: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '点击下方按钮，在新标签页中打开 $_sourceName。完成 Cloudflare 验证（等待几秒即可通过）。',
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: _openInNewTab,
+                icon: const Icon(Icons.open_in_new),
+                label: Text('打开 $_sourceName'),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Step 2
+        _buildStepCard(
+          step: 2,
+          title: '复制 Cookie',
+          content: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('验证通过后，按 F12 打开开发者工具：'),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildCodeStep('1. 切换到 Console（控制台）标签'),
+                    _buildCodeStep('2. 输入: document.cookie'),
+                    _buildCodeStep('3. 按 Enter，复制输出的内容'),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.info_outline, size: 16, color: Colors.blue),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      '或者：Application → Cookies → 复制 cf_clearance 的值',
+                      style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Step 3
+        _buildStepCard(
+          step: 3,
+          title: '粘贴 Cookie',
+          content: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('将复制的 Cookie 粘贴到下方输入框：'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _cookieController,
+                maxLines: 3,
+                decoration: InputDecoration(
+                  hintText: '粘贴 document.cookie 的完整输出\n或者粘贴 cf_clearance 的值',
+                  border: const OutlineInputBorder(),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.paste),
+                    tooltip: '粘贴',
+                    onPressed: () async {
+                      final data = await Clipboard.getData('text/plain');
+                      if (data?.text != null) {
+                        _cookieController.text = data!.text!;
+                      }
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _saveCookie,
+                  icon: const Icon(Icons.save),
+                  label: const Text('保存 Cookie'),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        if (_saved) ...[
+          const SizedBox(height: 24),
+          Card(
+            color: Colors.green.shade50,
+            child: const Padding(
+              padding: EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Icon(Icons.check_circle, color: Colors.green),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      '验证完成！返回上一页重新加载即可。',
+                      style: TextStyle(color: Colors.green),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 

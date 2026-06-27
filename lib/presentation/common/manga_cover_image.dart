@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:dio/dio.dart';
@@ -9,8 +10,11 @@ import 'package:get_it/get_it.dart';
 import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/data/remote/http_client.dart';
+import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/data/sources/wu55comic.dart';
 import 'package:comic_reader/data/sources/wu55comic_decoder.dart';
+import 'package:comic_reader/presentation/reader/widgets/web_direct_image.dart'
+    if (dart.library.html) 'package:comic_reader/presentation/reader/widgets/web_direct_image_web.dart';
 
 /// A cover image widget that handles both normal URLs and wu55comic encrypted URLs.
 ///
@@ -198,6 +202,25 @@ class _MangaCoverImageState extends State<MangaCoverImage> {
     // Normal network image
     if (widget.imageUrl.isEmpty) {
       return _buildPlaceholder();
+    }
+
+    // Web direct image: bypass CORS proxy for sources with CF-protected CDN
+    if (kIsWeb) {
+      final source = GetIt.instance<SourceRegistry>().get(widget.sourceId);
+      if (source != null && source.webDirectImage) {
+        final viewId = 'cover_${widget.sourceId}_${widget.imageUrl.hashCode}';
+        final directWidget = buildWebDirectImage(
+          imageUrl: widget.imageUrl,
+          fit: widget.fit,
+          viewId: viewId,
+        );
+        if (directWidget != null) {
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: directWidget,
+          );
+        }
+      }
     }
 
     return CachedNetworkImage(

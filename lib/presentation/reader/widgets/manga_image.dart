@@ -11,8 +11,11 @@ import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
 import 'package:comic_reader/core/utils/save_image.dart';
 import 'package:comic_reader/data/sources/wu55comic_decoder.dart';
+import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/presentation/reader/widgets/manga_image_file.dart'
     if (dart.library.io) 'package:comic_reader/presentation/reader/widgets/manga_image_file_io.dart';
+import 'package:comic_reader/presentation/reader/widgets/web_direct_image.dart'
+    if (dart.library.html) 'package:comic_reader/presentation/reader/widgets/web_direct_image_web.dart';
 
 /// Displays a single manga page image with loading and error states.
 /// Supports JMC image unscrambling via CustomPainter.
@@ -284,6 +287,23 @@ class _MangaImageState extends State<MangaImage> {
       debugPrint('[MangaImage] data: URI detected, scrambleType=${widget.image.scrambleType}, '
           'bookId=${widget.image.wu55BookId}, pageNumber=${widget.image.wu55PageNumber}');
       return _buildMemoryImage();
+    }
+
+    // Web direct image: bypass CORS proxy for sources with CF-protected CDN.
+    // Uses a raw HTML <img> element so the browser sends its own CF cookies.
+    if (kIsWeb && widget.sourceId != null) {
+      final source = GetIt.instance<SourceRegistry>().get(widget.sourceId!);
+      if (source != null && source.webDirectImage) {
+        final viewId = '${widget.sourceId}_${widget.image.url.hashCode}';
+        final directWidget = buildWebDirectImage(
+          imageUrl: widget.image.url,
+          fit: widget.fit,
+          viewId: viewId,
+        );
+        if (directWidget != null) {
+          return directWidget;
+        }
+      }
     }
 
     final imageUrl = ImageProxy.url(widget.image.url);
