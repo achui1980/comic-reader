@@ -26,7 +26,8 @@ Widget? buildWebDirectImage({
         ..style.width = '100%'
         ..style.height = '100%'
         ..style.objectFit = _boxFitToCss(fit)
-        ..style.display = 'block';
+        ..style.display = 'block'
+        ..setAttribute('referrerpolicy', 'no-referrer');
       return img;
     });
     _registeredFactories.add(factoryId);
