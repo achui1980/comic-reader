@@ -123,12 +123,12 @@ class JComic extends MangaSource {
       final href = linkEl.attributes['href'] ?? '';
       String mangaId;
       if (href.startsWith('/page/')) {
-        // Single-chapter manga
-        mangaId =
-            '$_singlePrefix${Uri.decodeComponent(href.substring('/page/'.length))}';
+        // Single-chapter manga — use raw path as ID (no decode to avoid
+        // issues with titles containing raw % characters)
+        mangaId = '$_singlePrefix${href.substring('/page/'.length)}';
       } else if (href.startsWith('/eps/')) {
         // Multi-chapter manga
-        mangaId = Uri.decodeComponent(href.substring('/eps/'.length));
+        mangaId = href.substring('/eps/'.length);
       } else {
         continue;
       }
@@ -226,13 +226,13 @@ class JComic extends MangaSource {
       // Single-chapter: fetch reading page directly
       final stripped = mangaId.substring(_singlePrefix.length);
       return FetchConfig(
-        url: '$_baseUrl/page/${Uri.encodeComponent(stripped)}',
+        url: '$_baseUrl/page/$stripped',
         headers: defaultHeaders,
       );
     } else {
       // Multi-chapter: fetch episode list page
       return FetchConfig(
-        url: '$_baseUrl/eps/${Uri.encodeComponent(mangaId)}',
+        url: '$_baseUrl/eps/$mangaId',
         headers: defaultHeaders,
       );
     }
@@ -286,16 +286,12 @@ class JComic extends MangaSource {
 
     // Chapters — each <a href="/page/{title}/{epNum}"><button>...</button></a>
     final chapters = <ChapterItem>[];
-    final encodedMangaId = Uri.encodeComponent(mangaId);
 
-    // Try both decoded and encoded forms in href matching
+    // mangaId is the raw URL path segment (already encoded as it appears in href)
     final chapterLinks =
         document.querySelectorAll('a[href*="/page/$mangaId/"]');
-    final allLinks = chapterLinks.isNotEmpty
-        ? chapterLinks
-        : document.querySelectorAll('a[href*="/page/$encodedMangaId/"]');
 
-    for (final a in allLinks) {
+    for (final a in chapterLinks) {
       final chapterHref = a.attributes['href'] ?? '';
       // Extract episode number from /page/{title}/{epNum}
       final parts = chapterHref.split('/');
@@ -404,12 +400,12 @@ class JComic extends MangaSource {
     if (mangaId.startsWith(_singlePrefix)) {
       final stripped = mangaId.substring(_singlePrefix.length);
       return FetchConfig(
-        url: '$_baseUrl/page/${Uri.encodeComponent(stripped)}',
+        url: '$_baseUrl/page/$stripped',
         headers: defaultHeaders,
       );
     } else {
       return FetchConfig(
-        url: '$_baseUrl/page/${Uri.encodeComponent(mangaId)}/$chapterId',
+        url: '$_baseUrl/page/$mangaId/$chapterId',
         headers: defaultHeaders,
       );
     }
@@ -465,8 +461,8 @@ class JComic extends MangaSource {
   String? getChapterWebUrl(String mangaId, String chapterId) {
     if (mangaId.startsWith(_singlePrefix)) {
       final stripped = mangaId.substring(_singlePrefix.length);
-      return '$_baseUrl/page/${Uri.encodeComponent(stripped)}';
+      return '$_baseUrl/page/$stripped';
     }
-    return '$_baseUrl/page/${Uri.encodeComponent(mangaId)}/$chapterId';
+    return '$_baseUrl/page/$mangaId/$chapterId';
   }
 }
