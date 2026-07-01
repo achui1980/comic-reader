@@ -9,7 +9,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:comic_reader/app/router/routes.dart';
 import 'package:comic_reader/app/theme/app_theme.dart';
 import 'package:comic_reader/data/local/settings_store.dart';
-import 'package:comic_reader/data/local/local_storage.dart';
 import 'package:comic_reader/data/local/backup_service.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/presentation/common/pica_login_dialog.dart';
@@ -21,14 +20,7 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return BlocProvider(
-      create: (_) => SettingsCubit(
-        settingsStore: GetIt.instance<SettingsStore>(),
-        localStorage: GetIt.instance<LocalStorage>(),
-        sourceRegistry: GetIt.instance<SourceRegistry>(),
-      )..init(),
-      child: const _SettingsView(),
-    );
+    return const _SettingsView();
   }
 }
 
