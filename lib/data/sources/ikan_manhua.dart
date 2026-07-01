@@ -21,6 +21,9 @@ class IkanManhua extends MangaSource {
   String get name => '爱看漫画';
 
   @override
+  bool get isAdult => true;
+
+  @override
   String get shortName => 'IKM';
 
   @override

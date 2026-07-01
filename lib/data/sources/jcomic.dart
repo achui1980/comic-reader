@@ -28,6 +28,9 @@ class JComic extends MangaSource {
   String get name => 'JComic';
 
   @override
+  bool get isAdult => true;
+
+  @override
   String get shortName => 'JC';
 
   @override

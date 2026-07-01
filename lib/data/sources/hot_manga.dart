@@ -101,6 +101,9 @@ class HotManga extends MangaSource {
   String get name => '热辣漫画';
 
   @override
+  bool get isAdult => true;
+
+  @override
   String get shortName => 'HOT';
 
   @override
