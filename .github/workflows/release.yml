@@ -196,16 +196,30 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # generate_release_notes 需要完整历史与全部 tag 才能对比生成 changelog
+          fetch-depth: 0
 
       - name: Get version
         id: version
         run: |
+          # 优先级: 手动输入的版本号 > push 的 tag 名 > pubspec.yaml
           if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION="${{ github.event.inputs.version }}"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            # push tag 触发: 直接用 tag 名(去掉前缀 v),tag 本身唯一,不会覆盖历史 release
+            VERSION="${GITHUB_REF_NAME#v}"
           else
             VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
           fi
+          # 防止 tag 覆盖: 若目标 tag 已存在(手动触发常见,因 pubspec 版本长期不变),
+          # 自动追加 build 号(本次 run number),保证每次都是新的唯一 tag/release,历史不被顶掉。
+          if git rev-parse "v${VERSION}" >/dev/null 2>&1; then
+            echo "tag v${VERSION} already exists, appending build number to avoid overwriting"
+            VERSION="${VERSION}-build.${{ github.run_number }}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Resolved version: $VERSION"
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -219,7 +233,11 @@ jobs:
           name: Comic Reader v${{ steps.version.outputs.version }}
           draft: false
           prerelease: false
+          # 自动根据两个 tag 之间的 commit 生成 changelog（含贡献者、Full Changelog 链接）
           generate_release_notes: true
+          # 关键：append_body 让下面的 body 追加到自动生成的 changelog 之后，
+          # 而不是覆盖它。若不设，body 会替换掉 generate_release_notes 生成的内容，导致没有 changelog。
+          append_body: true
           files: |
             artifacts/macos-dmg/*.dmg
             artifacts/windows-zip/*.zip
