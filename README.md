@@ -31,6 +31,16 @@
 | NHentai | English doujinshi | 科学上网 |
 | 哔咔漫画 | 需账号登录 | Email/Password内置 |
 | 绅士漫画 | 紳士漫畫 | 需 Cloudflare 验证 |
+| 漫画人 | 综合漫画 | 科学上网 |
+| Hitomi.la | 多语言同人志 | 科学上网 |
+| Komiic | 综合漫画 | 科学上网 |
+| 漫画GUI | 综合漫画（移动端 API）| 科学上网 |
+| 在漫画 | 国漫 | - |
+| HotManga | 成人漫画 | 科学上网 |
+| IkanManhua | 综合漫画 | 科学上网 |
+| JComic | 成人漫画 | 科学上网 |
+| HComic | 成人漫画 | 科学上网 |
+| 吾五漫画 | 综合漫画 | 科学上网 |
 
 ### 阅读体验
 
@@ -153,14 +163,25 @@ lib/
 │   ├── remote/             # 网络层（Dio、拦截器、代理）
 │   ├── repositories/       # 数据仓库实现
 │   └── sources/            # 漫画源插件
-│       ├── manga_source.dart   # 抽象基类
-│       ├── baozi_manga.dart    # 包子漫画
-│       ├── copy_manga.dart     # 拷贝漫画
-│       ├── ehentai.dart        # E-Hentai
-│       ├── jm_comic.dart       # 禁漫天堂
-│       ├── nhentai.dart        # NHentai
-│       ├── pica_comic.dart     # 哔咔漫画
-│       └── wnacg.dart          # 绅士漫画
+│       ├── manga_source.dart       # 抽象基类
+│       ├── baozi_manga.dart        # 包子漫画
+│       ├── copy_manga.dart         # 拷贝漫画
+│       ├── ehentai.dart            # E-Hentai
+│       ├── jm_comic.dart           # 禁漫天堂
+│       ├── nhentai.dart            # NHentai
+│       ├── pica_comic.dart         # 哔咔漫画
+│       ├── wnacg.dart              # 绅士漫画
+│       ├── manhuaren.dart          # 漫画人
+│       ├── hitomi.dart             # Hitomi.la
+│       ├── komiic.dart             # Komiic
+│       ├── manhuagui_mobile.dart   # 漫画GUI
+│       ├── zaimanhua.dart          # 在漫画
+│       ├── hot_manga.dart          # HotManga
+│       ├── ikan_manhua.dart        # IkanManhua
+│       ├── jcomic.dart             # JComic
+│       ├── h_comic.dart            # HComic
+│       ├── goda_manga.dart         # 哥打漫画
+│       └── wu55comic.dart          # 吾五漫画
 ├── domain/
 │   ├── entities/           # 领域实体
 │   └── repositories/       # 仓库接口
@@ -208,7 +229,7 @@ Web 端由于浏览器跨域限制，需要本地 CORS 代理：
 
 ```bash
 # 发布新版本
-git tag v1.0.1
+git tag v1.0.4
 git push --tags
 ```
 
@@ -233,8 +254,3 @@ git push --tags
 ## 许可证
 
 MIT License
-
-
-https://hitomi.la/index-chinese.html
-
-https://cdn.jsdelivr.net/gh/venera-app/venera-configs@main/index.json
