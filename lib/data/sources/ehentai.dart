@@ -17,6 +17,9 @@ class EHentai extends MangaSource {
   String get id => sourceId;
 
   @override
+  bool get isAdult => true;
+
+  @override
   String get name => 'E-Hentai';
 
   @override

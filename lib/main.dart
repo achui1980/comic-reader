@@ -93,6 +93,7 @@ void main() async {
   final settingsStore = GetIt.instance<SettingsStore>();
   final appSettings = await settingsStore.load();
   registry.setDisabledSources(appSettings.disabledSources);
+  registry.setAdultUnlocked(appSettings.adultUnlocked);
 
   // Apply proxy settings from persisted config
   if (!kIsWeb) {

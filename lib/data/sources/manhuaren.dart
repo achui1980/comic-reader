@@ -1,44 +1,27 @@
-import 'dart:convert';
-import 'dart:math';
-import 'dart:typed_data';
-
-import 'package:crypto/crypto.dart';
-import 'package:encrypt/encrypt.dart' as encrypt_lib;
-import 'package:pointycastle/asymmetric/api.dart';
-import 'package:uuid/uuid.dart';
+import 'package:html/parser.dart' as html_parser;
 
 import 'package:comic_reader/core/models/fetch_config.dart';
+import 'package:comic_reader/core/utils/js_unpacker.dart';
 import 'package:comic_reader/data/sources/manga_source.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 
-/// Manhuaren (漫画人) source plugin using internal mobile API.
+/// Manhuaren (漫画人) source backed by the dm5/动漫屋 SSR website
+/// at https://www.manhuaren.com.
 ///
-/// API base: http://mangaapi.manhuaren.com
-/// Auth: RSA-encrypted device info → anonymous user creation → GSN-signed requests
+/// The previous implementation used the mobile APP API
+/// (mangaapi.manhuaren.com) with RSA + GSN signing and anonymous user
+/// registration via /v1/user/createAnonyUser2. That endpoint returns
+/// `code:41000 初始化失败` for unknown devices/IPs (server-side rejection,
+/// not a signing bug — see keiyoushi/extensions-source issue #789), so we
+/// scrape the public SSR website instead, which needs no authentication.
 class ManhuarenSource extends MangaSource {
   static const String sourceId = 'manhuaren';
-  static const String _apiBase = 'http://mangaapi.manhuaren.com';
-  static const String _salt = '4e0a48e1c0b54041bce9c8f0e036124d';
-  static const int _pageSize = 20;
+  static const String _baseUrl = 'https://www.manhuaren.com';
 
-  // RSA public key for device info encryption
-  static const String _rsaPublicKeyBase64 =
-      'MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmFCg289dTws27v8GtqIf'
-      'fkP4zgFR+MYIuUIeVO5AGiBV0rfpRh5gg7i8RrT12E9j6XwKoe3xJz1khDnPc65P'
-      '5f7CJcNJ9A8bj7Al5K4jYGxz+4Q+n0YzSllXPit/Vz/iW5jFdlP6CTIgUVwvIoG'
-      'EL2sS4cqqqSpCDKHSeiXh9CtMsktc6YyrSN+8mQbBvoSSew18r/vC07iQiaYkClc'
-      's7jIPq9tuilL//2uR9kWn5jsp8zHKVjmXuLtHDhM9lObZGCVJwdlN2KDKTh276u/'
-      'pzQ1s5u8z/ARtK26N8e5w8mNlGcHcHfwyhjfEQurvrnkqYH37+12U3jGk5YNHGyO'
-      'PcwIDAQAB';
-
-  // Cached auth state (memory-only)
-  String? _userId;
-  String? _authScheme;
-  String? _authParameter;
-  String? _imei;
-  int? _lastUsedTime;
-
-  final _uuid = const Uuid();
+  static const String _ua =
+      'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) '
+      'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 '
+      'Mobile/15E148 Safari/604.1';
 
   @override
   String get id => sourceId;
@@ -50,89 +33,62 @@ class ManhuarenSource extends MangaSource {
   String get shortName => 'MHR';
 
   @override
-  String? get description => 'Manhuaren.com mobile API (漫画人)';
+  String? get description => '动漫屋(dm5)网页源，无需登录';
 
   @override
-  double get score => 4.0;
+  double get score => 6.0;
 
   @override
-  String? get href => 'https://www.manhuaren.com';
+  String? get href => _baseUrl;
 
   @override
-  bool get needsProxy => false;
+  bool get needsProxy => true;
 
   @override
-  int get firstPage => 1;
+  String? get userAgent => _ua;
 
   @override
-  Map<String, String> get defaultHeaders => {
-        'User-Agent':
-            'Dalvik/2.1.0 (Linux; U; Android 13; Pixel 7 Build/TP1A.220624.021)',
-        'X-Yq-Yqci': '{"le":"zh","os":"1","ov":"33_13","av":"7.0.1"}',
+  Map<String, String>? get defaultHeaders => {
+        'User-Agent': _ua,
+        'Referer': '$_baseUrl/',
       };
+
+  /// Resolve a potentially protocol-relative or relative URL to absolute.
+  String _resolveUrl(String url) {
+    if (url.isEmpty) return url;
+    if (url.startsWith('http')) return url;
+    if (url.startsWith('//')) return 'https:$url';
+    if (url.startsWith('/')) return '$_baseUrl$url';
+    return '$_baseUrl/$url';
+  }
+
+  /// Extract the manga slug from a href like "/manhua-{slug}/".
+  String? _extractSlug(String href) {
+    final match = RegExp(r'/manhua-([^/]+)/?').firstMatch(href);
+    return match?.group(1);
+  }
+
+  /// Extract the numeric chapter id from a href like "/m{id}/".
+  String? _extractChapterId(String href) {
+    final match = RegExp(r'/m(\d+)/?').firstMatch(href);
+    return match?.group(1);
+  }
+
+  // --- Discovery (uses the category/list page) ---
 
   @override
   List<FilterOption> get discoveryFilters => const [
-        FilterOption(
-          name: 'genre',
-          label: '题材',
-          defaultValue: '0',
-          choices: [
-            FilterChoice(label: '全部', value: '0'),
-            FilterChoice(label: '热血', value: '1'),
-            FilterChoice(label: '恋爱', value: '2'),
-            FilterChoice(label: '校园', value: '3'),
-            FilterChoice(label: '搞笑', value: '4'),
-            FilterChoice(label: '格斗', value: '5'),
-            FilterChoice(label: '冒险', value: '6'),
-            FilterChoice(label: '科幻', value: '7'),
-            FilterChoice(label: '魔幻', value: '8'),
-            FilterChoice(label: '神鬼', value: '9'),
-            FilterChoice(label: '悬疑', value: '10'),
-            FilterChoice(label: '唯美', value: '11'),
-            FilterChoice(label: '惊悚', value: '12'),
-            FilterChoice(label: '职场', value: '13'),
-            FilterChoice(label: '萌系', value: '14'),
-            FilterChoice(label: '治愈', value: '15'),
-            FilterChoice(label: '历史', value: '16'),
-            FilterChoice(label: '美食', value: '17'),
-            FilterChoice(label: '同人', value: '18'),
-            FilterChoice(label: '运动', value: '19'),
-            FilterChoice(label: '励志', value: '20'),
-            FilterChoice(label: '生活', value: '21'),
-            FilterChoice(label: '战争', value: '22'),
-            FilterChoice(label: '长条', value: '23'),
-          ],
-        ),
-        FilterOption(
-          name: 'region',
-          label: '地区',
-          defaultValue: '0',
-          choices: [
-            FilterChoice(label: '全部', value: '0'),
-            FilterChoice(label: '日漫', value: '1'),
-            FilterChoice(label: '韩漫', value: '2'),
-            FilterChoice(label: '国漫', value: '3'),
-          ],
-        ),
-        FilterOption(
-          name: 'status',
-          label: '进度',
-          defaultValue: '0',
-          choices: [
-            FilterChoice(label: '全部', value: '0'),
-            FilterChoice(label: '连载中', value: '1'),
-            FilterChoice(label: '已完结', value: '2'),
-          ],
-        ),
+        // dm5 sort segments embedded in the /manhua-list[-sN]/ path.
+        // Empty value = default (综合/人气) page.
         FilterOption(
           name: 'sort',
           label: '排序',
-          defaultValue: '0',
+          defaultValue: '',
           choices: [
-            FilterChoice(label: '热门', value: '0'),
-            FilterChoice(label: '更新', value: '1'),
-            FilterChoice(label: '新作', value: '2'),
+            FilterChoice(label: '人气', value: ''),
+            FilterChoice(label: '订阅榜', value: 's2'),
+            FilterChoice(label: '更新', value: 's1'),
+            FilterChoice(label: '新书', value: 's19'),
           ],
         ),
       ];
@@ -140,353 +96,233 @@ class ManhuarenSource extends MangaSource {
   @override
   List<FilterOption> get searchFilters => const [];
 
-  /// Whether this source needs authentication before making requests.
-  bool get needsAuth => _userId == null || _authParameter == null;
-
-  // ---------------------------------------------------------------------------
-  // Utility methods
-  // ---------------------------------------------------------------------------
-
-  /// Generate a valid 15-digit IMEI with Luhn checksum.
-  String _generateImei() {
-    final random = Random();
-    final digits = List.generate(14, (_) => random.nextInt(10));
-
-    // Luhn checksum calculation
-    int sum = 0;
-    for (int i = 0; i < 14; i++) {
-      int d = digits[i];
-      if (i % 2 == 1) {
-        d *= 2;
-        if (d > 9) d -= 9;
-      }
-      sum += d;
-    }
-    final checkDigit = (10 - (sum % 10)) % 10;
-    digits.add(checkDigit);
-
-    return digits.join();
-  }
-
-  /// Custom URL encoding matching manhuaren's expected format.
-  /// Standard percent-encoding but: + → %20, %7E → ~, * → %2A
-  String _customUrlEncode(String value) {
-    final encoded = Uri.encodeComponent(value);
-    return encoded
-        .replaceAll('+', '%20')
-        .replaceAll('%7E', '~')
-        .replaceAll('*', '%2A');
-  }
-
-  /// Build the common query parameters included in every API request.
-  Map<String, String> _buildCommonParams() {
-    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    _lastUsedTime ??= now;
-    final userId = _userId ?? '';
-
-    return {
-      'gsm': 'md5',
-      'gft': 'json',
-      'gak': 'android_manhuaren2',
-      'gat': '',
-      'gui': userId,
-      'gts': now.toString(),
-      'gut': '0',
-      'gem': '1',
-      'gaui': userId,
-      'gln': '',
-      'gcy': 'US',
-      'gle': 'zh',
-      'gcl': 'dm5',
-      'gos': '1',
-      'gov': '33_13',
-      'gav': '7.0.1',
-      'gdi': _imei ?? '',
-      'gfcl': 'dm5',
-      'gfut': _lastUsedTime.toString(),
-      'glut': _lastUsedTime.toString(),
-      'gpt': 'com.mhr.mangamini',
-      'gciso': 'us',
-      'glot': '',
-      'glat': '',
-      'gflot': '',
-      'gflat': '',
-      'glbsaut': '0',
-      'gac': '',
-      'gcut': 'GMT+8',
-      'gfcc': '',
-      'gflg': '',
-      'glcn': '',
-      'glcc': '',
-      'gflcc': '',
-    };
-  }
-
-  /// Compute GSN signature for a request.
-  ///
-  /// gsn = MD5(salt + METHOD + sorted(params.keys).map(k => k + encode(params[k])).join('') + salt)
-  String _computeGsn(String method, Map<String, String> params) {
-    final sortedKeys = params.keys.toList()..sort();
-    final buffer = StringBuffer(_salt);
-    buffer.write(method.toUpperCase());
-    for (final key in sortedKeys) {
-      buffer.write(key);
-      buffer.write(_customUrlEncode(params[key] ?? ''));
-    }
-    buffer.write(_salt);
-    final bytes = utf8.encode(buffer.toString());
-    return md5.convert(bytes).toString();
-  }
-
-  /// RSA-encrypt plaintext using the server's public key (OAEP/SHA-1).
-  String _rsaEncrypt(String plaintext) {
-    // Wrap raw base64 key in PEM format for RSAKeyParser
-    const pem = '-----BEGIN PUBLIC KEY-----\n$_rsaPublicKeyBase64\n-----END PUBLIC KEY-----';
-    final parser = encrypt_lib.RSAKeyParser();
-    final publicKey = parser.parse(pem) as RSAPublicKey;
-
-    final encrypter = encrypt_lib.Encrypter(
-      encrypt_lib.RSA(publicKey: publicKey, encoding: encrypt_lib.RSAEncoding.OAEP),
-    );
-
-    final inputBytes = utf8.encode(plaintext);
-    // RSA-OAEP with 2048-bit key + SHA-1: max block = 256 - 42 = 214 bytes
-    final keyBytes = (publicKey.modulus!.bitLength + 7) ~/ 8;
-    final maxBlockSize = keyBytes - 42;
-    final output = <int>[];
-
-    for (int offset = 0; offset < inputBytes.length; offset += maxBlockSize) {
-      final end = (offset + maxBlockSize > inputBytes.length)
-          ? inputBytes.length
-          : offset + maxBlockSize;
-      final block = Uint8List.fromList(inputBytes.sublist(offset, end));
-      final encrypted = encrypter.encryptBytes(block.toList());
-      output.addAll(encrypted.bytes);
-    }
-
-    return base64Encode(output);
-  }
-
-  /// Build per-request headers (Authorization, X-Yq-Key, etc.)
-  Map<String, String> _buildRequestHeaders() {
-    final headers = <String, String>{
-      'x-request-id': _uuid.v4(),
-      'yq_is_anonymous': '1',
-    };
-    if (_userId != null) {
-      headers['X-Yq-Key'] = _userId!;
-    }
-    if (_authScheme != null && _authParameter != null) {
-      headers['Authorization'] = '$_authScheme $_authParameter';
-    }
-    return headers;
-  }
-
-  /// Build a signed GET FetchConfig with common params + endpoint params + GSN.
-  FetchConfig _buildSignedGet(String path, Map<String, String> endpointParams) {
-    final params = _buildCommonParams()..addAll(endpointParams);
-    final gsn = _computeGsn('GET', params);
-    params['gsn'] = gsn;
-
-    return FetchConfig(
-      url: '$_apiBase$path',
-      method: HttpMethod.get,
-      headers: _buildRequestHeaders(),
-      queryParameters: params,
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Authentication
-  // ---------------------------------------------------------------------------
-
-  /// Prepare the anonymous user creation request.
-  FetchConfig prepareAuthFetch() {
-    _imei ??= _generateImei();
-    _lastUsedTime = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-
-    final deviceInfo = jsonEncode({
-      'osType': '1',
-      'osVersion': '33',
-      'imei': _imei,
-      'deviceName': 'Pixel 7',
-      'deviceModel': 'Pixel 7',
-    });
-    final encryptedBody = _rsaEncrypt(deviceInfo);
-
-    // For POST, the gsn includes "body" key
-    final params = _buildCommonParams();
-    params['body'] = encryptedBody;
-    final gsn = _computeGsn('POST', params);
-    params.remove('body'); // body goes in request body, not query params
-    params['gsn'] = gsn;
-
-    return FetchConfig(
-      url: '$_apiBase/v1/user/createAnonyUser2',
-      method: HttpMethod.post,
-      headers: {
-        ..._buildRequestHeaders(),
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      queryParameters: params,
-      body: 'body=${Uri.encodeComponent(encryptedBody)}',
-    );
-  }
-
-  /// Parse the auth response and cache credentials.
-  void parseAuthResponse(dynamic responseData) {
-    final Map<String, dynamic> json;
-    if (responseData is String) {
-      json = jsonDecode(responseData) as Map<String, dynamic>;
-    } else if (responseData is Map) {
-      json = responseData as Map<String, dynamic>;
-    } else {
-      throw Exception(
-          'Unexpected auth response type: ${responseData.runtimeType}');
-    }
-
-    final response = json['response'] as Map<String, dynamic>?;
-    if (response == null) {
-      throw Exception('Auth response missing "response" field: $json');
-    }
-
-    _userId = response['userId']?.toString();
-    final tokenResult = response['tokenResult'] as Map<String, dynamic>?;
-    if (tokenResult != null) {
-      _authScheme = tokenResult['scheme'] as String? ?? 'Bearer';
-      _authParameter = tokenResult['parameter'] as String?;
-    }
-
-    if (_userId == null || _authParameter == null) {
-      throw Exception('Auth response missing userId or token: $response');
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Discovery
-  // ---------------------------------------------------------------------------
-
   @override
   FetchConfig prepareDiscoveryFetch(int page, Map<String, String> filters) {
-    final genre = filters['genre'] ?? '0';
-    final region = filters['region'] ?? '0';
-    final status = filters['status'] ?? '0';
-    final sort = filters['sort'] ?? '0';
-    final start = ((page - 1) * _pageSize).toString();
-
-    return _buildSignedGet('/v2/manga/getCategoryMangas', {
-      'subCategoryId': genre,
-      'subCategoryType': region,
-      'status': status,
-      'start': start,
-      'limit': _pageSize.toString(),
-      'sort': sort,
-    });
+    final sort = filters['sort'] ?? '';
+    // dm5 category/list page uses path segments, not query params:
+    //   page 1: /manhua-list/            or /manhua-list-{sort}/
+    //   page N: /manhua-list-p{N}/       or /manhua-list-{sort}-p{N}/
+    final sortSeg = sort.isNotEmpty ? '-$sort' : '';
+    final pageSeg = page > 1 ? '-p$page' : '';
+    return FetchConfig(
+      url: '$_baseUrl/manhua-list$sortSeg$pageSeg/',
+      headers: {'User-Agent': _ua, 'Referer': '$_baseUrl/'},
+    );
   }
 
   @override
   List<MangaSummary> parseDiscovery(dynamic response) {
-    return _parseMangaList(response);
+    return _parseMangaList(response as String);
   }
 
-  // ---------------------------------------------------------------------------
-  // Search
-  // ---------------------------------------------------------------------------
+  // --- Search ---
 
   @override
   FetchConfig prepareSearchFetch(
       String keyword, int page, Map<String, String> filters) {
-    final start = ((page - 1) * _pageSize).toString();
-
-    return _buildSignedGet('/v1/search/getSearchManga', {
-      'keywords': keyword,
-      'start': start,
-      'limit': _pageSize.toString(),
-    });
+    return FetchConfig(
+      url: '$_baseUrl/search',
+      headers: {'User-Agent': _ua, 'Referer': '$_baseUrl/'},
+      queryParameters: {
+        'title': keyword,
+        'language': '1',
+        'page': '$page',
+      },
+    );
   }
 
   @override
   List<MangaSummary> parseSearch(dynamic response) {
-    return _parseMangaList(response);
+    return _parseMangaList(response as String);
   }
 
-  // ---------------------------------------------------------------------------
-  // Manga Info
-  // ---------------------------------------------------------------------------
+  /// Shared parser for search/discovery result lists.
+  ///
+  /// Handles two distinct page layouts:
+  ///  - Search page (`/search`): `.book-list` containers with
+  ///    `.book-list-info-title` / `img.book-list-cover-img`.
+  ///  - Category page (`/manhua-list*`): `ul.manga-list-2 > li` with
+  ///    `.manga-list-2-title` / `img.manga-list-2-cover-img` /
+  ///    `.manga-list-2-tip` (latest chapter).
+  List<MangaSummary> _parseMangaList(String htmlStr) {
+    final document = html_parser.parse(htmlStr);
+    final results = <MangaSummary>[];
+    final seen = <String>{};
+
+    // Prefer the category-page layout when present.
+    final mangaListItems = document.querySelectorAll('ul.manga-list-2 > li');
+    if (mangaListItems.isNotEmpty) {
+      for (final li in mangaListItems) {
+        final link = li.querySelector('a[href*="/manhua-"]');
+        if (link == null) continue;
+        final href = link.attributes['href'] ?? '';
+        final slug = _extractSlug(href);
+        if (slug == null || seen.contains(slug)) continue;
+
+        final titleEl = li.querySelector('.manga-list-2-title');
+        var title = titleEl?.text.trim() ?? '';
+        if (title.isEmpty) title = link.attributes['title']?.trim() ?? '';
+        if (title.isEmpty) continue;
+
+        final imgEl = li.querySelector('img.manga-list-2-cover-img') ??
+            li.querySelector('img');
+        final cover = imgEl?.attributes['data-src'] ??
+            imgEl?.attributes['src'] ??
+            '';
+
+        final tipEl = li.querySelector('.manga-list-2-tip');
+        final latest = tipEl?.text.trim();
+
+        seen.add(slug);
+        results.add(MangaSummary(
+          id: slug,
+          sourceId: sourceId,
+          title: title,
+          coverUrl: _resolveUrl(cover),
+          latestChapter: (latest != null && latest.isNotEmpty) ? latest : null,
+          headers: const {'Referer': '$_baseUrl/'},
+        ));
+      }
+      return results;
+    }
+
+    // Search-page layout: `.book-list` containers (fall back to `li`).
+    final containers = document.querySelectorAll('.book-list');
+    final blocks =
+        containers.isNotEmpty ? containers : document.querySelectorAll('li');
+
+    for (final block in blocks) {
+      final link = block.querySelector('a[href*="/manhua-"]');
+      if (link == null) continue;
+      final href = link.attributes['href'] ?? '';
+      final slug = _extractSlug(href);
+      if (slug == null || seen.contains(slug)) continue;
+
+      final titleEl = block.querySelector('.book-list-info-title') ??
+          block.querySelector('p.book-list-info-title');
+      var title = titleEl?.text.trim() ?? '';
+      if (title.isEmpty) {
+        title = link.attributes['title']?.trim() ?? '';
+      }
+      if (title.isEmpty) continue;
+
+      final imgEl = block.querySelector('img.book-list-cover-img') ??
+          block.querySelector('img');
+      final cover = imgEl?.attributes['data-src'] ??
+          imgEl?.attributes['src'] ??
+          '';
+
+      final statusEl = block.querySelector('.book-list-info-bottom-right-font');
+      final latest = statusEl?.text.trim();
+
+      seen.add(slug);
+      results.add(MangaSummary(
+        id: slug,
+        sourceId: sourceId,
+        title: title,
+        coverUrl: _resolveUrl(cover),
+        latestChapter: (latest != null && latest.isNotEmpty) ? latest : null,
+        headers: const {'Referer': '$_baseUrl/'},
+      ));
+    }
+
+    return results;
+  }
+
+  // --- Manga info (detail page, chapters embedded) ---
 
   @override
   FetchConfig prepareMangaInfoFetch(String mangaId) {
-    return _buildSignedGet('/v1/manga/getDetail', {
-      'mangaId': mangaId,
-    });
+    return FetchConfig(
+      url: '$_baseUrl/manhua-$mangaId/',
+      headers: {'User-Agent': _ua, 'Referer': '$_baseUrl/'},
+    );
   }
 
   @override
   MangaDetail parseMangaInfo(dynamic response, String mangaId) {
-    final Map<String, dynamic> json;
-    if (response is String) {
-      json = jsonDecode(response) as Map<String, dynamic>;
-    } else if (response is Map) {
-      json = response as Map<String, dynamic>;
-    } else {
-      return MangaDetail(
-        id: mangaId,
-        sourceId: sourceId,
-        title: '',
-        coverUrl: '',
-      );
+    final htmlStr = response as String;
+    final document = html_parser.parse(htmlStr);
+
+    final titleEl = document.querySelector('.detail-main-info-title');
+    final title = titleEl?.text.trim() ?? '';
+
+    final coverEl = document.querySelector('.detail-main-cover img');
+    final cover = coverEl?.attributes['data-src'] ??
+        coverEl?.attributes['src'] ??
+        '';
+
+    // Author: text like "作者：尾田荣一郎"
+    final authorEl = document.querySelector('.detail-main-info-author');
+    var author = authorEl?.text.trim() ?? '';
+    author = author.replaceFirst(RegExp(r'^作者[:：]\s*'), '').trim();
+
+    // Tags from the class/genre links.
+    final tags = <String>[];
+    for (final a in document.querySelectorAll('.detail-main-info-class a')) {
+      final t = a.text.trim();
+      if (t.isNotEmpty) tags.add(t);
     }
 
-    final data = json['response'] as Map<String, dynamic>? ?? json;
+    // Description (hidden full copy first, then visible).
+    final descEl = document.querySelector('#detail-desc') ??
+        document.querySelector('.detail-desc');
+    final description = descEl?.text.trim();
 
-    final title = data['mangaName'] as String? ?? '';
-    final coverUrl = data['mangaCoverimageUrl'] as String? ?? '';
-    final description = data['mangaDescription'] as String?;
-    final author = data['mangaAuthor'] as String? ?? '';
-    final themeStr = data['mangaTheme'] as String? ?? '';
-    final tags = themeStr.isNotEmpty
-        ? themeStr.split(' ').where((t) => t.isNotEmpty).toList()
-        : <String>[];
-    final isOver = data['mangaIsOver'] as int? ?? 0;
-    final status = isOver == 1 ? MangaStatus.completed : MangaStatus.ongoing;
+    // Status from page text.
+    var status = MangaStatus.unknown;
+    final bodyText = document.body?.text ?? '';
+    if (bodyText.contains('已完结') || bodyText.contains('完结')) {
+      status = MangaStatus.completed;
+    } else if (bodyText.contains('连载中') || bodyText.contains('连载')) {
+      status = MangaStatus.ongoing;
+    }
 
-    // Parse chapters from mangaSections
-    final sections = data['mangaSections'] as List? ?? [];
+    // Chapters: a.chapteritem with href "/m{id}/". A manga may have several
+    // `ul.detail-list-1` sections (正篇 + 番外 etc). We dedupe by chapter id.
     final chapters = <ChapterItem>[];
-    for (final section in sections) {
-      final s = section as Map<String, dynamic>;
-      final sectionId = s['sectionId']?.toString() ?? '';
-      final sectionTitle =
-          s['sectionTitle'] as String? ?? s['sectionName'] as String? ?? '';
-      if (sectionId.isNotEmpty) {
-        chapters.add(ChapterItem(
-          id: sectionId,
-          mangaId: mangaId,
-          title: sectionTitle,
-        ));
+    final seen = <String>{};
+    for (final a in document.querySelectorAll('a.chapteritem')) {
+      final href = a.attributes['href'] ?? '';
+      final chId = _extractChapterId(href);
+      if (chId == null || seen.contains(chId)) continue;
+
+      // Prefer the visible text (e.g. "第1186话"), which is the chapter
+      // number users expect. The title attribute is usually a subtitle
+      // (e.g. "再一次"). Text may carry a trailing page count like "（17P）".
+      var chTitle = a.text.trim();
+      if (chTitle.isEmpty) {
+        chTitle = a.attributes['title']?.trim() ?? '';
       }
+      chTitle = chTitle.replaceAll(RegExp(r'\s*[（(]\s*\d+\s*P\s*[）)]\s*$'), '').trim();
+      if (chTitle.isEmpty) continue;
+
+      seen.add(chId);
+      chapters.add(ChapterItem(
+        id: chId,
+        mangaId: mangaId,
+        title: chTitle,
+        href: '$_baseUrl/m$chId/',
+      ));
     }
 
     return MangaDetail(
       id: mangaId,
       sourceId: sourceId,
       title: title,
-      coverUrl: coverUrl,
+      coverUrl: _resolveUrl(cover),
       description: description,
       author: author,
       tags: tags,
       status: status,
       chapters: chapters,
+      headers: const {'Referer': '$_baseUrl/'},
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Chapter List (embedded in manga info, returns null)
-  // ---------------------------------------------------------------------------
-
   @override
   FetchConfig? prepareChapterListFetch(String mangaId, int page) {
-    // Chapters are embedded in the detail response
+    // Chapters are embedded in the detail page.
     return null;
   }
 
@@ -495,91 +331,80 @@ class ManhuarenSource extends MangaSource {
     return const ChapterListResult(chapters: []);
   }
 
-  // ---------------------------------------------------------------------------
-  // Chapter Content
-  // ---------------------------------------------------------------------------
+  // --- Chapter (reader page) ---
 
   @override
   FetchConfig prepareChapterFetch(String mangaId, String chapterId, int page,
       {dynamic extra}) {
-    return _buildSignedGet('/v1/manga/getRead', {
-      'mangaSectionId': chapterId,
-    });
+    return FetchConfig(
+      url: '$_baseUrl/m$chapterId/',
+      headers: {'User-Agent': _ua, 'Referer': '$_baseUrl/'},
+    );
   }
 
   @override
   ChapterResult parseChapter(
       dynamic response, String mangaId, String chapterId, int page) {
-    final Map<String, dynamic> json;
-    if (response is String) {
-      json = jsonDecode(response) as Map<String, dynamic>;
-    } else if (response is Map) {
-      json = response as Map<String, dynamic>;
-    } else {
-      return ChapterResult(
-        chapter: Chapter(
-          id: chapterId,
-          mangaId: mangaId,
-          title: '',
-          images: const [],
-        ),
-      );
+    final htmlStr = response as String;
+
+    final emptyResult = ChapterResult(
+      chapter: Chapter(
+        id: chapterId,
+        mangaId: mangaId,
+        title: '',
+        images: const [],
+      ),
+    );
+
+    // The image list is delivered inside a Dean Edwards packed eval block.
+    final packed = JsUnpacker.findPackedScript(htmlStr);
+    if (packed == null) return emptyResult;
+
+    final unpacked = JsUnpacker.unpack(packed);
+    if (unpacked == null) return emptyResult;
+
+    // Unpacked content contains: var newImgs=['url1','url2',...]
+    // Some chapters escape the quotes as \' so a naive split(',') + quote
+    // strip leaves stray backslashes/quotes. Match each quoted string
+    // literal (URLs starting with http(s):// or //) directly instead.
+    final imgsMatch =
+        RegExp(r'var\s+newImgs\s*=\s*\[([^\]]*)\]').firstMatch(unpacked);
+    if (imgsMatch == null) return emptyResult;
+
+    final raw = imgsMatch.group(1) ?? '';
+    final urls = <String>[];
+    // Capture the URL inside optional (escaped) single/double quotes.
+    final urlPattern = RegExp(r'''\\?['"]((?:https?:)?//[^'"\\]+)''');
+    for (final m in urlPattern.allMatches(raw)) {
+      final u = m.group(1)?.trim() ?? '';
+      if (u.isEmpty) continue;
+      urls.add(_resolveUrl(u));
     }
 
-    final data = json['response'] as Map<String, dynamic>? ?? json;
-    final imageList = data['mangaSectionImages'] as List? ?? [];
-    final title =
-        data['sectionTitle'] as String? ?? data['sectionName'] as String? ?? '';
+    if (urls.isEmpty) return emptyResult;
 
-    final images = imageList.map((img) {
-      final imageMap = img as Map<String, dynamic>;
-      final url =
-          imageMap['imageUrl'] as String? ?? imageMap['url'] as String? ?? '';
-      return ChapterImage(url: url);
-    }).where((img) => img.url.isNotEmpty).toList();
+    // dm5 intentionally shuffles newImgs order. The real page number is the
+    // leading number of the filename in the URL path (".../{cid}/{n}_{rand}.jpg").
+    int pageNum(String url) {
+      final m = RegExp(r'/(\d+)_\d+\.\w+(?:\?|$)').firstMatch(url);
+      if (m != null) return int.tryParse(m.group(1)!) ?? 1 << 30;
+      return 1 << 30;
+    }
+
+    urls.sort((a, b) => pageNum(a).compareTo(pageNum(b)));
+
+    final imageHeaders = {'Referer': '$_baseUrl/'};
+    final images = urls
+        .map((u) => ChapterImage(url: u, headers: imageHeaders))
+        .toList();
 
     return ChapterResult(
       chapter: Chapter(
         id: chapterId,
         mangaId: mangaId,
-        title: title,
+        title: '',
         images: images,
       ),
     );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Shared parsers
-  // ---------------------------------------------------------------------------
-
-  /// Parse a manga list response (used by both discovery and search).
-  List<MangaSummary> _parseMangaList(dynamic responseData) {
-    final Map<String, dynamic> json;
-    if (responseData is String) {
-      json = jsonDecode(responseData) as Map<String, dynamic>;
-    } else if (responseData is Map) {
-      json = responseData as Map<String, dynamic>;
-    } else {
-      return [];
-    }
-
-    final response = json['response'] as Map<String, dynamic>?;
-    if (response == null) return [];
-
-    // Try 'mangas' first, then 'result' for search
-    final mangas =
-        (response['mangas'] as List?) ?? (response['result'] as List?) ?? [];
-
-    return mangas.map((item) {
-      final manga = item as Map<String, dynamic>;
-      return MangaSummary(
-        id: manga['mangaId']?.toString() ?? '',
-        sourceId: sourceId,
-        title: manga['mangaName'] as String? ?? '',
-        coverUrl: manga['mangaCoverimageUrl'] as String? ?? '',
-        author: manga['mangaAuthor'] as String? ?? '',
-        latestChapter: manga['mangaNewestContent'] as String?,
-      );
-    }).where((m) => m.id.isNotEmpty).toList();
   }
 }

@@ -53,6 +53,23 @@ jobs:
       - name: Build macOS
         run: flutter build macos --release
 
+      - name: Ad-hoc re-sign app bundle
+        run: |
+          APP="build/macos/Build/Products/Release/comic_reader.app"
+          ENTITLEMENTS="macos/Runner/Release.entitlements"
+          # 先对所有内嵌的 framework / dylib 逐个 ad-hoc 签名（由内到外）
+          find "$APP/Contents/Frameworks" \
+            \( -name "*.dylib" -o -name "*.framework" \) -print0 2>/dev/null \
+            | while IFS= read -r -d '' item; do
+                codesign --force --sign - --timestamp=none "$item" || true
+              done
+          # 最后对 app 主体深度签名，附带 entitlements
+          codesign --force --deep --sign - \
+            --entitlements "$ENTITLEMENTS" \
+            --timestamp=none "$APP"
+          # 验证签名结构完整（ad-hoc 不做严格 Gatekeeper 校验）
+          codesign --verify --deep --verbose=2 "$APP"
+
       - name: Install create-dmg
         run: brew install create-dmg
 
@@ -83,8 +100,7 @@ jobs:
             --app-drop-link 450 200 \
             --no-internet-enable \
             "ComicReader-${{ steps.version.outputs.version }}-macOS.dmg" \
-            "build/macos/Build/Products/Release/comic_reader.app" \
-            || true
+            "build/macos/Build/Products/Release/comic_reader.app"
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
@@ -219,10 +235,16 @@ jobs:
             | Windows | `ComicReader-${{ steps.version.outputs.version }}-Windows.zip` | 解压即用 |
             | Android | `ComicReader-${{ steps.version.outputs.version }}-Android.apk` | 要求 Android 5.0+ |
 
-            ### macOS 安装说明
-            1. 双击 DMG → 拖 app 到 Applications
-            2. 首次打开：**右键点击 app → 打开 → 确认**
-            3. 或终端执行：`xattr -cr /Applications/comic_reader.app`
+            ### macOS 安装说明（未签名应用）
+            本应用未经 Apple 公证，从浏览器下载后会被系统标记隔离，首次打开需手动去除：
+            1. 双击 DMG → 拖 `comic_reader.app` 到「应用程序」文件夹
+            2. **打开「终端」执行（最可靠）**：
+               ```
+               sudo xattr -rd com.apple.quarantine /Applications/comic_reader.app
+               ```
+            3. 然后正常双击打开（若仍提示，可再尝试右键点击 app → 打开 → 确认）
+
+            > 较新 macOS（Sequoia 等）收紧了「右键打开」绕过，若直接双击提示「已损坏」或「无法验证开发者」，请务必先执行上面的终端命令。
 
             ### Windows 安装说明
             1. 解压 zip 到任意目录

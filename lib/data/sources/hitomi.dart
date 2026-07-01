@@ -40,6 +40,9 @@ class Hitomi extends MangaSource {
   String get id => sourceId;
 
   @override
+  bool get isAdult => true;
+
+  @override
   String get name => 'Hitomi';
 
   @override

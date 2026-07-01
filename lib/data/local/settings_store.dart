@@ -17,6 +17,7 @@ class AppSettings {
   final Set<String> disabledSources;
   final bool proxyEnabled;
   final String proxyAddress; // e.g. "127.0.0.1:2222"
+  final bool adultUnlocked;
 
   const AppSettings({
     this.themeMode = AppThemeMode.system,
@@ -27,6 +28,7 @@ class AppSettings {
     this.disabledSources = const {},
     this.proxyEnabled = false,
     this.proxyAddress = '127.0.0.1:2222',
+    this.adultUnlocked = false,
   });
 
   AppSettings copyWith({
@@ -38,6 +40,7 @@ class AppSettings {
     Set<String>? disabledSources,
     bool? proxyEnabled,
     String? proxyAddress,
+    bool? adultUnlocked,
   }) {
     return AppSettings(
       themeMode: themeMode ?? this.themeMode,
@@ -48,6 +51,7 @@ class AppSettings {
       disabledSources: disabledSources ?? this.disabledSources,
       proxyEnabled: proxyEnabled ?? this.proxyEnabled,
       proxyAddress: proxyAddress ?? this.proxyAddress,
+      adultUnlocked: adultUnlocked ?? this.adultUnlocked,
     );
   }
 
@@ -60,6 +64,7 @@ class AppSettings {
         'disabledSources': disabledSources.toList(),
         'proxyEnabled': proxyEnabled,
         'proxyAddress': proxyAddress,
+        'adultUnlocked': adultUnlocked,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -76,6 +81,7 @@ class AppSettings {
           {},
       proxyEnabled: json['proxyEnabled'] as bool? ?? false,
       proxyAddress: json['proxyAddress'] as String? ?? '127.0.0.1:2222',
+      adultUnlocked: json['adultUnlocked'] as bool? ?? false,
     );
   }
 }

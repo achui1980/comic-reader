@@ -14,6 +14,9 @@ class Wnacg extends MangaSource {
   String get id => sourceId;
 
   @override
+  bool get isAdult => true;
+
+  @override
   String get name => '绅士漫画';
 
   @override

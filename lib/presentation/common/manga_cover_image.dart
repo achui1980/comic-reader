@@ -13,6 +13,7 @@ import 'package:comic_reader/data/remote/http_client.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/data/sources/wu55comic.dart';
 import 'package:comic_reader/data/sources/wu55comic_decoder.dart';
+import 'package:comic_reader/presentation/common/cloudflare_dialog.dart';
 import 'package:comic_reader/presentation/reader/widgets/web_direct_image.dart'
     if (dart.library.html) 'package:comic_reader/presentation/reader/widgets/web_direct_image_web.dart';
 
@@ -49,6 +50,14 @@ class _MangaCoverImageState extends State<MangaCoverImage> {
   bool _loading = false;
   bool _error = false;
 
+  /// Set to true when a web direct <img> fails to load (typically a
+  /// Cloudflare 403 on the image CDN). Triggers the "go verify" placeholder.
+  bool _webCfNeeded = false;
+
+  /// Incremented after the user passes the Cloudflare challenge to force a
+  /// brand-new <img> element (new viewId), bypassing the factory cache.
+  int _reloadNonce = 0;
+
   bool get _isWu55Encrypted =>
       widget.sourceId == Wu55Comic.sourceId &&
       widget.imageUrl.contains('/static/upload/book/');
@@ -69,6 +78,7 @@ class _MangaCoverImageState extends State<MangaCoverImage> {
       _image?.dispose();
       _image = null;
       _error = false;
+      _webCfNeeded = false;
       if (_isWu55Encrypted) {
         _loadEncryptedCover();
       }
@@ -208,11 +218,24 @@ class _MangaCoverImageState extends State<MangaCoverImage> {
     if (kIsWeb) {
       final source = GetIt.instance<SourceRegistry>().get(widget.sourceId);
       if (source != null && source.webDirectImage) {
-        final viewId = 'cover_${widget.sourceId}_${widget.imageUrl.hashCode}';
+        // Image CDN is behind Cloudflare and returned 403 (no cf_clearance
+        // cookie yet). Show a "go verify" placeholder instead of a broken img.
+        if (_webCfNeeded) {
+          return _buildCfPlaceholder(source.name);
+        }
+        // Nonce makes the viewId (and thus the <img> element) change after the
+        // user passes the CF challenge, forcing a fresh load with cookies.
+        final viewId =
+            'cover_${widget.sourceId}_${widget.imageUrl.hashCode}_$_reloadNonce';
         final directWidget = buildWebDirectImage(
           imageUrl: widget.imageUrl,
           fit: widget.fit,
           viewId: viewId,
+          onLoadError: () {
+            if (mounted && !_webCfNeeded) {
+              setState(() => _webCfNeeded = true);
+            }
+          },
         );
         if (directWidget != null) {
           return ClipRRect(
@@ -234,6 +257,47 @@ class _MangaCoverImageState extends State<MangaCoverImage> {
 
   Widget _buildPlaceholder() {
     return Container(color: Colors.grey.shade200);
+  }
+
+  /// Placeholder shown when a web direct image fails due to Cloudflare on the
+  /// image CDN. Tapping it opens the CF verification flow; once the user
+  /// passes the challenge we rebuild the <img> with a fresh viewId.
+  Widget _buildCfPlaceholder(String sourceName) {
+    return Material(
+      color: Colors.grey.shade200,
+      child: InkWell(
+        onTap: () async {
+          final verified = await showCloudflareDialog(
+            context,
+            sourceId: widget.sourceId,
+            sourceName: sourceName,
+          );
+          if (verified && mounted) {
+            setState(() {
+              _webCfNeeded = false;
+              _reloadNonce++;
+            });
+          }
+        },
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.shield_outlined,
+                  color: Colors.orange.shade700, size: 28),
+              const SizedBox(height: 4),
+              Text(
+                '去验证',
+                style: TextStyle(
+                  color: Colors.orange.shade700,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildErrorWidget() {

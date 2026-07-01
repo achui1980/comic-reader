@@ -23,6 +23,9 @@ class HComic extends MangaSource {
   String get id => sourceId;
 
   @override
+  bool get isAdult => true;
+
+  @override
   String get name => 'H-Comic';
 
   @override

@@ -8,7 +8,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Start CORS proxy if not already running
 if ! lsof -i :9090 >/dev/null 2>&1; then
   echo "Starting CORS proxy on port 9090..."
-  HTTPS_PROXY="http://127.0.0.1:7897" node "$SCRIPT_DIR/cors_proxy.js" &
+  HTTPS_PROXY="http://127.0.0.1:2222" node "$SCRIPT_DIR/cors_proxy.js" &
   PROXY_PID=$!
   sleep 1
   echo "CORS proxy started (PID: $PROXY_PID)"

@@ -7,7 +7,6 @@ import 'package:comic_reader/data/remote/http_client.dart';
 import 'package:comic_reader/data/remote/cloudflare_interceptor.dart';
 import 'package:comic_reader/data/sources/hitomi.dart';
 import 'package:comic_reader/data/sources/jm_comic.dart';
-import 'package:comic_reader/data/sources/manhuaren.dart';
 import 'package:comic_reader/data/sources/manga_source.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/data/sources/wu55comic.dart';
@@ -144,29 +143,10 @@ class MangaRepositoryImpl implements MangaRepository {
     throw lastError ?? Exception('All JMC domains exhausted');
   }
 
-  /// Ensure ManhuarenSource is authenticated before making API requests.
-  Future<void> _ensureManhuarenAuth(ManhuarenSource source) async {
-    if (!source.needsAuth) return;
-    try {
-      final authConfig = _mergeHeaders(source.prepareAuthFetch(), source);
-      final authResponse = await _httpClient.execute(authConfig);
-      source.parseAuthResponse(authResponse.data);
-      debugPrint('[Manhuaren] Auth successful');
-    } catch (e) {
-      debugPrint('[Manhuaren] Auth failed: $e');
-      rethrow;
-    }
-  }
-
   @override
   Future<List<MangaSummary>> getDiscovery(String sourceId, int page, Map<String, String> filters) async {
     final source = _sourceRegistry.get(sourceId);
     if (source == null) throw Exception('Source not found: $sourceId');
-
-    // Manhuaren: ensure authenticated before API calls
-    if (source is ManhuarenSource && source.needsAuth) {
-      await _ensureManhuarenAuth(source);
-    }
 
     var config = source.prepareDiscoveryFetch(page, filters);
     config = _mergeHeaders(config, source);
@@ -190,11 +170,6 @@ class MangaRepositoryImpl implements MangaRepository {
     final source = _sourceRegistry.get(sourceId);
     if (source == null) throw Exception('Source not found: $sourceId');
 
-    // Manhuaren: ensure authenticated before API calls
-    if (source is ManhuarenSource && source.needsAuth) {
-      await _ensureManhuarenAuth(source);
-    }
-
     var config = source.prepareSearchFetch(keyword, page, filters);
     config = _mergeHeaders(config, source);
     final response = await _executeWithFallback(
@@ -213,11 +188,6 @@ class MangaRepositoryImpl implements MangaRepository {
   Future<MangaDetail> getMangaInfo(String sourceId, String mangaId) async {
     final source = _sourceRegistry.get(sourceId);
     if (source == null) throw Exception('Source not found: $sourceId');
-
-    // Manhuaren: ensure authenticated before API calls
-    if (source is ManhuarenSource && source.needsAuth) {
-      await _ensureManhuarenAuth(source);
-    }
 
     // Hitomi: ensure gg.js is loaded before parsing manga info (needed for cover URL)
     if (source is Hitomi && source.needsGgRefresh) {
@@ -259,11 +229,6 @@ class MangaRepositoryImpl implements MangaRepository {
   Future<ChapterResult> getChapter(String sourceId, String mangaId, String chapterId, int page, {dynamic extra}) async {
     final source = _sourceRegistry.get(sourceId);
     if (source == null) throw Exception('Source not found: $sourceId');
-
-    // Manhuaren: ensure authenticated before API calls
-    if (source is ManhuarenSource && source.needsAuth) {
-      await _ensureManhuarenAuth(source);
-    }
 
     // Use source.firstPage for initial page (E-Hentai is 0-based)
     final effectivePage = page == 1 ? source.firstPage : page;

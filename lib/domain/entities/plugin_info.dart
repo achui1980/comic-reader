@@ -36,6 +36,7 @@ class PluginInfo extends Equatable {
   final String? href;
   final bool disabled;
   final bool needsProxy;
+  final bool isAdult;
 
   const PluginInfo({
     required this.id,
@@ -46,8 +47,9 @@ class PluginInfo extends Equatable {
     this.href,
     this.disabled = false,
     this.needsProxy = false,
+    this.isAdult = false,
   });
 
   @override
-  List<Object?> get props => [id, name, shortName, description, score, href, disabled, needsProxy];
+  List<Object?> get props => [id, name, shortName, description, score, href, disabled, needsProxy, isAdult];
 }

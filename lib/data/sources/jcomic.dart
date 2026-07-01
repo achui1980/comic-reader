@@ -1,5 +1,3 @@
-import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:html/parser.dart' as html_parser;
 
 import 'package:comic_reader/core/models/fetch_config.dart';
@@ -53,57 +51,46 @@ class JComic extends MangaSource {
   @override
   bool get needsProxy => false;
 
+  /// The main site (jcomic.net) is NOT behind Cloudflare — only the image CDN
+  /// (images.jcomic.net) is. Access to the CDN is granted by a fixed cookie
+  /// `jcomic_access=verified_user` (issued when visiting the main site) plus a
+  /// `Referer: https://jcomic.net/` header. No interactive CF challenge is
+  /// required, so this source no longer flags needsCloudflare.
   @override
-  bool get needsCloudflare => true;
+  bool get needsCloudflare => false;
 
-  /// Web platform loads images directly via HTML <img> (no CORS proxy)
-  /// because images.jcomic.net has Cloudflare protection that requires
-  /// browser cookies the proxy cannot provide.
+  /// The image CDN cookie is SameSite=Lax, so a cross-origin HTML <img> would
+  /// NOT carry it. Web images must therefore go through the CORS proxy (which
+  /// injects the cookie via X-Proxy-Cookie), not a direct <img> tag.
   @override
-  bool get webDirectImage => true;
+  bool get webDirectImage => false;
 
-  /// CF verification targets the image CDN where Cloudflare protection exists.
-  /// On web: user should open images.jcomic.net in a new tab to pass CF challenge.
-  /// On native: WebView opens this URL for CF cookie extraction.
-  @override
-  String? get cloudflareUrl => 'https://images.jcomic.net';
+  /// Fixed cookie that unlocks images.jcomic.net. Verified via live requests:
+  /// the main site always sets `jcomic_access=verified_user` (a constant value,
+  /// domain=.jcomic.net, Max-Age=86400) and the image CDN returns 200 when this
+  /// cookie + a jcomic.net Referer are present, 403 otherwise.
+  static const String _imageAccessCookie = 'jcomic_access=verified_user';
 
-  /// Dynamic image headers that include CF cookie when available.
+  /// Dynamic image headers. Includes the fixed access cookie plus Referer.
+  /// On web the CORS proxy converts these to X-Proxy-* headers and restores
+  /// them upstream; on native they are sent directly.
   Map<String, String> get _imageHeaders {
-    final headers = <String, String>{'Referer': 'https://jcomic.net'};
-    final cookie = extraHeaders['Cookie'];
-    if (cookie != null && cookie.isNotEmpty) {
-      headers['Cookie'] = cookie;
+    final headers = <String, String>{
+      'Referer': 'https://jcomic.net',
+      'Cookie': _imageAccessCookie,
+    };
+    // Merge any additional cookie captured/stored for this source.
+    final extraCookie = extraHeaders['Cookie'];
+    if (extraCookie != null &&
+        extraCookie.isNotEmpty &&
+        !extraCookie.contains('jcomic_access')) {
+      headers['Cookie'] = '$_imageAccessCookie; $extraCookie';
     }
     final ua = extraHeaders['User-Agent'];
     if (ua != null && ua.isNotEmpty) {
       headers['User-Agent'] = ua;
     }
     return headers;
-  }
-
-  /// After CF verification, also register cookie with CORS proxy for web images.
-  @override
-  void syncExtraData(Map<String, dynamic> data) {
-    super.syncExtraData(data);
-    _registerCorsProxyCookie(data['cookie'] as String?);
-  }
-
-  /// Register CF cookie with the CORS proxy's __host_token for images.jcomic.net.
-  void _registerCorsProxyCookie(String? cookie) {
-    if (!kIsWeb || cookie == null || cookie.isEmpty) return;
-    try {
-      Dio().post(
-        'http://localhost:9090/__host_token',
-        data: {
-          'host': 'images.jcomic.net',
-          'token': cookie,
-          'header': 'Cookie',
-        },
-      );
-    } catch (_) {
-      // Non-critical: proxy may not be running
-    }
   }
 
   // --- Filters ---

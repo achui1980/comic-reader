@@ -6,6 +6,7 @@ Widget? buildWebDirectImage({
   required String imageUrl,
   required BoxFit fit,
   required String viewId,
+  VoidCallback? onLoadError,
 }) {
   return null;
 }

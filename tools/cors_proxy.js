@@ -190,6 +190,25 @@ const server = http.createServer((req, res) => {
       headers['referer'] = 'https://www.zaimanhua.com/';
     } else if (host.includes('jcomic.net')) {
       headers['referer'] = 'https://jcomic.net';
+    } else if (host.includes('manhuaren.com') || host.includes('cdndm5.com') || host.includes('dm5.com')) {
+      headers['referer'] = 'https://www.manhuaren.com/';
+    }
+  }
+
+  // Auto-inject access cookie for jcomic image CDN (Cloudflare-protected).
+  // The web <img> element cannot forward custom headers, so the browser never
+  // sends X-Proxy-Cookie. images.jcomic.net only requires the fixed cookie
+  // "jcomic_access=verified_user" (issued by the main site) plus a jcomic.net
+  // Referer, so we inject the cookie here when it is missing.
+  {
+    const host = initialParsed.hostname || '';
+    if (host.includes('images.jcomic.net')) {
+      const accessCookie = 'jcomic_access=verified_user';
+      if (!headers['cookie']) {
+        headers['cookie'] = accessCookie;
+      } else if (!headers['cookie'].includes('jcomic_access')) {
+        headers['cookie'] = `${accessCookie}; ${headers['cookie']}`;
+      }
     }
   }
 

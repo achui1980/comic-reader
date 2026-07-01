@@ -78,6 +78,14 @@ class SettingsCubit extends Cubit<SettingsState> {
     _sourceRegistry.setDisabledSources(disabled);
   }
 
+  Future<void> setAdultUnlocked(bool value) async {
+    final updated = state.settings.copyWith(adultUnlocked: value);
+    emit(state.copyWith(settings: updated));
+    await _settingsStore.save(updated);
+    // Update source registry so adult sources take effect immediately
+    _sourceRegistry.setAdultUnlocked(value);
+  }
+
   Future<void> clearFavorites() async {
     await _localStorage.delete('favorites');
   }

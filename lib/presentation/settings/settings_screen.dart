@@ -50,6 +50,7 @@ class _SettingsView extends StatelessWidget {
               _buildThemeSection(context, state),
               if (kIsWeb) const _ProxySettingsSection(),
               if (!kIsWeb) _buildNativeProxySection(context, state),
+              _buildAdultSection(context, state),
               _buildPluginSection(context, state),
               _buildDataSection(context),
               _buildAboutSection(context),
@@ -210,6 +211,36 @@ class _SettingsView extends StatelessWidget {
     );
   }
 
+  Widget _buildAdultSection(BuildContext context, SettingsState state) {
+    final cubit = context.read<SettingsCubit>();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader('成人内容'),
+        SwitchListTile(
+          title: const Text('显示成人内容数据源'),
+          subtitle: Text(
+            state.adultUnlocked ? '已解锁 18+ 数据源' : '需年龄确认后显示',
+          ),
+          value: state.adultUnlocked,
+          onChanged: (v) {
+            if (v) {
+              _showConfirmDialog(
+                context,
+                title: '年龄确认',
+                content: '请确认你已年满 18 周岁。开启后将显示成人内容数据源。',
+                onConfirm: () => cubit.setAdultUnlocked(true),
+              );
+            } else {
+              cubit.setAdultUnlocked(false);
+            }
+          },
+        ),
+        const Divider(),
+      ],
+    );
+  }
+
   void _showProxyAddressDialog(BuildContext context, String currentAddress) {
     final controller = TextEditingController(text: currentAddress);
     showDialog(
@@ -257,6 +288,12 @@ class _SettingsView extends StatelessWidget {
                   const Padding(
                     padding: EdgeInsets.only(left: 6),
                     child: Icon(Icons.vpn_lock, color: Colors.blue, size: 16),
+                  ),
+                if (plugin.isAdult)
+                  const Padding(
+                    padding: EdgeInsets.only(left: 6),
+                    child: Icon(Icons.eighteen_up_rating,
+                        color: Colors.redAccent, size: 16),
                   ),
               ],
             ),

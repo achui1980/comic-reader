@@ -80,6 +80,9 @@ class JmComic extends MangaSource {
   String get id => sourceId;
 
   @override
+  bool get isAdult => true;
+
+  @override
   String get name => '禁漫天堂';
 
   @override

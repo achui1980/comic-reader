@@ -34,6 +34,11 @@ abstract class MangaSource {
   /// Whether this source requires a proxy/VPN (科学上网) to access
   bool get needsProxy => false;
 
+  /// Whether this source contains adult (18+) content.
+  /// Adult sources are hidden from discovery/search pickers until the user
+  /// explicitly enables the 18+ unlock switch in settings.
+  bool get isAdult => false;
+
   /// First page number for this source (most sources use 1, some use 0)
   int get firstPage => 1;
 
@@ -110,6 +115,7 @@ abstract class MangaSource {
     href: href,
     disabled: disabled,
     needsProxy: needsProxy,
+    isAdult: isAdult,
   );
 
   // --- Discovery ---

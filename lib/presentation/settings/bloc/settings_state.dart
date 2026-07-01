@@ -22,6 +22,7 @@ class SettingsState extends Equatable {
   Set<String> get disabledSources => settings.disabledSources;
   bool get proxyEnabled => settings.proxyEnabled;
   String get proxyAddress => settings.proxyAddress;
+  bool get adultUnlocked => settings.adultUnlocked;
 
   SettingsState copyWith({
     AppSettings? settings,
