@@ -138,6 +138,17 @@ abstract class MangaSource {
   FetchConfig prepareChapterFetch(String mangaId, String chapterId, int page, {dynamic extra});
   ChapterResult parseChapter(dynamic response, String mangaId, String chapterId, int page);
 
+  /// Parse an image-resolution page (used by the E-Hentai-style indirection
+  /// flow, i.e. when [parseChapter] returns empty images plus a `nextExtra`
+  /// JSON list of page URLs).
+  ///
+  /// Default implementation returns `null`, meaning the framework falls back
+  /// to extracting a single `<img id="img">` from each resolved page.
+  ///
+  /// Override this to return MULTIPLE images from a single resolved page
+  /// (e.g. an AJAX endpoint that returns all chapter images at once).
+  List<ChapterImage>? parseChapterImagePage(dynamic response) => null;
+
   /// Get the web URL for reading a chapter in browser.
   /// Default implementation uses the URL from prepareChapterFetch.
   /// Override in subclasses if the browser-readable URL differs from the API URL.

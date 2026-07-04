@@ -379,6 +379,13 @@ class MangaRepositoryImpl implements MangaRepository {
             debugPrint('[getChapter] First image page HTML length: ${imgHtml.length}');
             debugPrint('[getChapter] First image page contains img#img: ${imgHtml.contains('id="img"')}');
           }
+          // Allow the source to return MULTIPLE images from a single page
+          // (e.g. an AJAX endpoint returning all chapter images at once).
+          final multi = source.parseChapterImagePage(imgHtml);
+          if (multi != null) {
+            resolvedImages.addAll(multi);
+            continue;
+          }
           // Parse img#img src from the image page (handle src before or after id)
           String? imgSrc;
           final srcMatch1 = RegExp(r'<img[^>]+id="img"[^>]+src="([^"]+)"').firstMatch(imgHtml);
@@ -510,8 +517,13 @@ class MangaRepositoryImpl implements MangaRepository {
         ),
       );
 
-      // Phase 3: Resolve each image page URL progressively
+      // Phase 3: Resolve each image page URL progressively.
+      // If the source returns MULTIPLE images per page (parseChapterImagePage),
+      // we accumulate into a flat growing list instead of the 1:1 placeholder
+      // slots, since the true image count is only known after resolving.
       final resolvedImages = List<ChapterImage>.from(placeholderImages);
+      final multiImages = <ChapterImage>[];
+      var multiMode = false;
       const batchSize = 5;
       for (int i = 0; i < allImagePageUrls.length; i++) {
         final pageUrl = allImagePageUrls[i];
@@ -519,6 +531,20 @@ class MangaRepositoryImpl implements MangaRepository {
           final imgConfig = FetchConfig(url: pageUrl as String);
           final imgResponse = await _httpClient.execute(_mergeHeaders(imgConfig, source));
           final imgHtml = imgResponse.data as String;
+          final multi = source.parseChapterImagePage(imgHtml);
+          if (multi != null) {
+            multiMode = true;
+            multiImages.addAll(multi);
+            yield ChapterResult(
+              chapter: Chapter(
+                id: result.chapter.id,
+                mangaId: result.chapter.mangaId,
+                title: result.chapter.title,
+                images: List<ChapterImage>.from(multiImages),
+              ),
+            );
+            continue;
+          }
           String? imgSrc;
           final srcMatch1 = RegExp(r'<img[^>]+id="img"[^>]+src="([^"]+)"').firstMatch(imgHtml);
           if (srcMatch1 != null) {
@@ -541,8 +567,9 @@ class MangaRepositoryImpl implements MangaRepository {
           debugPrint('[EH-Stream] Failed to resolve image page [$i] $pageUrl: $e');
         }
 
-        // Yield after every batchSize images or last image
-        if ((i + 1) % batchSize == 0 || i == allImagePageUrls.length - 1) {
+        // Yield after every batchSize images or last image (single-image mode)
+        if (!multiMode &&
+            ((i + 1) % batchSize == 0 || i == allImagePageUrls.length - 1)) {
           yield ChapterResult(
             chapter: Chapter(
               id: result.chapter.id,

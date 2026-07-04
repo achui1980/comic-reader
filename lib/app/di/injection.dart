@@ -23,6 +23,8 @@ import 'package:comic_reader/data/sources/hot_manga.dart';
 import 'package:comic_reader/data/sources/jcomic.dart';
 import 'package:comic_reader/data/sources/h_comic.dart';
 import 'package:comic_reader/data/sources/manhuaren.dart';
+import 'package:comic_reader/data/sources/jestful.dart';
+import 'package:comic_reader/data/sources/mangabz.dart';
 import 'package:comic_reader/data/repositories/manga_repository_impl.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
@@ -92,6 +94,8 @@ void configureDependencies() {
   registry.register(JComic());
   registry.register(HComic());
   registry.register(ManhuarenSource());
+  registry.register(Jestful());
+  registry.register(Mangabz());
   getIt.registerSingleton<SourceRegistry>(registry);
 
   // Repository
