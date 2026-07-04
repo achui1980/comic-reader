@@ -115,10 +115,12 @@ class Mangabz extends MangaSource {
     final tagid = filters['tagid'] ?? '0';
     final status = filters['status'] ?? '0';
     final sort = filters['sort'] ?? '10';
+    // Pagination is path-based (`-p{page}/`), NOT a `?page=` query param.
+    // `?page=` is silently ignored by the server and always returns page 1.
+    final suffix = page > 1 ? '-p$page' : '';
     return FetchConfig(
-      url: '$_baseUrl/manga-list-$tagid-$status-$sort/',
+      url: '$_baseUrl/manga-list-$tagid-$status-$sort$suffix/',
       headers: defaultHeaders,
-      queryParameters: {'page': '$page'},
     );
   }
 

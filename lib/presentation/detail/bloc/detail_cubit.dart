@@ -65,11 +65,47 @@ class DetailCubit extends Cubit<DetailState> {
       }
 
       final result = await _repository.getChapterList(sourceId, mangaId, 1);
+      var allChapters = result.chapters;
+      var canLoadMore = result.canLoadMore;
+      var page = 1;
+
+      // Emit the first page immediately so the UI shows something fast.
       emit(state.copyWith(
-        chapters: result.chapters,
+        chapters: allChapters,
+        chaptersLoading: canLoadMore,
+        canLoadMoreChapters: canLoadMore,
+        chapterPage: page,
+      ));
+
+      // The detail UI has no scroll-triggered lazy loading, so eagerly
+      // fetch every remaining page here until the source reports no more.
+      final seen = allChapters.map((c) => c.id).toSet();
+      const maxPages = 200; // safety cap to avoid infinite loops
+      while (canLoadMore && page < maxPages) {
+        page++;
+        final next = await _repository.getChapterList(sourceId, mangaId, page);
+        final newChapters =
+            next.chapters.where((c) => seen.add(c.id)).toList();
+        // Stop if a page returns nothing new to avoid looping forever.
+        if (newChapters.isEmpty) {
+          canLoadMore = false;
+          break;
+        }
+        allChapters = [...allChapters, ...newChapters];
+        canLoadMore = next.canLoadMore;
+        emit(state.copyWith(
+          chapters: allChapters,
+          chaptersLoading: canLoadMore,
+          canLoadMoreChapters: canLoadMore,
+          chapterPage: page,
+        ));
+      }
+
+      emit(state.copyWith(
+        chapters: allChapters,
         chaptersLoading: false,
-        canLoadMoreChapters: result.canLoadMore,
-        chapterPage: 1,
+        canLoadMoreChapters: false,
+        chapterPage: page,
       ));
     } catch (e) {
       emit(state.copyWith(chaptersLoading: false));
