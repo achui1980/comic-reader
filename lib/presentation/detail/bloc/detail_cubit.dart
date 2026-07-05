@@ -86,13 +86,18 @@ class DetailCubit extends Cubit<DetailState> {
         final next = await _repository.getChapterList(sourceId, mangaId, page);
         final newChapters =
             next.chapters.where((c) => seen.add(c.id)).toList();
-        // Stop if a page returns nothing new to avoid looping forever.
+        // A page can legitimately yield no new chapters even while the source
+        // still has more pages — e.g. MangaDex filters out non-Chinese chapters
+        // per page, so an all-foreign page collapses to empty. Keep paging as
+        // long as the source reports more; only the source's own canLoadMore
+        // (plus the maxPages cap) decides when to stop. Bailing out on an empty
+        // page here would hide later Chinese chapters entirely.
+        canLoadMore = next.canLoadMore;
         if (newChapters.isEmpty) {
-          canLoadMore = false;
-          break;
+          if (!canLoadMore) break;
+          continue;
         }
         allChapters = [...allChapters, ...newChapters];
-        canLoadMore = next.canLoadMore;
         emit(state.copyWith(
           chapters: allChapters,
           chaptersLoading: canLoadMore,
