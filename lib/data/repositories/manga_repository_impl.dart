@@ -467,6 +467,7 @@ class MangaRepositoryImpl implements MangaRepository {
 
     // Preflight: detect CF on image CDN before streaming images to reader
     if (source.cloudflareUrl != null &&
+        !source.usesWebViewFetch &&
         result.chapter.images.isNotEmpty &&
         !source.extraHeaders.containsKey('Cookie')) {
       await _preflightImageCf(source, result.chapter.images.first);

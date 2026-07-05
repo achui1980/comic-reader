@@ -76,10 +76,11 @@ class Manga18Club extends MangaSource {
   @override
   String? get cloudflareUrl => '$_baseUrl/';
 
-  // Extract the base64 array inside the `slides_p_path` script assignment.
-  // Content between the first '[' and the closing ',]' or ']'.
-  static final _slidesPattern =
-      RegExp(r'slides_p_path\s*=\s*\[(.*?)\]', dotAll: true);
+  // Locate the `slides_p_path` assignment. We only anchor on the variable
+  // name; the array bounds are resolved manually (first '[' .. ',]'/']') to
+  // mirror the upstream keiyoushi implementation and avoid non-greedy
+  // truncation when the array spans many entries.
+  static final _slidesPattern = RegExp(r'slides_p_path\s*=');
 
   // ====== Discovery ======
 
@@ -273,24 +274,37 @@ class Manga18Club extends MangaSource {
 
     final match = _slidesPattern.firstMatch(htmlStr);
     if (match != null) {
-      final rawArray = match.group(1) ?? '';
-      // Split on commas, strip quotes/whitespace, base64-decode each entry.
-      for (final rawEntry in rawArray.split(',')) {
-        final b64 = rawEntry.replaceAll('"', '').replaceAll("'", '').trim();
-        if (b64.isEmpty) continue;
-        String decoded;
-        try {
-          decoded = utf8.decode(base64.decode(b64));
-        } catch (_) {
-          continue;
+      // Take everything after the first '[' following the assignment, then up
+      // to the closing bracket. Prefer ',]' (trailing-comma form used by the
+      // site) and fall back to a plain ']'.
+      final afterAssign = htmlStr.substring(match.end);
+      final openIdx = afterAssign.indexOf('[');
+      if (openIdx != -1) {
+        var body = afterAssign.substring(openIdx + 1);
+        final closeComma = body.indexOf(',]');
+        final closePlain = body.indexOf(']');
+        if (closeComma != -1) {
+          body = body.substring(0, closeComma);
+        } else if (closePlain != -1) {
+          body = body.substring(0, closePlain);
         }
-        decoded = decoded.trim();
-        if (decoded.isEmpty) continue;
-        final url = decoded.startsWith('/') ? '$_baseUrl$decoded' : decoded;
-        images.add(ChapterImage(
-          url: url,
-          headers: defaultHeaders,
-        ));
+        for (final rawEntry in body.split(',')) {
+          final b64 = rawEntry.replaceAll('"', '').replaceAll("'", '').trim();
+          if (b64.isEmpty) continue;
+          String decoded;
+          try {
+            decoded = utf8.decode(base64.decode(b64));
+          } catch (_) {
+            continue;
+          }
+          decoded = decoded.trim();
+          if (decoded.isEmpty) continue;
+          final url = decoded.startsWith('/') ? '$_baseUrl$decoded' : decoded;
+          images.add(ChapterImage(
+            url: url,
+            headers: defaultHeaders,
+          ));
+        }
       }
     }
 

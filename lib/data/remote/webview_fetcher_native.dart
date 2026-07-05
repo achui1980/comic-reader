@@ -47,14 +47,31 @@ class _NativeWebViewFetcher implements WebViewFetcher {
   }) async {
     final wv = _instanceFor(sourceId);
     await wv.ensureReady(cloudflareUrl, userAgent);
-    return wv.fetch(
-      url: url,
-      method: method,
-      headers: headers,
-      body: body,
-      binary: binary,
-      timeout: timeout,
-    );
+    try {
+      return await wv.fetch(
+        url: url,
+        method: method,
+        headers: headers,
+        body: body,
+        binary: binary,
+        timeout: timeout,
+      );
+    } catch (e) {
+      // A stale/evicted page context makes the in-page fetch() hang until it
+      // aborts (AbortError) or the controller rejects. Rebuild the session
+      // once and retry so transient WebView invalidation self-heals.
+      debugPrint('[WVFetch] $sourceId fetch failed ($e); rebuilding + retrying');
+      wv.invalidate();
+      await wv.ensureReady(cloudflareUrl, userAgent);
+      return wv.fetch(
+        url: url,
+        method: method,
+        headers: headers,
+        body: body,
+        binary: binary,
+        timeout: timeout,
+      );
+    }
   }
 
   @override
@@ -76,6 +93,12 @@ class _SourceWebView {
   InAppWebViewController? _controller;
   String? _navigatedUrl;
   bool _disposed = false;
+
+  /// Force the next [ensureReady] to rebuild the headless webview by clearing
+  /// the cached navigation state. Used to recover from a stale page context.
+  void invalidate() {
+    _navigatedUrl = null;
+  }
 
   /// Ensure the webview is running and has finished loading [cloudflareUrl].
   Future<void> ensureReady(String cloudflareUrl, String? userAgent) async {
@@ -158,13 +181,29 @@ class _SourceWebView {
     // JS runs fetch() in the page origin. For binary we read an ArrayBuffer and
     // base64-encode it; for text we read response.text(). Returns a plain
     // object so callAsyncJavaScript can serialize it.
+    //
+    // Forbidden request headers (User-Agent, Referer, Cookie, Host, ...) must
+    // be stripped: the browser sets them itself from the page context, and on
+    // WebKit attempting to set them can make fetch() reject/hang. Cookies flow
+    // via credentials:'include'.
     const functionBody = r'''
+      const FORBIDDEN = new Set([
+        'user-agent','referer','cookie','host','origin','connection',
+        'content-length','accept-encoding','accept-charset','date',
+        'sec-fetch-dest','sec-fetch-mode','sec-fetch-site',
+      ]);
+      const safeHeaders = {};
+      const src = headers || {};
+      for (const k of Object.keys(src)) {
+        if (!FORBIDDEN.has(k.toLowerCase())) safeHeaders[k] = src[k];
+      }
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const ms = (typeof timeoutMs === 'number' && timeoutMs > 0) ? timeoutMs : 30000;
+      const timer = setTimeout(() => controller.abort(), ms);
       try {
         const resp = await fetch(url, {
           method: method,
-          headers: headers || {},
+          headers: safeHeaders,
           body: (method === 'GET' || method === 'HEAD') ? undefined : (body || undefined),
           credentials: 'include',
           redirect: 'follow',
