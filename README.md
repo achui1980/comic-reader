@@ -21,31 +21,31 @@
 
 ### 多源聚合
 
-| 源 | 说明 | 特殊要求 |
-|----|------|---------|
-| 包子漫画 | 国漫/日漫/韩漫 | - |
-| 拷贝漫画 | 综合漫画 | 科学上网 |
-| E-Hentai | E-Hentai Galleries | 科学上网 |
-| 禁漫天堂 | APP API 模式 | 无需 CF 验证, 科学上网 |
-| 漫画柜 | 综合漫画 | 科学上网 |
-| NHentai | English doujinshi | 科学上网 |
-| 哔咔漫画 | 需账号登录 | Email/Password内置 |
-| 绅士漫画 | 紳士漫畫 | 需 Cloudflare 验证 |
-| 漫画人 | 综合漫画 | 科学上网 |
-| Hitomi.la | 多语言同人志 | 科学上网 |
-| Komiic | 综合漫画 | 科学上网 |
-| 漫画GUI | 综合漫画（移动端 API）| 科学上网 |
-| 在漫画 | 国漫 | - |
-| HotManga | 成人漫画 | 科学上网 |
-| IkanManhua | 综合漫画 | 科学上网 |
-| JComic | 成人漫画 | 科学上网 |
-| HComic | 成人漫画 | 科学上网 |
-| 吾五漫画 | 综合漫画 | 科学上网 |
-| 哥打漫画 | 综合漫画 | - |
-| Jestful | 成人漫画 | 科学上网 |
-| Mangabz | 综合漫画 | 科学上网 |
-| Dongmanmanhua | 综合漫画 | - |
-| Manga18.Club | 成人韩漫/日漫 | 需 Cloudflare 验证 |
+| 源 | 说明 | 特殊要求 | 点击 |
+|----|------|---------|------|
+| 包子漫画 | 国漫/日漫/韩漫 | - | [打开](https://www.baozimh.com) |
+| 拷贝漫画 | 综合漫画 | 科学上网 | [打开](https://www.mangacopy.com) |
+| E-Hentai | E-Hentai Galleries | 科学上网 | [打开](https://e-hentai.org) |
+| 禁漫天堂 | APP API 模式 | 无需 CF 验证, 科学上网 | [打开](https://18comic.vip) |
+| 漫画柜 | 综合漫画 | 科学上网 | [打开](https://m.manhuagui.com) |
+| NHentai | English doujinshi | 科学上网 | [打开](https://nhentai.to) |
+| 哔咔漫画 | 需账号登录 | Email/Password内置 | [打开](https://manhuabika.com) |
+| 绅士漫画 | 紳士漫畫 | 需 Cloudflare 验证 | [打开](https://www.wnacg.com) |
+| 漫画人 | 综合漫画 | 科学上网 | [打开](https://www.manhuaren.com) |
+| Hitomi.la | 多语言同人志 | 科学上网 | [打开](https://hitomi.la) |
+| Komiic | 综合漫画 | 科学上网 | [打开](https://komiic.com) |
+| 漫画GUI | 综合漫画（移动端 API）| 科学上网 | [打开](https://m.manhuagui.com) |
+| 在漫画 | 国漫 | - | [打开](https://www.zaimanhua.com) |
+| HotManga | 成人漫画 | 科学上网 | [打开](https://www.manga2026.com) |
+| IkanManhua | 综合漫画 | 科学上网 | [打开](https://ikanmanhua.org) |
+| JComic | 成人漫画 | 科学上网 | [打开](https://jcomic.net) |
+| HComic | 成人漫画 | 科学上网 | [打开](https://h-comic.com) |
+| 吾五漫画 | 综合漫画 | 科学上网 | [打开](https://www.wu55comic.store) |
+| 哥打漫画 | 综合漫画 | - | [打开](https://godamh.com) |
+| Jestful | 成人漫画 | 科学上网 | [打开](https://jestful.net) |
+| Mangabz | 综合漫画 | 科学上网 | [打开](https://mangabz.com) |
+| Dongmanmanhua | 综合漫画 | - | [打开](https://www.dongmanmanhua.cn) |
+| Manga18.Club | 成人韩漫/日漫 | 需 Cloudflare 验证 | [打开](https://manga18.club) |
 
 ### 阅读体验
 
