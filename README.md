@@ -41,6 +41,11 @@
 | JComic | 成人漫画 | 科学上网 |
 | HComic | 成人漫画 | 科学上网 |
 | 吾五漫画 | 综合漫画 | 科学上网 |
+| 哥打漫画 | 综合漫画 | - |
+| Jestful | 成人漫画 | 科学上网 |
+| Mangabz | 综合漫画 | 科学上网 |
+| Dongmanmanhua | 综合漫画 | - |
+| Manga18.Club | 成人韩漫/日漫 | 需 Cloudflare 验证 |
 
 ### 阅读体验
 
@@ -121,9 +126,6 @@ cd comic-reader
 # 安装依赖
 flutter pub get
 
-# 生成代码（依赖注入等）
-dart run build_runner build --delete-conflicting-outputs
-
 # 运行（macOS）
 flutter run -d macos
 
@@ -156,7 +158,7 @@ brew install create-dmg
 ```
 lib/
 ├── app/
-│   ├── di/                 # 依赖注入（GetIt + Injectable）
+│   ├── di/                 # 依赖注入（GetIt，手动注册）
 │   └── router/             # 路由（GoRouter）
 ├── data/
 │   ├── local/              # 本地存储（收藏、历史、设置）
@@ -181,6 +183,10 @@ lib/
 │       ├── jcomic.dart             # JComic
 │       ├── h_comic.dart            # HComic
 │       ├── goda_manga.dart         # 哥打漫画
+│       ├── jestful.dart            # Jestful
+│       ├── mangabz.dart            # Mangabz
+│       ├── dongmanmanhua.dart      # Dongmanmanhua
+│       ├── manga18_club.dart       # Manga18.Club
 │       └── wu55comic.dart          # 吾五漫画
 ├── domain/
 │   ├── entities/           # 领域实体
@@ -207,6 +213,10 @@ lib/
 1. App 会自动检测并弹出验证提示
 2. 点击"去验证"进入 WebView 完成人机验证
 3. 验证通过后 Cookie 自动保存，后续请求自动携带
+
+部分源（如 Manga18.Club）除人机验证外还有 Cloudflare TLS/JA3 指纹校验，普通 HTTP 请求即使带正确 Cookie 也会被 403 拦截。本应用按平台自动绕过，无需额外配置：
+- **原生平台**：请求经常驻的无头 `flutter_inappwebview` 页内 `fetch()` 发出，复用真实浏览器 TLS 指纹。
+- **Web 平台**：CORS 代理对指定站点改用 curl-impersonate（真实 Chrome 指纹）转发。需先 `brew install lexiforest/tap/curl-impersonate`，`./tools/run_web.sh` 默认已对 `manga18.club` 启用（通过 `CURL_IMPERSONATE_HOSTS` 控制）。
 
 ### Web 平台
 
