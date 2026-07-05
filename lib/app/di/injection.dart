@@ -4,6 +4,7 @@ import 'package:comic_reader/data/remote/http_client.dart';
 import 'package:comic_reader/data/remote/source_interceptor.dart';
 import 'package:comic_reader/data/remote/cors_proxy_interceptor.dart';
 import 'package:comic_reader/data/remote/cloudflare_interceptor.dart';
+import 'package:comic_reader/data/remote/webview_fetcher.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/data/sources/copy_manga.dart';
 import 'package:comic_reader/data/sources/manhuagui_mobile.dart';
@@ -26,6 +27,7 @@ import 'package:comic_reader/data/sources/manhuaren.dart';
 import 'package:comic_reader/data/sources/jestful.dart';
 import 'package:comic_reader/data/sources/mangabz.dart';
 import 'package:comic_reader/data/sources/dongmanmanhua.dart';
+import 'package:comic_reader/data/sources/manga18_club.dart';
 import 'package:comic_reader/data/repositories/manga_repository_impl.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
@@ -67,7 +69,12 @@ void configureDependencies() {
   );
 
   // HTTP Client
-  final httpClient = HttpClient();
+  // WebView-based fetcher for Cloudflare JA3-bound sources (native only;
+  // no-op stub on web). Registered so it can be warmed up / disposed elsewhere.
+  final webViewFetcher = createWebViewFetcher();
+  getIt.registerSingleton<WebViewFetcher>(webViewFetcher);
+
+  final httpClient = HttpClient(webViewFetcher: webViewFetcher);
   httpClient.addInterceptor(SourceInterceptor());
   httpClient.addInterceptor(CloudflareDetectorInterceptor());
   if (kIsWeb) {
@@ -98,6 +105,7 @@ void configureDependencies() {
   registry.register(Jestful());
   registry.register(Mangabz());
   registry.register(Dongmanmanhua());
+  registry.register(Manga18Club());
   getIt.registerSingleton<SourceRegistry>(registry);
 
   // Repository

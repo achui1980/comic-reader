@@ -63,6 +63,18 @@ abstract class MangaSource {
   /// Whether this source requires Cloudflare verification.
   bool get needsCloudflare => false;
 
+  /// Whether HTTP requests for this source must be sent through the on-device
+  /// WebView engine (via a headless InAppWebView) instead of Dio.
+  ///
+  /// This is required for sites protected by Cloudflare's TLS/JA3 fingerprint
+  /// binding: `cf_clearance` cookies are bound to the browser's TLS fingerprint,
+  /// so a Dio request (Dart/BoringSSL) is rejected even with a valid cookie.
+  /// Routing through the WebView reuses the real WebKit/Chromium TLS fingerprint
+  /// and the already-passed CF session.
+  ///
+  /// Native-only. On web this flag is ignored (falls back to Dio/CORS proxy).
+  bool get usesWebViewFetch => false;
+
   /// Whether image loading on web should bypass CORS proxy and use a raw
   /// HTML <img> element. Useful when the image CDN has Cloudflare protection
   /// that requires browser cookies (which the CORS proxy cannot provide).

@@ -31,6 +31,10 @@ class MangaRepositoryImpl implements MangaRepository {
     final extra = <String, dynamic>{
       'sourceId': source.id,
       'needsCloudflare': source.needsCloudflare,
+      if (source.usesWebViewFetch && source.cloudflareUrl != null) ...{
+        'useWebViewFetch': true,
+        'cloudflareUrl': source.cloudflareUrl,
+      },
       ...?config.extra,
     };
     final headers = <String, String>{
@@ -77,6 +81,10 @@ class MangaRepositoryImpl implements MangaRepository {
       }
       // Non-CF error — don't block chapter loading
       debugPrint('[_preflightImageCf] Non-CF error: $e');
+    } catch (e) {
+      // Any non-Dio error (e.g. WebView-fetch StateError) must not crash the
+      // reader. The preflight is best-effort CF detection only.
+      debugPrint('[_preflightImageCf] Unexpected error (ignored): $e');
     }
   }
 
@@ -277,7 +285,15 @@ class MangaRepositoryImpl implements MangaRepository {
     // Preflight check: if this source has a separate CF-protected image CDN,
     // test the first image URL via Dio to detect CF challenges early.
     // This triggers CloudflareException before the reader tries loading images.
+    //
+    // Skip for WebView-fetch sources: their document requests already bypass CF
+    // via the headless webview, and image requests go straight to a separate CDN
+    // subdomain (loaded by the reader's ExtendedImage, not HttpClient). Routing an
+    // image URL through the in-page fetch() would fail with a cross-origin CORS
+    // error (the CDN sends no Access-Control-Allow-Origin header), so preflighting
+    // it here is both unnecessary and harmful.
     if (source.cloudflareUrl != null &&
+        !source.usesWebViewFetch &&
         result.chapter.images.isNotEmpty &&
         !source.extraHeaders.containsKey('Cookie')) {
       await _preflightImageCf(source, result.chapter.images.first);
