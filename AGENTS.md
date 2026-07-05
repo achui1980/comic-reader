@@ -2,7 +2,7 @@
 
 ## Start Here
 - `README.md` is still the stock Flutter template. Treat `pubspec.yaml`, `lib/main.dart`, and `lib/app/di/injection.dart` as the real source of truth.
-- OpenCode has `graphify` wired in via `.opencode/opencode.json`, and `graphify-out/graph.json` already exists. Prefer `graphify query "..."` for architecture questions before broad manual searching.
+- A `graphify` knowledge graph exists at `graphify-out/`. Read `graphify-out/GRAPH_REPORT.md` for god nodes and architecture before broad manual searching. After changing code, run `graphify update .` to refresh it (AST-only, no API cost).
 
 ## Commands
 - Install/update Dart deps: `flutter pub get`
@@ -11,6 +11,7 @@
 - Safe focused unit test: `flutter test test/data/sources/copy_manga_test.dart`
 - Web dev helper: `./tools/run_web.sh` starts the local CORS proxy and then runs `flutter run -d chrome`.
 - Proxy-only web debugging: `node tools/cors_proxy.js` from the repo root, or `node cors_proxy.js` inside `tools/`.
+- CORS proxy tests: `node --test tools/cors_proxy.test.js`. Proxy deps live in `tools/package.json` (`npm install` inside `tools/`), separate from the Flutter project.
 
 ## Test And Verification Quirks
 - Do not treat `flutter test` over the whole repo as a cheap smoke check. `test/verify_jmc_api.dart`, `test/verify_pica_images.dart`, `test/verify_ehentai_chapter.dart`, and `test/check_jmc_chapters.dart` are manual live-network scripts meant to be run explicitly with `dart run ...`.
@@ -22,7 +23,8 @@
 - Dependency injection is manual in `lib/app/di/injection.dart`. `injectable`, `build_runner`, and `injectable_generator` are present in `pubspec.yaml`, but there are no generated DI files in the repo; when adding services or sources, register them manually there.
 - The source-plugin boundary is `lib/data/sources/manga_source.dart`. Concrete sources live in `lib/data/sources/*.dart`, and the active set is assembled in `SourceRegistry` during `configureDependencies()`.
 - `lib/data/repositories/manga_repository_impl.dart` is the core fetch pipeline: it merges stored auth headers into requests, routes all network access through `HttpClient`, handles JMComic domain fallback, expands paginated chapter fetches, and resolves E-Hentai image-page indirection.
-- Routing lives in `lib/app/router/app_router.dart` and `lib/app/router/routes.dart`. The shell tabs are home, discovery, and settings; search/detail/reader/webview are full-screen routes outside the shell.
+- `HttpClient.execute()` (`lib/data/remote/http_client.dart`) is the single exit for every request. On native it can route a request through the WebView-fetch channel instead of Dio when `extra['useWebViewFetch'] == true` and `extra['cloudflareUrl']` is set (see Cloudflare section).
+- Routing lives in `lib/app/router/app_router.dart` and `lib/app/router/routes.dart`. The shell tabs are home, discovery, and settings; search/detail/reader/webview are full-screen routes outside the shell. `routes.dart` helpers (`detailPath`/`readerPath`/`webviewPath`) `Uri.encodeComponent` each path param, so a `mangaId`/`chapterId` may contain a slash only if the source's own id already avoids literal slashes — do not build these routes by hand.
 
 ## Adding A New Data Source
 
@@ -67,3 +69,9 @@ This is the most common task in this repo. Steps:
 - Cloudflare handling is platform-specific: native uses `flutter_inappwebview` to capture cookies automatically, while web falls back to the manual cookie-paste flow in `lib/presentation/webview/webview_web.dart`.
 - Persistent app state is JSON in the app documents directory on native (`lib/data/local/local_storage_io.dart`) and `window.localStorage` keys prefixed with `comic_reader_` on web (`lib/data/local/local_storage_web.dart`).
 - Chapter downloads and local image cache are native-only. `ChapterCacheService` is effectively a no-op on web.
+
+## Cloudflare / TLS Fingerprint Sources (manga18.club)
+Some sources sit behind Cloudflare's TLS/JA3 fingerprint check, which rejects Dart/Dio (BoringSSL) and Node/OpenSSL requests with 403 even with valid cookies and a browser UA. `cf_clearance` is bound to TLS fingerprint + UA + exit IP together, so a cookie captured in a real browser is useless from a mismatched TLS stack. Both platforms solve this without changing source code:
+- **Native**: a source sets `usesWebViewFetch => true` (see `manga_source.dart` getter, default false) and `cloudflareUrl`. `_mergeHeaders` in the repository injects `useWebViewFetch`/`cloudflareUrl` into `extra`; `HttpClient` then sends the HTTP request from a persistent headless `flutter_inappwebview` instance (`lib/data/remote/webview_fetcher_native.dart`) whose page-context `fetch()` reuses the real WebKit TLS fingerprint. `webview_fetcher_stub.dart` is the web/no-op fallback (conditional import in `webview_fetcher.dart`). The in-page fetch strips forbidden headers (User-Agent/Referer/Cookie/etc.) — the browser context supplies them, and `credentials:'include'` carries cookies.
+- **Web**: `tools/cors_proxy.js` opt-in routes exact hosts in `CURL_IMPERSONATE_HOSTS` through curl-impersonate (real Chrome fingerprint) instead of Node's `https.request`. `run_web.sh` defaults this to `manga18.club`. Requires `brew install lexiforest/tap/curl-impersonate`; wrapper defaults to `curl_chrome136` (override via `CURL_IMPERSONATE_BIN`). Note: not all wrappers pass — `curl_chrome124`/`131` get 403 on manga18, `116`/`136`/`142`/`146` get 200.
+- Only main sites need this; image CDNs (e.g. `cdn.manga18.club`) usually serve 200 directly. Keep such sub-domains off the impersonate list / WebView-fetch path so images take the fast direct route.
