@@ -278,6 +278,30 @@ class _DetailView extends StatelessWidget {
         child: Center(child: CircularProgressIndicator()),
       );
     }
+    if (chapters.isEmpty) {
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.menu_book_outlined,
+                size: 48,
+                color: Theme.of(context).disabledColor,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '暂无章节',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Theme.of(context).hintColor,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       sliver: SliverGrid(
