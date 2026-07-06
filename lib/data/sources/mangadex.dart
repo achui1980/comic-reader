@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/data/sources/manga_source.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
@@ -243,7 +245,9 @@ class MangaDexSource extends MangaSource {
 
   @override
   MangaDetail parseMangaInfo(dynamic response, String mangaId) {
-    final map = response as Map<String, dynamic>;
+    final map = response is String
+        ? jsonDecode(response) as Map<String, dynamic>
+        : response as Map<String, dynamic>;
     final data = map['data'] as Map<String, dynamic>;
     final attrs = data['attributes'] as Map<String, dynamic>? ?? const {};
     final relationships =
@@ -324,7 +328,9 @@ class MangaDexSource extends MangaSource {
 
   @override
   ChapterListResult parseChapterList(dynamic response, String mangaId) {
-    final map = response as Map<String, dynamic>;
+    final map = response is String
+        ? jsonDecode(response) as Map<String, dynamic>
+        : response as Map<String, dynamic>;
     final total = (map['total'] as num?)?.toInt() ?? 0;
     final offset = (map['offset'] as num?)?.toInt() ?? 0;
     final limit = (map['limit'] as num?)?.toInt() ?? _feedPageSize;
@@ -401,7 +407,9 @@ class MangaDexSource extends MangaSource {
     String chapterId,
     int page,
   ) {
-    final map = response as Map<String, dynamic>;
+    final map = response is String
+        ? jsonDecode(response) as Map<String, dynamic>
+        : response as Map<String, dynamic>;
     final baseUrl = map['baseUrl'] as String?;
     final chapter = map['chapter'] as Map<String, dynamic>? ?? const {};
     final hash = chapter['hash'] as String?;
@@ -452,7 +460,9 @@ class MangaDexSource extends MangaSource {
   // ---- Helpers ----
 
   List<MangaSummary> _parseMangaList(dynamic response) {
-    final map = response as Map<String, dynamic>;
+    final map = response is String
+        ? jsonDecode(response) as Map<String, dynamic>
+        : response as Map<String, dynamic>;
     final data =
         (map['data'] as List?)?.cast<Map<String, dynamic>>() ?? const [];
 

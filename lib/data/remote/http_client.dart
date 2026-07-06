@@ -134,12 +134,18 @@ class HttpClient {
     final qp = config.queryParameters;
     if (qp == null || qp.isEmpty) return config.url;
     final uri = Uri.parse(config.url);
-    final merged = <String, dynamic>{...uri.queryParameters, ...qp};
-    return uri
-        .replace(
-          queryParameters: merged.map((k, v) => MapEntry(k, v.toString())),
-        )
-        .toString();
+    // Preserve repeated query keys already present in the URL (e.g.
+    // `includes[]=cover_art&includes[]=author`). `Uri.queryParameters` collapses
+    // duplicate keys to a single value, so use `queryParametersAll` and merge the
+    // extra params on top without dropping the existing multi-values.
+    final merged = <String, List<String>>{
+      for (final entry in uri.queryParametersAll.entries)
+        entry.key: List<String>.from(entry.value),
+    };
+    qp.forEach((k, v) {
+      merged[k] = [v.toString()];
+    });
+    return uri.replace(queryParameters: merged).toString();
   }
 
   /// Add an interceptor

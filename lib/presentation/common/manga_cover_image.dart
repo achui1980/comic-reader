@@ -246,12 +246,22 @@ class _MangaCoverImageState extends State<MangaCoverImage> {
       }
     }
 
+    final resolvedUrl = ImageProxy.url(widget.imageUrl);
     return CachedNetworkImage(
-      imageUrl: ImageProxy.url(widget.imageUrl),
+      imageUrl: resolvedUrl,
       httpHeaders: ImageProxy.safeHeaders(widget.headers),
       fit: widget.fit,
       placeholder: (_, __) => _buildPlaceholder(),
-      errorWidget: (_, __, ___) => _buildErrorWidget(),
+      imageBuilder: (context, imageProvider) {
+        return Image(image: imageProvider, fit: widget.fit);
+      },
+      errorWidget: (_, url, error) {
+        debugPrint(
+          '[MangaCoverImage] FAILED sourceId=${widget.sourceId} '
+          'url=$url error=$error (${error.runtimeType})',
+        );
+        return _buildErrorWidget();
+      },
     );
   }
 

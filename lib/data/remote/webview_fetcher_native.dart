@@ -152,13 +152,51 @@ class _SourceWebView {
     );
 
     _headless = headless;
+    final navSw = Stopwatch()..start();
     await headless.run();
 
-    // Wait for initial load (bounded so we never hang forever).
-    try {
-      await completer.future.timeout(const Duration(seconds: 45));
-    } on TimeoutException {
-      debugPrint('[WVFetch] $sourceId warm-up load timed out, proceeding');
+    // Wait for the page context to become usable.
+    //
+    // We do NOT rely solely on onLoadStop: on macOS WKWebView a SPA like
+    // mangadex.org (long-lived connections, background fetches, CF challenge)
+    // often never fires onLoadStop, so waiting for it alone burns the full
+    // timeout every time even though the DOM/JS context is ready within a
+    // couple of seconds. Instead we race onLoadStop against a poll of
+    // document.readyState and proceed as soon as either signals readiness.
+    const maxWait = Duration(seconds: 20);
+    const pollInterval = Duration(milliseconds: 250);
+    var ready = false;
+    while (navSw.elapsed < maxWait) {
+      if (completer.isCompleted) {
+        ready = true;
+        break;
+      }
+      final controller = _controller;
+      if (controller != null) {
+        try {
+          final state = await controller.evaluateJavascript(
+            source: 'document.readyState',
+          );
+          if (state == 'interactive' || state == 'complete') {
+            ready = true;
+            break;
+          }
+        } catch (_) {
+          // Controller not ready yet or transient bridge error; keep polling.
+        }
+      }
+      await Future<void>.delayed(pollInterval);
+    }
+
+    if (ready) {
+      debugPrint(
+        '[WVFetch] $sourceId warm-up ready in ${navSw.elapsedMilliseconds}ms',
+      );
+    } else {
+      debugPrint(
+        '[WVFetch] $sourceId warm-up not ready after '
+        '${navSw.elapsedMilliseconds}ms, proceeding anyway',
+      );
     }
 
     // Give Cloudflare's JS challenge a brief moment to settle after load.
