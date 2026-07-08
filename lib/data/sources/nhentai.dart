@@ -40,6 +40,21 @@ class NHentai extends MangaSource {
   bool get needsCloudflare => false;
 
   @override
+  List<FilterOption> get discoveryFilters => const [
+        FilterOption(
+          name: 'sort',
+          label: 'Sort',
+          defaultValue: 'popular-week',
+          choices: [
+            FilterChoice(label: 'Recent', value: ''),
+            FilterChoice(label: 'Popular Today', value: 'popular-today'),
+            FilterChoice(label: 'Popular This Week', value: 'popular-week'),
+            FilterChoice(label: 'Popular All Time', value: 'popular'),
+          ],
+        ),
+      ];
+
+  @override
   List<FilterOption> get searchFilters => const [
         FilterOption(
           name: 'sort',
@@ -56,20 +71,17 @@ class NHentai extends MangaSource {
 
   @override
   FetchConfig prepareDiscoveryFetch(int page, Map<String, String> filters) {
-    final sort = filters['sort'] ?? '';
-    String url = '$_baseUrl/search';
-    final params = <String, dynamic>{'page': '$page'};
+    // No 'sort' key at all (e.g. called without the filter UI) falls back to
+    // popular-week. An explicit empty-string value means the user picked the
+    // "Recent" choice and must NOT be overridden back to popular-week.
+    final sort = filters.containsKey('sort') ? filters['sort']! : 'popular-week';
+    // Discovery has no dedicated browse endpoint; reuse search with a '*'
+    // wildcard query to get a full result list.
+    final params = <String, dynamic>{'page': '$page', 'q': '*'};
     if (sort.isNotEmpty) {
       params['sort'] = sort;
     }
-    // Default discovery: popular this week, use '*' wildcard to get results
-    if (sort.isEmpty) {
-      params['q'] = '*';
-      params['sort'] = 'popular-week';
-    } else if (!params.containsKey('q')) {
-      params['q'] = '*';
-    }
-    return FetchConfig(url: url, queryParameters: params);
+    return FetchConfig(url: '$_baseUrl/search', queryParameters: params);
   }
 
   @override

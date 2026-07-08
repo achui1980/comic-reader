@@ -34,13 +34,25 @@
 </head>
 <body>
   <!--
-    You can customize the "flutter_bootstrap.js" script.
-    This is useful to provide a custom configuration to the Flutter loader
-    or to give the user feedback during the initialization process.
+    Custom bootstrap: load CanvasKit from the same origin (the "canvaskit/"
+    folder that `flutter build web` already bundles into the output) instead
+    of the default https://www.gstatic.com/flutter-canvaskit/... CDN. Google's
+    CDN is unreliable/blocked on some networks (observed as
+    net::ERR_QUIC_PROTOCOL_ERROR / QUIC_NETWORK_IDLE_TIMEOUT), which breaks
+    web app startup entirely. Serving CanvasKit locally removes that external
+    dependency.
 
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
-  <script src="flutter_bootstrap.js" async></script>
+  <script>
+    {{flutter_js}}
+    {{flutter_build_config}}
+    _flutter.loader.load({
+      config: {
+        canvasKitBaseUrl: "canvaskit/",
+      },
+    });
+  </script>
 </body>
 </html>

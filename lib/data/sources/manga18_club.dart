@@ -84,11 +84,82 @@ class Manga18Club extends MangaSource {
 
   // ====== Discovery ======
 
+  // Genre labels are Chinese for display; values are the site's own genre
+  // slugs used in the `{base}/manga-list/{slug}/{page}` URL pattern (scraped
+  // from the "Browse Manga by Genres" footer + confirmed live on several
+  // entries). Slug derivation: lowercase, spaces -> '-', trailing '+' dropped.
+  @override
+  List<FilterOption> get discoveryFilters => const [
+        FilterOption(
+          name: 'sort',
+          label: '排序',
+          defaultValue: 'views',
+          choices: [
+            FilterChoice(label: '人气', value: 'views'),
+            FilterChoice(label: '最新', value: 'latest'),
+          ],
+        ),
+        FilterOption(
+          name: 'genre',
+          label: '分类',
+          defaultValue: '',
+          choices: [
+            FilterChoice(label: '全部', value: ''),
+            FilterChoice(label: '动作', value: 'action'),
+            FilterChoice(label: '冒险', value: 'adventure'),
+            FilterChoice(label: '喜剧', value: 'comedy'),
+            FilterChoice(label: '剧情', value: 'drama'),
+            FilterChoice(label: '奇幻', value: 'fantasy'),
+            FilterChoice(label: '恐怖', value: 'horror'),
+            FilterChoice(label: '悬疑', value: 'mystery'),
+            FilterChoice(label: '心理', value: 'psychological'),
+            FilterChoice(label: '恋爱', value: 'romance'),
+            FilterChoice(label: '校园', value: 'school-life'),
+            FilterChoice(label: '科幻', value: 'sci-fi'),
+            FilterChoice(label: '日常', value: 'slice-of-life'),
+            FilterChoice(label: '运动', value: 'sports'),
+            FilterChoice(label: '超自然', value: 'supernatural'),
+            FilterChoice(label: '悲剧', value: 'tragedy'),
+            FilterChoice(label: '历史', value: 'historical'),
+            FilterChoice(label: '机甲', value: 'mecha'),
+            FilterChoice(label: '同人', value: 'doujinshi'),
+            FilterChoice(label: '性转', value: 'gender-bender'),
+            FilterChoice(label: '后宫', value: 'harem'),
+            FilterChoice(label: '少年', value: 'shounen'),
+            FilterChoice(label: '少女', value: 'shoujo'),
+            FilterChoice(label: '青年', value: 'seinen'),
+            FilterChoice(label: '女性向', value: 'josei'),
+            FilterChoice(label: '福利', value: 'ecchi'),
+            FilterChoice(label: '耽美', value: 'shounen-ai'),
+            FilterChoice(label: '百合', value: 'shojou-ai'),
+            FilterChoice(label: '纯爱/BL', value: 'yaoi'),
+            FilterChoice(label: '成人', value: 'adult'),
+            FilterChoice(label: '成人向', value: 'mature'),
+            FilterChoice(label: '情色', value: 'smut'),
+            FilterChoice(label: '18+', value: '18'),
+            FilterChoice(label: '无删减', value: 'uncensored'),
+            FilterChoice(label: '生肉', value: 'raw'),
+            FilterChoice(label: '真人', value: 'live-action'),
+            FilterChoice(label: '格斗', value: 'martial-art'),
+            FilterChoice(label: '韩漫', value: 'manhwa'),
+            FilterChoice(label: '国漫', value: 'manhua'),
+            FilterChoice(label: '单行本', value: 'one-shot'),
+            FilterChoice(label: '动画', value: 'anime'),
+            FilterChoice(label: '漫画', value: 'comic'),
+          ],
+        ),
+      ];
+
   @override
   FetchConfig prepareDiscoveryFetch(int page, Map<String, String> filters) {
+    final genre = filters['genre'] ?? '';
+    final sort = filters['sort'] ?? 'views';
+    final url = genre.isNotEmpty
+        ? '$_baseUrl/manga-list/$genre/$page'
+        : '$_baseUrl/list-manga/$page';
     return FetchConfig(
-      url: '$_baseUrl/list-manga/$page',
-      queryParameters: {'order_by': 'views'},
+      url: url,
+      queryParameters: {'order_by': sort},
       headers: defaultHeaders,
     );
   }
