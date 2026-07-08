@@ -315,4 +315,160 @@ class WebtoonsSource extends MangaSource {
       headers: defaultHeaders,
     );
   }
+
+  // --- Chapter List ---
+
+  @override
+  FetchConfig? prepareChapterListFetch(String mangaId, int page) {
+    return FetchConfig(
+      url: _listUrl(mangaId),
+      queryParameters: {
+        'title_no': _titleNoOf(mangaId),
+        'page': page.toString(),
+      },
+      headers: defaultHeaders,
+    );
+  }
+
+  @override
+  ChapterListResult parseChapterList(dynamic response, String mangaId) {
+    final document = html_parser.parse(response as String);
+
+    // 缓存规范路径（供后续分页/viewer 请求构建正确 URL）
+    final canonical = _canonicalPath(document);
+    if (canonical != null) {
+      _pathCache[_titleNoOf(mangaId)] = canonical;
+    }
+
+    final chapters = _parseChapterItems(document, mangaId);
+
+    int maxPage = 1;
+    int currentPage = 1;
+    final paginate = document.querySelector('div.paginate');
+    if (paginate != null) {
+      final onEl =
+          paginate.querySelector('.on') ?? paginate.querySelector('span.on');
+      final curVal = int.tryParse(onEl?.text.trim() ?? '');
+      if (curVal != null) currentPage = curVal;
+
+      for (final a in paginate.querySelectorAll('a[href*="page="]')) {
+        final m = RegExp(r'page=(\d+)').firstMatch(a.attributes['href'] ?? '');
+        if (m != null) {
+          final p = int.tryParse(m.group(1)!) ?? 1;
+          if (p > maxPage) maxPage = p;
+        }
+      }
+    }
+    if (currentPage > maxPage) maxPage = currentPage;
+
+    final canLoadMore = chapters.isNotEmpty && currentPage < maxPage;
+
+    return ChapterListResult(
+      chapters: chapters,
+      canLoadMore: canLoadMore,
+      nextPage: canLoadMore ? currentPage + 1 : null,
+    );
+  }
+
+  /// 解析章节列表: ul#_listUl li[data-episode-no]
+  List<ChapterItem> _parseChapterItems(dynamic document, String mangaId) {
+    final items = document.querySelectorAll('ul#_listUl li[data-episode-no]');
+    final chapters = <ChapterItem>[];
+    final seen = <String>{};
+
+    for (final li in items) {
+      var episodeNo = li.attributes['data-episode-no'] ?? '';
+      if (episodeNo.isEmpty) {
+        final a = li.querySelector('a[href*="episode_no="]');
+        final m = RegExp(r'episode_no=(\d+)')
+            .firstMatch(a?.attributes['href'] ?? '');
+        episodeNo = m?.group(1) ?? '';
+      }
+      if (episodeNo.isEmpty || seen.contains(episodeNo)) continue;
+      seen.add(episodeNo);
+
+      final subjEl = li.querySelector('span.subj span') ??
+          li.querySelector('.subj span') ??
+          li.querySelector('.subj');
+      var chapterTitle = subjEl?.text.trim() ?? '';
+      if (chapterTitle.isEmpty) chapterTitle = '第 $episodeNo 話';
+
+      chapters.add(ChapterItem(
+        id: episodeNo,
+        mangaId: mangaId,
+        title: chapterTitle,
+      ));
+    }
+
+    return chapters;
+  }
+
+  // --- Chapter Content ---
+
+  /// 构建 viewer URL。webtoons 的通用占位 viewer 路径返回 500，故必须用规范路径。
+  /// 正常流程（详情页先加载章节列表）保证 _pathCache 已填充；
+  /// 缓存未命中时退回通用路径（该章节可能失败并显示为空，属可接受的极端兜底）。
+  String _viewerUrl(String mangaId) {
+    final path = _pathOf(mangaId);
+    if (path != null && path.isNotEmpty) {
+      return '$_baseUrl/$path/x/viewer';
+    }
+    return '$_baseUrl/comic/${_titleNoOf(mangaId)}/ep/viewer';
+  }
+
+  @override
+  FetchConfig prepareChapterFetch(String mangaId, String chapterId, int page,
+      {dynamic extra}) {
+    final titleNo = _titleNoOf(mangaId);
+    return FetchConfig(
+      url: _viewerUrl(mangaId),
+      queryParameters: {
+        'title_no': titleNo,
+        'episode_no': chapterId,
+      },
+      headers: defaultHeaders,
+    );
+  }
+
+  @override
+  ChapterResult parseChapter(
+      dynamic response, String mangaId, String chapterId, int page) {
+    final document = html_parser.parse(response as String);
+
+    String title = '第 $chapterId 話';
+    final pageTitle = document.querySelector('title')?.text ?? '';
+    if (pageTitle.contains(' - ')) {
+      final part = pageTitle.split(' - ').first.trim();
+      if (part.isNotEmpty) title = part;
+    }
+
+    // 图片: #_imageList img._images 的 data-url（优先）/ src。
+    // 图片 CDN 需 Referer 头。付费墙章节可能解析到 0 张图 —— 返回空 images 不报错。
+    final imgElements = document.querySelectorAll('#_imageList img._images');
+    final images = <ChapterImage>[];
+    const imageHeaders = {'Referer': 'https://www.webtoons.com/'};
+
+    for (final img in imgElements) {
+      final url = img.attributes['data-url'] ?? img.attributes['src'];
+      if (url == null || url.isEmpty) continue;
+      if (url.contains('bg_transparency')) continue;
+      images.add(ChapterImage(url: url, headers: imageHeaders));
+    }
+
+    return ChapterResult(
+      chapter: Chapter(
+        id: chapterId,
+        mangaId: mangaId,
+        title: title,
+        images: images,
+        headers: defaultHeaders,
+      ),
+    );
+  }
+
+  @override
+  String? getChapterWebUrl(String mangaId, String chapterId) {
+    final titleNo = _titleNoOf(mangaId);
+    return '${_viewerUrl(mangaId)}?title_no=$titleNo&episode_no=$chapterId';
+  }
 }
