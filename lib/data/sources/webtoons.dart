@@ -3,6 +3,7 @@ import 'package:comic_reader/data/sources/manga_source.dart';
 import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/domain/entities/manga.dart';
 import 'package:comic_reader/domain/entities/chapter.dart';
+import 'package:comic_reader/domain/entities/plugin_info.dart';
 
 /// Webtoons (www.webtoons.com/zh-hant) — LINE Webtoon 繁體中文站。
 ///
@@ -98,5 +99,110 @@ class WebtoonsSource extends MangaSource {
     final m = RegExp(r'webtoons\.com/zh-hant/([^/?]+/[^/?]+)/list')
         .firstMatch(href);
     return m?.group(1);
+  }
+
+  // --- Discovery ---
+
+  @override
+  List<FilterOption> get discoveryFilters => const [
+        FilterOption(
+          name: 'genre',
+          label: '分類',
+          defaultValue: 'ACTION',
+          choices: [
+            FilterChoice(label: '愛情', value: 'ROMANCE'),
+            FilterChoice(label: '歐式宮廷', value: 'WESTERN_PALACE'),
+            FilterChoice(label: '影視化', value: 'ADAPTATION'),
+            FilterChoice(label: '校園', value: 'SCHOOL'),
+            FilterChoice(label: '台灣原創作品', value: 'LOCAL'),
+            FilterChoice(label: '奇幻冒險', value: 'FANTASY'),
+            FilterChoice(label: '驚悚', value: 'THRILLER'),
+            FilterChoice(label: '恐怖', value: 'HORROR'),
+            FilterChoice(label: '武俠', value: 'MARTIAL_ARTS'),
+            FilterChoice(label: 'LGBTQ+', value: 'BL_GL'),
+            FilterChoice(label: '大人系', value: 'ROMANCE_M'),
+            FilterChoice(label: '劇情', value: 'DRAMA'),
+            FilterChoice(label: '動作', value: 'ACTION'),
+            FilterChoice(label: '生活/日常', value: 'SLICE_OF_LIFE'),
+            FilterChoice(label: '搞笑', value: 'COMEDY'),
+            FilterChoice(label: '穿越/轉生', value: 'TIME_SLIP'),
+            FilterChoice(label: '現代/職場', value: 'CITY_OFFICE'),
+            FilterChoice(label: '懸疑推理', value: 'MYSTERY'),
+            FilterChoice(label: '療癒/萌系', value: 'HEARTWARMING'),
+            FilterChoice(label: '少年', value: 'SHONEN'),
+            FilterChoice(label: '古代宮廷', value: 'EASTERN_PALACE'),
+            FilterChoice(label: '小說', value: 'WEB_NOVEL'),
+          ],
+        ),
+        FilterOption(
+          name: 'sortOrder',
+          label: '排序',
+          defaultValue: 'UPDATE',
+          choices: [
+            FilterChoice(label: '最近更新', value: 'UPDATE'),
+            FilterChoice(label: '人氣排序', value: 'MANA'),
+            FilterChoice(label: '愛心排序', value: 'LIKEIT'),
+          ],
+        ),
+      ];
+
+  @override
+  FetchConfig prepareDiscoveryFetch(int page, Map<String, String> filters) {
+    final genre = (filters['genre'] ?? 'ACTION').toLowerCase();
+    final sortOrder = filters['sortOrder'] ?? 'UPDATE';
+    return FetchConfig(
+      url: '$_baseUrl/genres/$genre',
+      queryParameters: {
+        'sortOrder': sortOrder,
+        'page': page.toString(),
+      },
+      headers: defaultHeaders,
+    );
+  }
+
+  @override
+  List<MangaSummary> parseDiscovery(dynamic response) {
+    final document = html_parser.parse(response as String);
+    return _parseListCards(
+        document, 'ul.webtoon_list > li > a.link._genre_title_a[data-title-no]');
+  }
+
+  /// 解析列表卡片（发现页与搜索页结构一致）。
+  /// cardSelector 命中的锚点元素含 data-title-no，内部 img + .info_text .title/.author。
+  List<MangaSummary> _parseListCards(dynamic document, String cardSelector) {
+    final cards = document.querySelectorAll(cardSelector);
+    final results = <MangaSummary>[];
+    final seen = <String>{};
+
+    for (final card in cards) {
+      final titleNo = card.attributes['data-title-no'] ?? '';
+      if (titleNo.isEmpty || seen.contains(titleNo)) continue;
+
+      final titleEl = card.querySelector('.info_text .title') ??
+          card.querySelector('.title');
+      final title = titleEl?.text.trim() ?? '';
+      if (title.isEmpty) continue;
+
+      seen.add(titleNo);
+
+      final imgEl = card.querySelector('img');
+      final coverUrl =
+          imgEl?.attributes['src'] ?? imgEl?.attributes['data-url'] ?? '';
+
+      final authorEl = card.querySelector('.info_text .author') ??
+          card.querySelector('.author');
+      final author = authorEl?.text.trim() ?? '';
+
+      results.add(MangaSummary(
+        id: titleNo,
+        sourceId: sourceId,
+        title: title,
+        coverUrl: coverUrl,
+        author: author,
+        headers: defaultHeaders,
+      ));
+    }
+
+    return results;
   }
 }
