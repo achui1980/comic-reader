@@ -346,9 +346,13 @@ class WebtoonsSource extends MangaSource {
     int currentPage = 1;
     final paginate = document.querySelector('div.paginate');
     if (paginate != null) {
-      final onEl =
-          paginate.querySelector('.on') ?? paginate.querySelector('span.on');
-      final curVal = int.tryParse(onEl?.text.trim() ?? '');
+      // webtoons 当前页标记为 <a aria-current="true"><span>N</span></a>（href='#' 不带 page 参数），
+      // 而非 <span class="on">。数字在内层 <span>。回退 .on 兼容其它可能标记。
+      final onEl = paginate.querySelector('[aria-current="true"]') ??
+          paginate.querySelector('.on') ??
+          paginate.querySelector('span.on');
+      final curVal = int.tryParse(
+          onEl?.querySelector('span')?.text.trim() ?? onEl?.text.trim() ?? '');
       if (curVal != null) currentPage = curVal;
 
       for (final a in paginate.querySelectorAll('a[href*="page="]')) {
@@ -391,7 +395,7 @@ class WebtoonsSource extends MangaSource {
           li.querySelector('.subj span') ??
           li.querySelector('.subj');
       var chapterTitle = subjEl?.text.trim() ?? '';
-      if (chapterTitle.isEmpty) chapterTitle = '第 $episodeNo 話';
+      if (chapterTitle.isEmpty) chapterTitle = '第$episodeNo話';
 
       chapters.add(ChapterItem(
         id: episodeNo,
@@ -435,7 +439,7 @@ class WebtoonsSource extends MangaSource {
       dynamic response, String mangaId, String chapterId, int page) {
     final document = html_parser.parse(response as String);
 
-    String title = '第 $chapterId 話';
+    String title = '第$chapterId話';
     final pageTitle = document.querySelector('title')?.text ?? '';
     if (pageTitle.contains(' - ')) {
       final part = pageTitle.split(' - ').first.trim();
