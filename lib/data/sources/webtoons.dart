@@ -60,4 +60,43 @@ class WebtoonsSource extends MangaSource {
         'User-Agent': _userAgent,
         'Referer': '$_baseUrl/',
       };
+
+  /// 缓存 titleNo -> '{genre-slug}/{title-slug}' 规范路径。
+  /// 详情/章节列表页 301 到规范路径并丢弃 page 参数，分页必须直接请求规范路径。
+  /// 源为单例，parseMangaInfo/parseChapterList 解析到 canonical 后写入此缓存。
+  final Map<String, String> _pathCache = {};
+
+  /// mangaId 可能编码为 '{titleNo}::{genre-slug}/{title-slug}'。返回 titleNo。
+  String _titleNoOf(String mangaId) {
+    final i = mangaId.indexOf('::');
+    return i >= 0 ? mangaId.substring(0, i) : mangaId;
+  }
+
+  /// 返回编码在 mangaId 中的 '{genre-slug}/{title-slug}' 路径，
+  /// 其次查缓存，未知则 null。
+  String? _pathOf(String mangaId) {
+    final i = mangaId.indexOf('::');
+    if (i >= 0) return mangaId.substring(i + 2);
+    return _pathCache[_titleNoOf(mangaId)];
+  }
+
+  /// 构建 list 页 URL。已知规范路径时用它（分页 page 参数才不会被 301 丢弃）；
+  /// 否则用 /comic/{titleNo}/list（服务器 301 到规范路径，仅第 1 页可靠）。
+  String _listUrl(String mangaId) {
+    final path = _pathOf(mangaId);
+    if (path != null && path.isNotEmpty) {
+      return '$_baseUrl/$path/list';
+    }
+    return '$_baseUrl/comic/${_titleNoOf(mangaId)}/list';
+  }
+
+  /// 从页面 <link rel="canonical"> 提取 '{genre-slug}/{title-slug}'，失败返回 null。
+  /// webtoons.com 的 slug 段含连字符和 CJK 字符，故用宽松字符类。
+  String? _canonicalPath(dynamic document) {
+    final el = document.querySelector('link[rel="canonical"]');
+    final href = el?.attributes['href'] ?? '';
+    final m = RegExp(r'webtoons\.com/zh-hant/([^/?]+/[^/?]+)/list')
+        .firstMatch(href);
+    return m?.group(1);
+  }
 }
