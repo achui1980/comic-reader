@@ -242,6 +242,8 @@ const server = http.createServer((req, res) => {
       headers['referer'] = 'https://jcomic.net';
     } else if (host.includes('manhuaren.com') || host.includes('cdndm5.com') || host.includes('dm5.com')) {
       headers['referer'] = 'https://www.manhuaren.com/';
+    } else if (host.includes('pstatic.net') || host.includes('webtoons.com')) {
+      headers['referer'] = 'https://www.webtoons.com/';
     }
   }
 
