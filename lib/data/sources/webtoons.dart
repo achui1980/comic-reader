@@ -205,4 +205,24 @@ class WebtoonsSource extends MangaSource {
 
     return results;
   }
+
+  // --- Search ---
+
+  @override
+  FetchConfig prepareSearchFetch(
+      String keyword, int page, Map<String, String> filters) {
+    return FetchConfig(
+      url: '$_baseUrl/search',
+      queryParameters: {'keyword': keyword},
+      headers: defaultHeaders,
+    );
+  }
+
+  @override
+  List<MangaSummary> parseSearch(dynamic response) {
+    final document = html_parser.parse(response as String);
+    // 只解析官方 WEBTOON 作品，忽略 CANVAS 同人作品。
+    return _parseListCards(
+        document, 'a.link._card_item[data-webtoon-type="WEBTOON"]');
+  }
 }
