@@ -225,4 +225,94 @@ class WebtoonsSource extends MangaSource {
     return _parseListCards(
         document, 'a.link._card_item[data-webtoon-type="WEBTOON"]');
   }
+
+  // --- Manga Info ---
+
+  @override
+  FetchConfig prepareMangaInfoFetch(String mangaId) {
+    return FetchConfig(
+      url: _listUrl(mangaId),
+      queryParameters: {'title_no': _titleNoOf(mangaId)},
+      headers: defaultHeaders,
+    );
+  }
+
+  @override
+  MangaDetail parseMangaInfo(dynamic response, String mangaId) {
+    final html = response as String;
+    final document = html_parser.parse(html);
+
+    final titleNo = _titleNoOf(mangaId);
+    final canonical = _canonicalPath(document);
+    if (canonical != null) {
+      _pathCache[titleNo] = canonical;
+    }
+    final encodedId = canonical != null ? '$titleNo::$canonical' : titleNo;
+
+    // 标题
+    String title = document.querySelector('h1.subj')?.text.trim() ?? '';
+    if (title.isEmpty) {
+      final pageTitle = document.querySelector('title')?.text ?? '';
+      title = pageTitle.split('-').first.trim();
+    }
+
+    // 封面
+    final coverEl = document.querySelector('.detail_header .thmb img') ??
+        document.querySelector('.detail_header img');
+    final coverUrl = coverEl?.attributes['src'] ??
+        coverEl?.attributes['data-url'] ??
+        '';
+
+    // 分类/tags: h2.genre 文本空格分隔
+    final genreEl = document.querySelector('h2.genre');
+    final tags = <String>[];
+    if (genreEl != null) {
+      for (final t in genreEl.text.trim().split(RegExp(r'\s+'))) {
+        if (t.isNotEmpty) tags.add(t);
+      }
+    }
+
+    // 作者: .author_area 文本，去除内嵌 <button>'作家資訊' / <a> 文字
+    String author = '';
+    final authorEl = document.querySelector('.author_area');
+    if (authorEl != null) {
+      author = authorEl.text.trim();
+      for (final child in authorEl.querySelectorAll('button')) {
+        author = author.replaceAll(child.text.trim(), '');
+      }
+      for (final child in authorEl.querySelectorAll('a')) {
+        author = author.replaceAll(child.text.trim(), '');
+      }
+      author = author.trim();
+    }
+
+    // 简介: 详情页摘要块（若无可靠选择器则留 null）
+    final description = document.querySelector('.detail_body .summary')?.text
+            .trim() ??
+        document.querySelector('p.summary')?.text.trim();
+
+    // 状态: 默认 ongoing，除非页面明确标注完结
+    MangaStatus status = MangaStatus.ongoing;
+    final statusMatch = RegExp(r'serial_status:(\w+)').firstMatch(html);
+    if (statusMatch != null) {
+      final s = statusMatch.group(1)!.toUpperCase();
+      if (s.contains('COMPLET') || s.contains('END') || s.contains('FINISH')) {
+        status = MangaStatus.completed;
+      }
+    }
+
+    // 章节列表强制走分页接口（详情页只内嵌部分章节，会导致误判无更多章节）。
+    return MangaDetail(
+      id: encodedId,
+      sourceId: sourceId,
+      title: title,
+      coverUrl: coverUrl,
+      description: description,
+      author: author,
+      tags: tags,
+      status: status,
+      chapters: const [],
+      headers: defaultHeaders,
+    );
+  }
 }
