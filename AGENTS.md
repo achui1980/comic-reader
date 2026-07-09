@@ -1,8 +1,10 @@
 # AGENTS.md
 
-## Start Here
+## Start Here (read this first, then TRUST it)
+- **This file is the authoritative architecture snapshot. On a fresh session, DO NOT spin up an explore/search agent to "rediscover" how the codebase is laid out — the map below (Architecture + Adding A New Data Source + the file index) is already the answer.** Only read specific source files when you are about to edit them or need an exact selector/signature. Reserve exploration for genuinely new/undocumented areas.
 - `README.md` is still the stock Flutter template. Treat `pubspec.yaml`, `lib/main.dart`, and `lib/app/di/injection.dart` as the real source of truth.
-- A `graphify` knowledge graph exists at `graphify-out/`. Read `graphify-out/GRAPH_REPORT.md` for god nodes and architecture before broad manual searching. After changing code, run `graphify update .` to refresh it (AST-only, no API cost).
+- The list of "which data sources exist / which services are wired" is intentionally NOT duplicated here (it rots). It lives in exactly two always-current places: `lib/data/sources/*.dart` (one file per source) and the `registry.register(...)` block in `lib/app/di/injection.dart`. `rtk ls lib/data/sources` + a quick read of the register block tells you the full active set in seconds — no explore agent needed.
+- A `graphify` knowledge graph exists at `graphify-out/`. `graph.html` is for a **human** to browse interactively; `GRAPH_REPORT.md` is a community index that is not useful for agent cold-start (prefer the architecture map in this file instead). After changing code, run `graphify update .` to refresh it (AST-only, no API cost).
 
 ## Commands
 - Install/update Dart deps: `flutter pub get`
@@ -25,6 +27,26 @@
 - `lib/data/repositories/manga_repository_impl.dart` is the core fetch pipeline: it merges stored auth headers into requests, routes all network access through `HttpClient`, handles JMComic domain fallback, expands paginated chapter fetches, and resolves E-Hentai image-page indirection.
 - `HttpClient.execute()` (`lib/data/remote/http_client.dart`) is the single exit for every request. On native it can route a request through the WebView-fetch channel instead of Dio when `extra['useWebViewFetch'] == true` and `extra['cloudflareUrl']` is set (see Cloudflare section).
 - Routing lives in `lib/app/router/app_router.dart` and `lib/app/router/routes.dart`. The shell tabs are home, discovery, and settings; search/detail/reader/webview are full-screen routes outside the shell. `routes.dart` helpers (`detailPath`/`readerPath`/`webviewPath`) `Uri.encodeComponent` each path param, so a `mangaId`/`chapterId` may contain a slash only if the source's own id already avoids literal slashes — do not build these routes by hand.
+
+### Key File Index (what-is-where — use this instead of searching)
+| Concern | File(s) |
+| --- | --- |
+| App bootstrap / startup order | `lib/main.dart` |
+| Manual DI + source registration | `lib/app/di/injection.dart` |
+| Source plugin base class (the contract) | `lib/data/sources/manga_source.dart` |
+| Concrete sources (one per site) | `lib/data/sources/*.dart` |
+| Source registry (active set) | `lib/data/sources/source_registry.dart` |
+| Core fetch pipeline (prepare→HTTP→parse) | `lib/data/repositories/manga_repository_impl.dart` |
+| Single network exit (Dio + WebView-fetch) | `lib/data/remote/http_client.dart` |
+| Cloudflare WebView fetcher (native) | `lib/data/remote/webview_fetcher_native.dart` (+ `_stub`/conditional `webview_fetcher.dart`) |
+| Request config model | `lib/core/models/fetch_config.dart` |
+| Domain entities | `lib/domain/entities/` (`manga.dart`, `chapter.dart`, `plugin_info.dart`; re-exported via `entities.dart`) |
+| Routing | `lib/app/router/app_router.dart`, `lib/app/router/routes.dart` |
+| Local persistence | `lib/data/local/local_storage_io.dart` (native), `local_storage_web.dart` (web) |
+| Web CORS proxy + TLS impersonation | `tools/cors_proxy.js`, `tools/run_web.sh` |
+| State management | `flutter_bloc` Cubits under `lib/presentation/**/bloc/` |
+
+Mental model in one line: **a source is a pure function** — `prepare*Fetch()` turns (page/keyword/id) into a `FetchConfig`, `parse*()` turns the raw response (HTML `String` by default) into domain entities. Everything else (network, cookie/auth merge, Cloudflare, pagination expansion) is the framework's job in `manga_repository_impl.dart` + `http_client.dart`; sources never touch the network.
 
 ## Adding A New Data Source
 
