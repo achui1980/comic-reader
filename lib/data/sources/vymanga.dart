@@ -36,6 +36,16 @@ class VyMangaSource extends MangaSource {
   @override
   String get id => sourceId;
 
+  // Disabled: vymanga.net's detail/chapter pages sit behind an interactive
+  // Cloudflare Managed Challenge (Turnstile) that is bound to a real browser's
+  // full fingerprint — no portable `cf_clearance` cookie is minted, so neither
+  // curl-impersonate (web) nor a pasted cookie can pass it. Even if it could,
+  // chapter links are ad-redirects (aovheroes.com) whose real URL is AES-
+  // encrypted server-side and cannot be recovered client-side. Only /search is
+  // reachable, which is not enough for reading. Kept for reference; not shipped.
+  @override
+  bool get disabled => true;
+
   @override
   String get name => 'VyManga';
 
