@@ -21,10 +21,9 @@ Future<bool> showCloudflareDialog(BuildContext context, {String? sourceId, Strin
           onPressed: () => Navigator.pop(ctx, false),
           child: const Text('取消'),
         ),
-        FilledButton.icon(
+        FilledButton(
           onPressed: () => Navigator.pop(ctx, true),
-          icon: const Icon(Icons.verified_user_outlined, size: 18),
-          label: const Text('去验证'),
+          child: const Text('去验证'),
         ),
       ],
     ),

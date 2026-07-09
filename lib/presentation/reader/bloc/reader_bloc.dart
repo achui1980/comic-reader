@@ -127,7 +127,7 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
           add(ImagesUpdated(
             images: const [],
             isComplete: true,
-            errorMessage: e.toString(),
+            errorMessage: _cleanErrorMessage(e),
           ));
         },
       );
@@ -136,9 +136,20 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
       debugPrint('[ReaderBloc] Stack: ${stack.toString().split('\n').take(5).join('\n')}');
       emit(state.copyWith(
         status: ReaderStatus.error,
-        errorMessage: e.toString(),
+        errorMessage: _cleanErrorMessage(e),
       ));
     }
+  }
+
+  /// Strips the noisy "Exception: " prefix that Dart's Exception.toString()
+  /// prepends, so user-facing error messages read cleanly.
+  String _cleanErrorMessage(Object e) {
+    var msg = e.toString();
+    const prefix = 'Exception: ';
+    if (msg.startsWith(prefix)) {
+      msg = msg.substring(prefix.length);
+    }
+    return msg;
   }
 
   void _onImagesUpdated(ImagesUpdated event, Emitter<ReaderState> emit) {

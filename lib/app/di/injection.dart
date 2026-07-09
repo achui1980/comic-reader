@@ -30,6 +30,7 @@ import 'package:comic_reader/data/sources/dongmanmanhua.dart';
 import 'package:comic_reader/data/sources/webtoons.dart';
 import 'package:comic_reader/data/sources/manga18_club.dart';
 import 'package:comic_reader/data/sources/mangadex.dart';
+import 'package:comic_reader/data/sources/comick.dart';
 import 'package:comic_reader/data/repositories/manga_repository_impl.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
@@ -110,6 +111,7 @@ void configureDependencies() {
   registry.register(WebtoonsSource());
   registry.register(Manga18Club());
   registry.register(MangaDexSource());
+  registry.register(ComicKSource());
   getIt.registerSingleton<SourceRegistry>(registry);
 
   // Repository
