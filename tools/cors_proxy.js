@@ -244,6 +244,8 @@ const server = http.createServer((req, res) => {
       headers['referer'] = 'https://www.manhuaren.com/';
     } else if (host.includes('pstatic.net') || host.includes('webtoons.com')) {
       headers['referer'] = 'https://www.webtoons.com/';
+    } else if (host.includes('mgread.io')) {
+      headers['referer'] = 'https://mgread.io/';
     }
   }
 
