@@ -3,7 +3,7 @@
 # Usage: ./tools/run_web.sh
 #
 # curl-impersonate (opt-in): some sources (e.g. manga18.club, api.comick.dev,
-# vymanga.net, weebcentral.com) sit behind a Cloudflare TLS/JA3 fingerprint check that Node's
+# vymanga.net, weebcentral.com, www.mangago.me) sit behind a Cloudflare TLS/JA3 fingerprint check that Node's
 # https.request cannot pass (403). Setting CURL_IMPERSONATE_HOSTS routes those
 # exact hosts through curl-impersonate (real Chrome fingerprint) instead. Only
 # the main API hosts are listed; image CDNs (cdn.manga18.club,
@@ -14,7 +14,7 @@
 # challenge, so curl-impersonate alone is not enough — the user must first
 # pass CF in a real browser and paste the cf_clearance cookie (web cookie
 # flow). curl-impersonate then replays requests carrying that cookie.
-CURL_IMPERSONATE_HOSTS="${CURL_IMPERSONATE_HOSTS:-manga18.club,api.comick.dev,vymanga.net,weebcentral.com}"
+CURL_IMPERSONATE_HOSTS="${CURL_IMPERSONATE_HOSTS:-manga18.club,api.comick.dev,vymanga.net,weebcentral.com,www.mangago.me}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"

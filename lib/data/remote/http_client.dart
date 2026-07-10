@@ -77,6 +77,12 @@ class HttpClient {
 
     final wantsBytes = config.responseType == ResponseType.bytes;
 
+    // Sources whose Cloudflare re-challenges in-page fetch (even from a
+    // passed-challenge page context) opt into navigation render mode, where the
+    // WebView loads the target URL as a top-level document and returns its
+    // rendered HTML. Binary responses always use in-page fetch.
+    final renderMode = !wantsBytes && extra['renderMode'] == true;
+
     final result = await fetcher.fetch(
       sourceId: sourceId,
       cloudflareUrl: cloudflareUrl,
@@ -86,6 +92,7 @@ class HttpClient {
       body: config.body?.toString(),
       userAgent: userAgent,
       binary: wantsBytes,
+      renderMode: renderMode,
       timeout: config.timeout ?? const Duration(seconds: 30),
     );
 

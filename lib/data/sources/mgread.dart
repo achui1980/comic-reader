@@ -295,6 +295,7 @@ class MgRead extends MangaSource {
       tags: tags,
       status: MangaStatus.unknown,
       chapters: const [],
+      headers: defaultHeaders,
     );
   }
 
@@ -474,6 +475,7 @@ class MgRead extends MangaSource {
         sourceId: sourceId,
         title: title,
         coverUrl: cover,
+        headers: defaultHeaders,
       ));
     }
 

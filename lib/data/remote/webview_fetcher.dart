@@ -44,6 +44,13 @@ abstract class WebViewFetcher {
   ///
   /// [binary] true means the response should be returned as raw bytes
   /// (used for images); otherwise the decoded text body is returned.
+  ///
+  /// [renderMode] true means the WebView navigates the top-level document to
+  /// [url] (a real navigation, which Cloudflare treats as a legitimate page
+  /// load and passes) and returns the rendered `document.documentElement`
+  /// outerHTML instead of issuing an in-page `fetch()`. This is required for
+  /// sources whose Cloudflare re-challenges in-page fetch requests even from a
+  /// page context that already passed the challenge. Ignored for [binary].
   Future<WebViewFetchResult> fetch({
     required String sourceId,
     required String cloudflareUrl,
@@ -53,6 +60,7 @@ abstract class WebViewFetcher {
     String? body,
     String? userAgent,
     bool binary = false,
+    bool renderMode = false,
     Duration timeout = const Duration(seconds: 30),
   });
 

@@ -43,19 +43,22 @@ class _NativeWebViewFetcher implements WebViewFetcher {
     String? body,
     String? userAgent,
     bool binary = false,
+    bool renderMode = false,
     Duration timeout = const Duration(seconds: 30),
   }) async {
     final wv = _instanceFor(sourceId);
     await wv.ensureReady(cloudflareUrl, userAgent);
     try {
-      return await wv.fetch(
-        url: url,
-        method: method,
-        headers: headers,
-        body: body,
-        binary: binary,
-        timeout: timeout,
-      );
+      return renderMode
+          ? await wv.fetchRendered(url: url, timeout: timeout)
+          : await wv.fetch(
+              url: url,
+              method: method,
+              headers: headers,
+              body: body,
+              binary: binary,
+              timeout: timeout,
+            );
     } catch (e) {
       // A stale/evicted page context makes the in-page fetch() hang until it
       // aborts (AbortError) or the controller rejects. Rebuild the session
@@ -63,14 +66,16 @@ class _NativeWebViewFetcher implements WebViewFetcher {
       debugPrint('[WVFetch] $sourceId fetch failed ($e); rebuilding + retrying');
       wv.invalidate();
       await wv.ensureReady(cloudflareUrl, userAgent);
-      return wv.fetch(
-        url: url,
-        method: method,
-        headers: headers,
-        body: body,
-        binary: binary,
-        timeout: timeout,
-      );
+      return renderMode
+          ? wv.fetchRendered(url: url, timeout: timeout)
+          : wv.fetch(
+              url: url,
+              method: method,
+              headers: headers,
+              body: body,
+              binary: binary,
+              timeout: timeout,
+            );
     }
   }
 
@@ -155,7 +160,8 @@ class _SourceWebView {
     final navSw = Stopwatch()..start();
     await headless.run();
 
-    // Wait for the page context to become usable.
+    // Wait for the page context to become usable AND past any Cloudflare
+    // challenge.
     //
     // We do NOT rely solely on onLoadStop: on macOS WKWebView a SPA like
     // mangadex.org (long-lived connections, background fetches, CF challenge)
@@ -163,34 +169,53 @@ class _SourceWebView {
     // timeout every time even though the DOM/JS context is ready within a
     // couple of seconds. Instead we race onLoadStop against a poll of
     // document.readyState and proceed as soon as either signals readiness.
+    //
+    // But readyState alone is a trap for Cloudflare-protected origins: the CF
+    // "Just a moment..." interstitial is itself a fully-loaded HTML document
+    // (readyState == 'complete') that only THEN runs its JS challenge and
+    // redirects to the real page. Firing fetch() from that interstitial
+    // context fails with "TypeError: Load failed" on WebKit. So once the DOM
+    // is ready we keep polling until the page is no longer a CF challenge page
+    // (detected via document.title) before declaring the session warm.
     const maxWait = Duration(seconds: 20);
     const pollInterval = Duration(milliseconds: 250);
-    var ready = false;
+    var domReady = false;
+    var pastChallenge = false;
     while (navSw.elapsed < maxWait) {
-      if (completer.isCompleted) {
-        ready = true;
-        break;
-      }
       final controller = _controller;
-      if (controller != null) {
-        try {
-          final state = await controller.evaluateJavascript(
-            source: 'document.readyState',
-          );
-          if (state == 'interactive' || state == 'complete') {
-            ready = true;
-            break;
+      if (!domReady) {
+        if (completer.isCompleted) {
+          domReady = true;
+        } else if (controller != null) {
+          try {
+            final state = await controller.evaluateJavascript(
+              source: 'document.readyState',
+            );
+            if (state == 'interactive' || state == 'complete') {
+              domReady = true;
+            }
+          } catch (_) {
+            // Controller not ready yet or transient bridge error; keep polling.
           }
-        } catch (_) {
-          // Controller not ready yet or transient bridge error; keep polling.
+        }
+      }
+      if (domReady && controller != null) {
+        if (await _isPastCloudflareChallenge(controller)) {
+          pastChallenge = true;
+          break;
         }
       }
       await Future<void>.delayed(pollInterval);
     }
 
-    if (ready) {
+    if (pastChallenge) {
       debugPrint(
         '[WVFetch] $sourceId warm-up ready in ${navSw.elapsedMilliseconds}ms',
+      );
+    } else if (domReady) {
+      debugPrint(
+        '[WVFetch] $sourceId warm-up DOM ready but still on Cloudflare '
+        'challenge after ${navSw.elapsedMilliseconds}ms, proceeding anyway',
       );
     } else {
       debugPrint(
@@ -201,6 +226,48 @@ class _SourceWebView {
 
     // Give Cloudflare's JS challenge a brief moment to settle after load.
     await Future<void>.delayed(const Duration(milliseconds: 800));
+  }
+
+  /// Cloudflare interstitial page titles across languages/variants. When the
+  /// page still shows one of these, the JS challenge has not resolved yet and
+  /// any in-page `fetch()` will fail at the network layer.
+  static const List<String> _cfChallengeTitles = [
+    'just a moment',
+    'attention required',
+    'checking your browser',
+    'please wait',
+    'один момент',
+    '請稍候',
+    '请稍候',
+    '잠시만 기다',
+    'einen moment',
+    'un momento',
+    'un instant',
+  ];
+
+  /// Returns true when the current page is NOT a Cloudflare challenge page.
+  /// Uses document.title (cheap, works even when the DOM is otherwise empty).
+  Future<bool> _isPastCloudflareChallenge(
+    InAppWebViewController controller,
+  ) async {
+    try {
+      final title = await controller.evaluateJavascript(
+        source: 'document.title',
+      );
+      if (title == null) return false;
+      final lower = title.toString().toLowerCase().trim();
+      if (lower.isEmpty) {
+        // A blank title early in the CF challenge; treat as not-yet-ready.
+        return false;
+      }
+      for (final marker in _cfChallengeTitles) {
+        if (lower.contains(marker)) return false;
+      }
+      return true;
+    } catch (_) {
+      // Bridge hiccup; err on the side of not-ready so we keep polling.
+      return false;
+    }
   }
 
   Future<WebViewFetchResult> fetch({
@@ -319,6 +386,82 @@ class _SourceWebView {
         contentType: contentType,
       );
     }
+  }
+
+  /// Navigate the top-level document to [url] and return the rendered HTML.
+  ///
+  /// Some Cloudflare deployments re-challenge in-page `fetch()` requests even
+  /// from a page context that already passed the challenge (WebKit-specific),
+  /// so `fetch()` returns 403 / "TypeError: Load failed". Loading [url] as a
+  /// real top-level navigation lets Cloudflare treat it as a legitimate page
+  /// load; once the challenge resolves we read `document.documentElement`
+  /// outerHTML — the same HTML Dio would have received — and hand it back to
+  /// the source's `parse*` methods unchanged.
+  Future<WebViewFetchResult> fetchRendered({
+    required String url,
+    required Duration timeout,
+  }) async {
+    final controller = _controller;
+    if (controller == null) {
+      throw StateError('WebView for $sourceId not ready');
+    }
+
+    // A fresh top-level navigation invalidates the warm session, so drop the
+    // cached CF origin — the next ensureReady will rebuild from cloudflareUrl.
+    _navigatedUrl = null;
+
+    await controller.loadUrl(urlRequest: URLRequest(url: WebUri(url)));
+
+    // Poll until the document has loaded real content past any CF challenge.
+    final maxWait = timeout.inMilliseconds > 0
+        ? timeout
+        : const Duration(seconds: 30);
+    const pollInterval = Duration(milliseconds: 300);
+    final sw = Stopwatch()..start();
+    var ready = false;
+    while (sw.elapsed < maxWait) {
+      await Future<void>.delayed(pollInterval);
+      String? state;
+      try {
+        state = (await controller.evaluateJavascript(
+          source: 'document.readyState',
+        ))
+            ?.toString();
+      } catch (_) {
+        state = null;
+      }
+      final domReady = state == 'interactive' || state == 'complete';
+      if (domReady && await _isPastCloudflareChallenge(controller)) {
+        ready = true;
+        break;
+      }
+    }
+
+    if (!ready) {
+      debugPrint(
+        '[WVFetch] $sourceId render still on Cloudflare challenge after '
+        '${sw.elapsedMilliseconds}ms, returning current HTML',
+      );
+    }
+
+    // Let late scripts (e.g. lazy content) settle briefly.
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+
+    String html = '';
+    try {
+      final raw = await controller.evaluateJavascript(
+        source: 'document.documentElement.outerHTML',
+      );
+      html = raw?.toString() ?? '';
+    } catch (e) {
+      throw StateError('WebView render failed to read HTML for $url: $e');
+    }
+
+    return WebViewFetchResult(
+      statusCode: ready ? 200 : 403,
+      body: html,
+      contentType: 'text/html',
+    );
   }
 
   Future<void> _teardown() async {

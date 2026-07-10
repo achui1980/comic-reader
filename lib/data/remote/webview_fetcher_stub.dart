@@ -25,6 +25,7 @@ class _StubWebViewFetcher implements WebViewFetcher {
     String? body,
     String? userAgent,
     bool binary = false,
+    bool renderMode = false,
     Duration timeout = const Duration(seconds: 30),
   }) {
     throw UnsupportedError(
