@@ -5,6 +5,7 @@ import 'package:comic_reader/app/router/app_router.dart';
 import 'package:comic_reader/app/theme/app_theme.dart';
 import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
+import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/presentation/settings/bloc/settings_cubit.dart';
 import 'package:comic_reader/presentation/settings/bloc/settings_state.dart';
@@ -19,6 +20,7 @@ class ComicReaderApp extends StatelessWidget {
         settingsStore: GetIt.instance<SettingsStore>(),
         localStorage: GetIt.instance<LocalStorage>(),
         sourceRegistry: GetIt.instance<SourceRegistry>(),
+        favoritesStore: GetIt.instance<FavoritesStore>(),
       )..init(),
       child: BlocBuilder<SettingsCubit, SettingsState>(
         buildWhen: (prev, curr) => prev.themeMode != curr.themeMode,

@@ -108,6 +108,15 @@ class FavoritesStore {
     notifier.value++;
   }
 
+  /// Removes all favorites, clearing both the persisted store and the in-memory
+  /// cache, then notifies listeners so the UI refreshes immediately.
+  Future<void> clear() async {
+    await _storage.delete(_key);
+    _cache = [];
+    _categoryIds = {};
+    notifier.value++;
+  }
+
   /// Update the stored latestChapter for a manga (called after batch update finds new chapters).
   Future<void> updateLatestChapter(String sourceId, String mangaId, String latestChapter) async {
     final favorites = await getAll();

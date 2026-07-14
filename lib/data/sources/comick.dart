@@ -57,6 +57,9 @@ class ComicKSource extends MangaSource {
   String? get description => '国际漫画追踪平台,可筛选中文国漫,默认隐藏成人内容';
 
   @override
+  bool get isAdult => true;
+
+  @override
   double get score => 4.5;
 
   @override

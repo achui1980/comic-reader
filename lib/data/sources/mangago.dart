@@ -48,6 +48,9 @@ class Mangago extends MangaSource {
       'English manga/manhwa/manhua aggregator (mangago.me).';
 
   @override
+  bool get isAdult => true;
+
+  @override
   double get score => 4.0;
 
   @override

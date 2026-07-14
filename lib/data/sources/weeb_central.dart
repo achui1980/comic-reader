@@ -42,6 +42,9 @@ class WeebCentral extends MangaSource {
       'English manga/manhwa/manhua aggregator (weebcentral.com).';
 
   @override
+  bool get isAdult => true;
+
+  @override
   double get score => 4.0;
 
   @override

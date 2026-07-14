@@ -45,7 +45,7 @@ class WebtoonsSource extends MangaSource {
   String? get href => _baseUrl;
 
   @override
-  bool get isAdult => false;
+  bool get isAdult => true;
 
   @override
   bool get needsProxy => false;

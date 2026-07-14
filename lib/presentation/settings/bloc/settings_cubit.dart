@@ -5,6 +5,7 @@ import 'package:get_it/get_it.dart';
 import 'package:comic_reader/app/theme/app_theme.dart';
 import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
+import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/main.dart';
@@ -14,14 +15,17 @@ class SettingsCubit extends Cubit<SettingsState> {
   final SettingsStore _settingsStore;
   final LocalStorage _localStorage;
   final SourceRegistry _sourceRegistry;
+  final FavoritesStore _favoritesStore;
 
   SettingsCubit({
     required SettingsStore settingsStore,
     required LocalStorage localStorage,
     required SourceRegistry sourceRegistry,
+    required FavoritesStore favoritesStore,
   })  : _settingsStore = settingsStore,
         _localStorage = localStorage,
         _sourceRegistry = sourceRegistry,
+        _favoritesStore = favoritesStore,
         super(const SettingsState());
 
   Future<void> init() async {
@@ -135,7 +139,7 @@ class SettingsCubit extends Cubit<SettingsState> {
   }
 
   Future<void> clearFavorites() async {
-    await _localStorage.delete('favorites');
+    await _favoritesStore.clear();
   }
 
   Future<void> clearReadingHistory() async {
