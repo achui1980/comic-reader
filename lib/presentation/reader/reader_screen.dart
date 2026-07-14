@@ -1,7 +1,11 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
@@ -24,6 +28,8 @@ class ReaderScreen extends StatefulWidget {
   final String chapterId;
   final List<dynamic> chapterList;
   final int initialPage;
+  final String mangaTitle;
+  final String coverUrl;
 
   const ReaderScreen({
     super.key,
@@ -32,6 +38,8 @@ class ReaderScreen extends StatefulWidget {
     required this.chapterId,
     this.chapterList = const [],
     this.initialPage = 0,
+    this.mangaTitle = '',
+    this.coverUrl = '',
   });
 
   @override
@@ -59,12 +67,38 @@ class _ReaderScreenState extends State<ReaderScreen> {
       chapterId: widget.chapterId,
       chapterList: chapters,
       initialPage: widget.initialPage,
+      mangaTitle: widget.mangaTitle,
+      coverUrl: widget.coverUrl,
     ));
     _enterImmersiveMode();
+    _applyWakelock();
+  }
+
+  /// Keep the screen awake while reading when enabled (mobile only).
+  Future<void> _applyWakelock() async {
+    if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
+    try {
+      final settings = await GetIt.instance<SettingsStore>().load();
+      if (settings.keepScreenOn) {
+        await WakelockPlus.enable();
+      }
+    } catch (_) {
+      // Wakelock is best-effort; ignore failures.
+    }
+  }
+
+  Future<void> _releaseWakelock() async {
+    if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
+    try {
+      await WakelockPlus.disable();
+    } catch (_) {
+      // ignore
+    }
   }
 
   @override
   void dispose() {
+    _releaseWakelock();
     _exitImmersiveMode();
     _bloc.close();
     super.dispose();
@@ -98,7 +132,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 // Main reader content
                 _buildReaderContent(state),
                 // Persistent page indicator (always visible)
-                if (state.status == ReaderStatus.loaded)
+                if (state.status == ReaderStatus.loaded && state.showPageNumber)
                   _buildPageIndicator(state),
                 // Controls overlay (animated)
                 _buildControlsOverlay(state),

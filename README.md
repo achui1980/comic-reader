@@ -25,27 +25,27 @@
 |----|------|---------|------|
 | 包子漫画 | 国漫/日漫/韩漫 | - | [打开](https://www.baozimh.com) |
 | 拷贝漫画 | 综合漫画 | 科学上网 | [打开](https://www.mangacopy.com) |
-| E-Hentai | E-Hentai Galleries | 科学上网 | [打开](https://e-hentai.org) |
-| 禁漫天堂 | APP API 模式 | 无需 CF 验证, 科学上网 | [打开](https://18comic.vip) |
+| E-Hentai | 综合漫画 | 科学上网 | [打开](https://e-hentai.org) |
+| 禁漫天堂 | 综合漫画 | 无需 CF 验证, 科学上网 | [打开](https://18comic.vip) |
 | 漫画柜 | 综合漫画 | 科学上网 | [打开](https://m.manhuagui.com) |
-| NHentai | English doujinshi | 科学上网 | [打开](https://nhentai.to) |
+| NHentai | 综合漫画 | 科学上网 | [打开](https://nhentai.to) |
 | 哔咔漫画 | 需账号登录 | Email/Password内置 | [打开](https://manhuabika.com) |
-| 绅士漫画 | 紳士漫畫 | 需 Cloudflare 验证 | [打开](https://www.wnacg.com) |
+| 绅士漫画 | 综合漫画 | 需 Cloudflare 验证 | [打开](https://www.wnacg.com) |
 | 漫画人 | 综合漫画 | 科学上网 | [打开](https://www.manhuaren.com) |
-| Hitomi.la | 多语言同人志 | 科学上网 | [打开](https://hitomi.la) |
+| Hitomi.la | 综合漫画 | 科学上网 | [打开](https://hitomi.la) |
 | Komiic | 综合漫画 | 科学上网 | [打开](https://komiic.com) |
 | 漫画GUI | 综合漫画（移动端 API）| 科学上网 | [打开](https://m.manhuagui.com) |
 | 在漫画 | 国漫 | - | [打开](https://www.zaimanhua.com) |
-| HotManga | 成人漫画 | 科学上网 | [打开](https://www.manga2026.com) |
+| HotManga | 综合漫画 | 科学上网 | [打开](https://www.manga2026.com) |
 | IkanManhua | 综合漫画 | 科学上网 | [打开](https://ikanmanhua.org) |
-| JComic | 成人漫画 | 科学上网 | [打开](https://jcomic.net) |
-| HComic | 成人漫画 | 科学上网 | [打开](https://h-comic.com) |
+| JComic | 综合漫画 | 科学上网 | [打开](https://jcomic.net) |
+| HComic | 综合漫画 | 科学上网 | [打开](https://h-comic.com) |
 | 吾五漫画 | 综合漫画 | 科学上网 | [打开](https://www.wu55comic.store) |
 | 哥打漫画 | 综合漫画 | - | [打开](https://godamh.com) |
-| Jestful | 成人漫画 | 科学上网 | [打开](https://jestful.net) |
+| Jestful | 综合漫画 | 科学上网 | [打开](https://jestful.net) |
 | Mangabz | 综合漫画 | 科学上网 | [打开](https://mangabz.com) |
 | Dongmanmanhua | 综合漫画 | - | [打开](https://www.dongmanmanhua.cn) |
-| Manga18.Club | 成人韩漫/日漫 | 需 Cloudflare 验证 | [打开](https://manga18.club) |
+| Manga18.Club | 综合漫画 | 需 Cloudflare 验证 | [打开](https://manga18.club) |
 
 ### 阅读体验
 

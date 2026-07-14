@@ -2,6 +2,8 @@
 class AppRoutes {
   static const home = '/';
   static const discovery = '/discovery';
+  static const updates = '/updates';
+  static const history = '/history';
   static const search = '/search';
   static const detail = '/detail/:sourceId/:mangaId';
   static const reader = '/reader/:sourceId/:mangaId/:chapterId';

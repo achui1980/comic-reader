@@ -1,20 +1,24 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/local/update_store.dart';
+import 'package:comic_reader/data/local/category_store.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'home_state.dart';
 
 class HomeCubit extends Cubit<HomeState> {
   final FavoritesStore _favoritesStore;
   final UpdateStore _updateStore;
+  final CategoryStore _categoryStore;
   final MangaRepository _repository;
 
   HomeCubit({
     required FavoritesStore favoritesStore,
     required UpdateStore updateStore,
+    required CategoryStore categoryStore,
     required MangaRepository repository,
   })  : _favoritesStore = favoritesStore,
         _updateStore = updateStore,
+        _categoryStore = categoryStore,
         _repository = repository,
         super(const HomeState());
 
@@ -22,11 +26,68 @@ class HomeCubit extends Cubit<HomeState> {
     emit(state.copyWith(status: HomeStatus.loading));
     final favorites = await _favoritesStore.getAll();
     final updatedKeys = await _updateStore.getAllUpdated();
+    final categories = await _categoryStore.getAll();
+    final categoryMap = await _favoritesStore.getCategoryMap();
+    // Drop a selected category id that no longer exists (e.g. deleted).
+    var selectedId = state.selectedCategoryId;
+    if (selectedId != null &&
+        selectedId != kAllCategoryId &&
+        selectedId != kUncategorizedId &&
+        !categories.any((c) => c.id == selectedId)) {
+      selectedId = kAllCategoryId;
+    }
     emit(state.copyWith(
       status: HomeStatus.loaded,
       favorites: favorites,
       updatedKeys: updatedKeys,
+      categories: categories,
+      selectedCategoryId: selectedId ?? kAllCategoryId,
+      categoryMap: categoryMap,
     ));
+  }
+
+  // ─── Categories ───────────────────────────────────────────────────────
+
+  void selectCategory(String categoryId) {
+    emit(state.copyWith(selectedCategoryId: categoryId));
+  }
+
+  Future<void> addCategory(String name) async {
+    await _categoryStore.add(name);
+    final categories = await _categoryStore.getAll();
+    emit(state.copyWith(categories: categories));
+  }
+
+  Future<void> renameCategory(String id, String name) async {
+    await _categoryStore.rename(id, name);
+    final categories = await _categoryStore.getAll();
+    emit(state.copyWith(categories: categories));
+  }
+
+  Future<void> removeCategory(String id) async {
+    await _categoryStore.remove(id);
+    final categories = await _categoryStore.getAll();
+    var selectedId = state.selectedCategoryId;
+    if (selectedId == id) selectedId = kAllCategoryId;
+    emit(state.copyWith(
+      categories: categories,
+      selectedCategoryId: selectedId,
+    ));
+  }
+
+  /// Set category membership for all currently selected manga, then exit
+  /// selection mode and reload.
+  Future<void> setCategoriesForSelected(List<String> categoryIds) async {
+    for (final key in state.selectedKeys) {
+      final parts = key.split('_');
+      if (parts.length >= 2) {
+        final sourceId = parts[0];
+        final mangaId = parts.sublist(1).join('_');
+        await _favoritesStore.setCategoryIds(sourceId, mangaId, categoryIds);
+      }
+    }
+    emit(state.copyWith(isSelecting: false, selectedKeys: {}));
+    await loadFavorites();
   }
 
   /// Check all favorites for new chapters.
@@ -97,7 +158,7 @@ class HomeCubit extends Cubit<HomeState> {
 
   void selectAll() {
     final allKeys =
-        state.favorites.map((m) => '${m.sourceId}_${m.id}').toSet();
+        state.filteredFavorites.map((m) => '${m.sourceId}_${m.id}').toSet();
     emit(state.copyWith(selectedKeys: allKeys));
   }
 

@@ -338,6 +338,8 @@ class _DetailView extends StatelessWidget {
                     extra: <String, dynamic>{
                       'chapterList': cubit.state.chapters,
                       'initialPage': 0,
+                      'mangaTitle': cubit.state.manga?.title ?? '',
+                      'coverUrl': cubit.state.manga?.coverUrl ?? '',
                     },
                   ),
                   onLongPress: () => _showChapterActions(context, chapter, status),
@@ -560,6 +562,8 @@ class _ReadButtonState extends State<_ReadButton> {
                   ? cubit.state.chapters
                   : [ChapterItem(id: chapterId, mangaId: cubit.mangaId, title: '开始阅读', href: '')],
               'initialPage': initialPage,
+              'mangaTitle': cubit.state.manga?.title ?? '',
+              'coverUrl': cubit.state.manga?.coverUrl ?? '',
             },
           );
         },

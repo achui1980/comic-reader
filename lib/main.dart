@@ -9,6 +9,7 @@ import 'package:comic_reader/app/di/injection.dart';
 import 'package:comic_reader/data/local/auth_store.dart';
 import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/local/download_manager.dart';
+import 'package:comic_reader/data/local/library_update_service.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/data/sources/pica_comic.dart';
 import 'package:comic_reader/presentation/common/pica_login_dialog.dart';
@@ -102,6 +103,10 @@ void main() async {
       address: appSettings.proxyAddress,
     );
   }
+
+  // Fire-and-forget: check the whole library for new chapters on startup.
+  // Runs in the background without blocking app launch.
+  GetIt.instance<LibraryUpdateService>().runUpdate();
 
   runApp(const ComicReaderApp());
 }

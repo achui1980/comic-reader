@@ -30,6 +30,11 @@ class AppShell extends StatelessWidget {
               label: '发现',
             ),
             NavigationDestination(
+              icon: Icon(Icons.new_releases_outlined),
+              selectedIcon: Icon(Icons.new_releases),
+              label: '更新',
+            ),
+            NavigationDestination(
               icon: Icon(Icons.settings_outlined),
               selectedIcon: Icon(Icons.settings),
               label: '设置',
@@ -60,6 +65,11 @@ class AppShell extends StatelessWidget {
                 icon: Icon(Icons.explore_outlined),
                 selectedIcon: Icon(Icons.explore),
                 label: Text('发现'),
+              ),
+              NavigationRailDestination(
+                icon: Icon(Icons.new_releases_outlined),
+                selectedIcon: Icon(Icons.new_releases),
+                label: Text('更新'),
               ),
               NavigationRailDestination(
                 icon: Icon(Icons.settings_outlined),

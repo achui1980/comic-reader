@@ -7,6 +7,7 @@ import 'package:comic_reader/core/utils/responsive.dart';
 import 'package:comic_reader/presentation/common/manga_cover_image.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/local/update_store.dart';
+import 'package:comic_reader/data/local/category_store.dart';
 import 'package:comic_reader/data/local/download_manager.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
@@ -24,6 +25,7 @@ class HomeScreen extends StatelessWidget {
       create: (_) => HomeCubit(
         favoritesStore: GetIt.instance<FavoritesStore>(),
         updateStore: GetIt.instance<UpdateStore>(),
+        categoryStore: GetIt.instance<CategoryStore>(),
         repository: GetIt.instance<MangaRepository>(),
       )..loadFavorites(),
       child: const _HomeView(),
@@ -89,6 +91,16 @@ class _HomeViewState extends State<_HomeView> {
                       tooltip: '搜索',
                       onPressed: () => context.push(AppRoutes.search),
                     ),
+                    IconButton(
+                      icon: const Icon(Icons.history),
+                      tooltip: '最近阅读',
+                      onPressed: () => context.push(AppRoutes.history),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.label_outline),
+                      tooltip: '分类管理',
+                      onPressed: () => _showCategoryManager(context, state),
+                    ),
                   ],
                 ),
           body: _buildBody(context, state),
@@ -109,6 +121,13 @@ class _HomeViewState extends State<_HomeView> {
           icon: const Icon(Icons.select_all),
           tooltip: '全选',
           onPressed: () => context.read<HomeCubit>().selectAll(),
+        ),
+        IconButton(
+          icon: const Icon(Icons.label),
+          tooltip: '设置分类',
+          onPressed: state.selectedKeys.isEmpty
+              ? null
+              : () => _showSetCategories(context, state),
         ),
         IconButton(
           icon: const Icon(Icons.delete),
@@ -178,24 +197,79 @@ class _HomeViewState extends State<_HomeView> {
     if (state.favorites.isEmpty) {
       return _buildEmptyState(context);
     }
-    return Responsive.constrainedContent(
-      context: context,
-      child: RefreshIndicator(
-        onRefresh: () => context.read<HomeCubit>().loadFavorites(),
-        child: GridView.builder(
-          padding: const EdgeInsets.all(12),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: Responsive.gridColumns(context),
-            childAspectRatio: 0.65,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-          ),
-          itemCount: state.favorites.length,
-          itemBuilder: (context, index) {
-            final manga = state.favorites[index];
-            return _buildMangaCard(context, manga, state);
-          },
+    final filtered = state.filteredFavorites;
+    return Column(
+      children: [
+        _buildCategoryTabs(context, state),
+        Expanded(
+          child: filtered.isEmpty
+              ? _buildEmptyCategory(context)
+              : Responsive.constrainedContent(
+                  context: context,
+                  child: RefreshIndicator(
+                    onRefresh: () => context.read<HomeCubit>().loadFavorites(),
+                    child: GridView.builder(
+                      padding: const EdgeInsets.all(12),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: Responsive.gridColumns(context),
+                        childAspectRatio: 0.65,
+                        crossAxisSpacing: 10,
+                        mainAxisSpacing: 10,
+                      ),
+                      itemCount: filtered.length,
+                      itemBuilder: (context, index) {
+                        final manga = filtered[index];
+                        return _buildMangaCard(context, manga, state);
+                      },
+                    ),
+                  ),
+                ),
         ),
+      ],
+    );
+  }
+
+  /// Horizontal category tab bar: All | Uncategorized | <custom categories...>
+  Widget _buildCategoryTabs(BuildContext context, HomeState state) {
+    final tabs = <_CategoryTab>[
+      const _CategoryTab(id: kAllCategoryId, name: '全部'),
+      const _CategoryTab(id: kUncategorizedId, name: '未分类'),
+      ...state.categories.map((c) => _CategoryTab(id: c.id, name: c.name)),
+    ];
+    return SizedBox(
+      height: 48,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        itemCount: tabs.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final tab = tabs[index];
+          final selected = state.selectedCategoryId == tab.id ||
+              (state.selectedCategoryId == null && tab.id == kAllCategoryId);
+          return ChoiceChip(
+            label: Text(tab.name),
+            selected: selected,
+            onSelected: (_) =>
+                context.read<HomeCubit>().selectCategory(tab.id),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildEmptyCategory(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.filter_none, size: 64, color: Colors.grey.shade400),
+          const SizedBox(height: 12),
+          Text(
+            '该分类暂无漫画',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+          ),
+        ],
       ),
     );
   }
@@ -334,4 +408,198 @@ class _HomeViewState extends State<_HomeView> {
       ),
     );
   }
+
+  /// Category management dialog: add / rename / delete categories.
+  Future<void> _showCategoryManager(BuildContext context, HomeState state) async {
+    final cubit = context.read<HomeCubit>();
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('分类管理'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: BlocBuilder<HomeCubit, HomeState>(
+              bloc: cubit,
+              builder: (context, s) {
+                if (s.categories.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Text('暂无分类，点击下方按钮添加'),
+                  );
+                }
+                return ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: s.categories.length,
+                  itemBuilder: (context, index) {
+                    final category = s.categories[index];
+                    return ListTile(
+                      dense: true,
+                      title: Text(category.name),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit, size: 20),
+                            tooltip: '重命名',
+                            onPressed: () =>
+                                _promptRenameCategory(ctx, cubit, category),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete, size: 20),
+                            tooltip: '删除',
+                            onPressed: () => cubit.removeCategory(category.id),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton.icon(
+              onPressed: () => _promptAddCategory(ctx, cubit),
+              icon: const Icon(Icons.add),
+              label: const Text('添加分类'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('关闭'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _promptAddCategory(BuildContext context, HomeCubit cubit) async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('添加分类'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '分类名称'),
+          onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    if (name != null && name.isNotEmpty) {
+      cubit.addCategory(name);
+    }
+  }
+
+  Future<void> _promptRenameCategory(
+    BuildContext context,
+    HomeCubit cubit,
+    Category category,
+  ) async {
+    final controller = TextEditingController(text: category.name);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('重命名分类'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(hintText: '分类名称'),
+          onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    if (name != null && name.isNotEmpty && name != category.name) {
+      cubit.renameCategory(category.id, name);
+    }
+  }
+
+  /// Multi-select dialog to assign the selected manga to categories.
+  Future<void> _showSetCategories(BuildContext context, HomeState state) async {
+    final cubit = context.read<HomeCubit>();
+    if (state.categories.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先在“分类管理”中添加分类')),
+      );
+      return;
+    }
+    final selected = <String>{};
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text('设置分类（${state.selectedKeys.length} 项）'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: ListView(
+                  shrinkWrap: true,
+                  children: state.categories.map((category) {
+                    return CheckboxListTile(
+                      dense: true,
+                      title: Text(category.name),
+                      value: selected.contains(category.id),
+                      onChanged: (checked) {
+                        setState(() {
+                          if (checked == true) {
+                            selected.add(category.id);
+                          } else {
+                            selected.remove(category.id);
+                          }
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text('取消'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text('确定'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+    if (confirmed == true) {
+      cubit.setCategoriesForSelected(selected.toList());
+    }
+  }
+}
+
+/// Lightweight descriptor for a category tab (real or virtual).
+class _CategoryTab {
+  final String id;
+  final String name;
+
+  const _CategoryTab({required this.id, required this.name});
 }

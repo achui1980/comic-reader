@@ -7,6 +7,9 @@ enum LayoutMode { horizontal, vertical }
 /// Reading direction.
 enum ReadingDirection { ltr, rtl }
 
+/// Image scale/fit mode in the reader.
+enum ScaleType { fitScreen, fitWidth, fitHeight, original }
+
 /// User-configurable settings data class.
 class AppSettings {
   final AppThemeMode themeMode;
@@ -18,6 +21,15 @@ class AppSettings {
   final bool proxyEnabled;
   final String proxyAddress; // e.g. "127.0.0.1:2222"
   final bool adultUnlocked;
+  // --- Reader enhancements (phase 2) ---
+  final bool keepScreenOn; // wakelock; no-op on non-mobile
+  final bool cropBorders; // trim white margins
+  final ScaleType scaleType; // paged image fit
+  final bool splitWidePages; // split landscape pages into two
+  final bool showPageNumber; // show page indicator overlay
+  final bool volumeKeyTurn; // volume keys turn pages (Android only)
+  final bool tapZonesInvert; // invert left/right tap zones
+  final bool showTapZones; // show tap-zone overlay hint
 
   const AppSettings({
     this.themeMode = AppThemeMode.system,
@@ -29,6 +41,14 @@ class AppSettings {
     this.proxyEnabled = false,
     this.proxyAddress = '127.0.0.1:2222',
     this.adultUnlocked = false,
+    this.keepScreenOn = false,
+    this.cropBorders = false,
+    this.scaleType = ScaleType.fitWidth,
+    this.splitWidePages = false,
+    this.showPageNumber = true,
+    this.volumeKeyTurn = false,
+    this.tapZonesInvert = false,
+    this.showTapZones = false,
   });
 
   AppSettings copyWith({
@@ -41,6 +61,14 @@ class AppSettings {
     bool? proxyEnabled,
     String? proxyAddress,
     bool? adultUnlocked,
+    bool? keepScreenOn,
+    bool? cropBorders,
+    ScaleType? scaleType,
+    bool? splitWidePages,
+    bool? showPageNumber,
+    bool? volumeKeyTurn,
+    bool? tapZonesInvert,
+    bool? showTapZones,
   }) {
     return AppSettings(
       themeMode: themeMode ?? this.themeMode,
@@ -52,6 +80,14 @@ class AppSettings {
       proxyEnabled: proxyEnabled ?? this.proxyEnabled,
       proxyAddress: proxyAddress ?? this.proxyAddress,
       adultUnlocked: adultUnlocked ?? this.adultUnlocked,
+      keepScreenOn: keepScreenOn ?? this.keepScreenOn,
+      cropBorders: cropBorders ?? this.cropBorders,
+      scaleType: scaleType ?? this.scaleType,
+      splitWidePages: splitWidePages ?? this.splitWidePages,
+      showPageNumber: showPageNumber ?? this.showPageNumber,
+      volumeKeyTurn: volumeKeyTurn ?? this.volumeKeyTurn,
+      tapZonesInvert: tapZonesInvert ?? this.tapZonesInvert,
+      showTapZones: showTapZones ?? this.showTapZones,
     );
   }
 
@@ -65,6 +101,14 @@ class AppSettings {
         'proxyEnabled': proxyEnabled,
         'proxyAddress': proxyAddress,
         'adultUnlocked': adultUnlocked,
+        'keepScreenOn': keepScreenOn,
+        'cropBorders': cropBorders,
+        'scaleType': scaleType.index,
+        'splitWidePages': splitWidePages,
+        'showPageNumber': showPageNumber,
+        'volumeKeyTurn': volumeKeyTurn,
+        'tapZonesInvert': tapZonesInvert,
+        'showTapZones': showTapZones,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -82,6 +126,14 @@ class AppSettings {
       proxyEnabled: json['proxyEnabled'] as bool? ?? false,
       proxyAddress: json['proxyAddress'] as String? ?? '127.0.0.1:2222',
       adultUnlocked: json['adultUnlocked'] as bool? ?? false,
+      keepScreenOn: json['keepScreenOn'] as bool? ?? false,
+      cropBorders: json['cropBorders'] as bool? ?? false,
+      scaleType: ScaleType.values[json['scaleType'] as int? ?? 1],
+      splitWidePages: json['splitWidePages'] as bool? ?? false,
+      showPageNumber: json['showPageNumber'] as bool? ?? true,
+      volumeKeyTurn: json['volumeKeyTurn'] as bool? ?? false,
+      tapZonesInvert: json['tapZonesInvert'] as bool? ?? false,
+      showTapZones: json['showTapZones'] as bool? ?? false,
     );
   }
 }

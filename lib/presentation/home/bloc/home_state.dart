@@ -1,7 +1,12 @@
 import 'package:equatable/equatable.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
+import 'package:comic_reader/data/local/category_store.dart';
 
 enum HomeStatus { initial, loading, loaded, updating }
+
+/// Sentinel [selectedCategoryId] values for the virtual tabs.
+const String kAllCategoryId = '__all__';
+const String kUncategorizedId = '__uncategorized__';
 
 class HomeState extends Equatable {
   final HomeStatus status;
@@ -12,6 +17,11 @@ class HomeState extends Equatable {
   final String? errorMessage;
   final bool isSelecting;
   final Set<String> selectedKeys; // "${sourceId}_${mangaId}" format
+  final List<Category> categories;
+  // null / kAllCategoryId => show all; kUncategorizedId => no/empty ids;
+  // otherwise a real Category.id.
+  final String? selectedCategoryId;
+  final Map<String, List<String>> categoryMap; // mangaKey -> category ids
 
   const HomeState({
     this.status = HomeStatus.initial,
@@ -22,6 +32,9 @@ class HomeState extends Equatable {
     this.errorMessage,
     this.isSelecting = false,
     this.selectedKeys = const {},
+    this.categories = const [],
+    this.selectedCategoryId,
+    this.categoryMap = const {},
   });
 
   HomeState copyWith({
@@ -33,6 +46,9 @@ class HomeState extends Equatable {
     String? errorMessage,
     bool? isSelecting,
     Set<String>? selectedKeys,
+    List<Category>? categories,
+    String? selectedCategoryId,
+    Map<String, List<String>>? categoryMap,
   }) {
     return HomeState(
       status: status ?? this.status,
@@ -43,11 +59,30 @@ class HomeState extends Equatable {
       errorMessage: errorMessage ?? this.errorMessage,
       isSelecting: isSelecting ?? this.isSelecting,
       selectedKeys: selectedKeys ?? this.selectedKeys,
+      categories: categories ?? this.categories,
+      selectedCategoryId: selectedCategoryId ?? this.selectedCategoryId,
+      categoryMap: categoryMap ?? this.categoryMap,
     );
   }
 
   bool hasUpdate(String sourceId, String mangaId) =>
       updatedKeys.contains('${sourceId}_$mangaId');
+
+  /// Favorites filtered by the currently selected category tab.
+  List<MangaSummary> get filteredFavorites {
+    final id = selectedCategoryId;
+    if (id == null || id == kAllCategoryId) return favorites;
+    if (id == kUncategorizedId) {
+      return favorites.where((m) {
+        final ids = categoryMap['${m.sourceId}_${m.id}'];
+        return ids == null || ids.isEmpty;
+      }).toList();
+    }
+    return favorites.where((m) {
+      final ids = categoryMap['${m.sourceId}_${m.id}'];
+      return ids != null && ids.contains(id);
+    }).toList();
+  }
 
   @override
   List<Object?> get props => [
@@ -59,5 +94,8 @@ class HomeState extends Equatable {
         errorMessage,
         isSelecting,
         selectedKeys,
+        categories,
+        selectedCategoryId,
+        categoryMap,
       ];
 }

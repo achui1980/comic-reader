@@ -16,6 +16,8 @@ class LoadChapter extends ReaderEvent {
   final String chapterId;
   final List<ChapterItem> chapterList;
   final int initialPage;
+  final String mangaTitle;
+  final String coverUrl;
 
   const LoadChapter({
     required this.sourceId,
@@ -23,11 +25,13 @@ class LoadChapter extends ReaderEvent {
     required this.chapterId,
     this.chapterList = const [],
     this.initialPage = 0,
+    this.mangaTitle = '',
+    this.coverUrl = '',
   });
 
   @override
   List<Object?> get props =>
-      [sourceId, mangaId, chapterId, chapterList, initialPage];
+      [sourceId, mangaId, chapterId, chapterList, initialPage, mangaTitle, coverUrl];
 }
 
 /// User changed the current page

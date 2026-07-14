@@ -90,13 +90,18 @@ class _HorizontalReaderState extends State<HorizontalReader> {
     final screenWidth = MediaQuery.of(context).size.width;
     final x = details.globalPosition.dx;
     final third = screenWidth / 3;
+    final invert = context.read<ReaderBloc>().state.tapZonesInvert;
 
     if (x < third) {
-      // Left third: previous page (or next in RTL)
-      _navigatePage(widget.direction == ReadingDirection.ltr ? -1 : 1);
+      // Left third: previous page (or next in RTL); inverted if tapZonesInvert
+      var delta = widget.direction == ReadingDirection.ltr ? -1 : 1;
+      if (invert) delta = -delta;
+      _navigatePage(delta);
     } else if (x > third * 2) {
-      // Right third: next page (or previous in RTL)
-      _navigatePage(widget.direction == ReadingDirection.ltr ? 1 : -1);
+      // Right third: next page (or previous in RTL); inverted if tapZonesInvert
+      var delta = widget.direction == ReadingDirection.ltr ? 1 : -1;
+      if (invert) delta = -delta;
+      _navigatePage(delta);
     } else {
       // Center: toggle controls
       context.read<ReaderBloc>().add(const ToggleControls());
@@ -138,9 +143,31 @@ class _HorizontalReaderState extends State<HorizontalReader> {
       },
       child: GestureDetector(
         onTapUp: (details) => _onTap(details, context),
-        child: _isJmcContent
-            ? _buildSimplePageView()
-            : _buildGesturePageView(),
+        child: Stack(
+          children: [
+            Positioned.fill(
+              child: _isJmcContent
+                  ? _buildSimplePageView()
+                  : _buildGesturePageView(),
+            ),
+            BlocBuilder<ReaderBloc, ReaderState>(
+              buildWhen: (prev, curr) =>
+                  prev.showTapZones != curr.showTapZones ||
+                  prev.tapZonesInvert != curr.tapZonesInvert,
+              builder: (context, state) {
+                if (!state.showTapZones) return const SizedBox.shrink();
+                return Positioned.fill(
+                  child: IgnorePointer(
+                    child: _TapZonesOverlay(
+                      direction: widget.direction,
+                      invert: state.tapZonesInvert,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -189,13 +216,54 @@ class _HorizontalReaderState extends State<HorizontalReader> {
         final state = context.read<ReaderBloc>().state;
         return MangaImage(
           image: widget.images[index],
-          fit: BoxFit.fitWidth,
+          fit: state.scaleBoxFit,
           sourceId: state.sourceId,
           mangaId: state.mangaId,
           chapterId: state.chapterId,
           imageIndex: index,
         );
       },
+    );
+  }
+}
+
+/// Semi-transparent overlay illustrating the tap navigation zones.
+/// Left third = previous, center = menu, right third = next (RTL/invert aware).
+class _TapZonesOverlay extends StatelessWidget {
+  final ReadingDirection direction;
+  final bool invert;
+
+  const _TapZonesOverlay({required this.direction, required this.invert});
+
+  @override
+  Widget build(BuildContext context) {
+    // Determine which side means "previous" vs "next".
+    var leftIsPrevious = direction == ReadingDirection.ltr;
+    if (invert) leftIsPrevious = !leftIsPrevious;
+    final leftLabel = leftIsPrevious ? '上一页' : '下一页';
+    final rightLabel = leftIsPrevious ? '下一页' : '上一页';
+
+    Widget zone(String label, Color color) => Expanded(
+          child: Container(
+            color: color,
+            alignment: Alignment.center,
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        );
+
+    return Row(
+      children: [
+        zone(leftLabel, Colors.black.withValues(alpha: 0.35)),
+        zone('菜单', Colors.black.withValues(alpha: 0.15)),
+        zone(rightLabel, Colors.black.withValues(alpha: 0.35)),
+      ],
     );
   }
 }

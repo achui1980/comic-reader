@@ -64,6 +64,54 @@ class SettingsCubit extends Cubit<SettingsState> {
     await _settingsStore.save(updated);
   }
 
+  Future<void> setKeepScreenOn(bool enabled) async {
+    final updated = state.settings.copyWith(keepScreenOn: enabled);
+    emit(state.copyWith(settings: updated));
+    await _settingsStore.save(updated);
+  }
+
+  Future<void> setCropBorders(bool enabled) async {
+    final updated = state.settings.copyWith(cropBorders: enabled);
+    emit(state.copyWith(settings: updated));
+    await _settingsStore.save(updated);
+  }
+
+  Future<void> setScaleType(ScaleType type) async {
+    final updated = state.settings.copyWith(scaleType: type);
+    emit(state.copyWith(settings: updated));
+    await _settingsStore.save(updated);
+  }
+
+  Future<void> setSplitWidePages(bool enabled) async {
+    final updated = state.settings.copyWith(splitWidePages: enabled);
+    emit(state.copyWith(settings: updated));
+    await _settingsStore.save(updated);
+  }
+
+  Future<void> setShowPageNumber(bool enabled) async {
+    final updated = state.settings.copyWith(showPageNumber: enabled);
+    emit(state.copyWith(settings: updated));
+    await _settingsStore.save(updated);
+  }
+
+  Future<void> setVolumeKeyTurn(bool enabled) async {
+    final updated = state.settings.copyWith(volumeKeyTurn: enabled);
+    emit(state.copyWith(settings: updated));
+    await _settingsStore.save(updated);
+  }
+
+  Future<void> setTapZonesInvert(bool enabled) async {
+    final updated = state.settings.copyWith(tapZonesInvert: enabled);
+    emit(state.copyWith(settings: updated));
+    await _settingsStore.save(updated);
+  }
+
+  Future<void> setShowTapZones(bool enabled) async {
+    final updated = state.settings.copyWith(showTapZones: enabled);
+    emit(state.copyWith(settings: updated));
+    await _settingsStore.save(updated);
+  }
+
   Future<void> toggleSource(String sourceId, bool enabled) async {
     final disabled = Set<String>.from(state.settings.disabledSources);
     if (enabled) {

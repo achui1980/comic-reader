@@ -39,11 +39,13 @@ import 'package:comic_reader/data/repositories/manga_repository_impl.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
+import 'package:comic_reader/data/local/category_store.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
 import 'package:comic_reader/data/local/auth_store.dart';
 import 'package:comic_reader/data/local/update_store.dart';
+import 'package:comic_reader/data/local/library_update_service.dart';
 import 'package:comic_reader/data/local/backup_service.dart';
 import 'package:comic_reader/data/local/download_manager.dart';
 
@@ -73,6 +75,9 @@ void configureDependencies() {
   );
   getIt.registerLazySingleton<BackupService>(
     () => BackupService(storage: getIt<LocalStorage>()),
+  );
+  getIt.registerLazySingleton<CategoryStore>(
+    () => CategoryStore(storage: getIt<LocalStorage>()),
   );
 
   // HTTP Client
@@ -136,6 +141,15 @@ void configureDependencies() {
       repository: getIt<MangaRepository>(),
       cacheService: getIt<ChapterCacheService>(),
       storage: getIt<LocalStorage>(),
+    ),
+  );
+
+  // Library Update Service (full-library new-chapter checker)
+  getIt.registerLazySingleton<LibraryUpdateService>(
+    () => LibraryUpdateService(
+      favoritesStore: getIt<FavoritesStore>(),
+      updateStore: getIt<UpdateStore>(),
+      repository: getIt<MangaRepository>(),
     ),
   );
 }

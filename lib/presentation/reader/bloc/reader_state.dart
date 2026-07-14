@@ -1,5 +1,7 @@
+import 'package:flutter/widgets.dart' show BoxFit;
 import 'package:equatable/equatable.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
+import 'package:comic_reader/data/local/settings_store.dart' show ScaleType;
 
 enum ReaderStatus { initial, loading, loaded, error }
 
@@ -37,6 +39,8 @@ class ReaderState extends Equatable {
   final String sourceId;
   final String mangaId;
   final String chapterId;
+  final String mangaTitle;
+  final String coverUrl;
   final List<ChapterItem> chapterList;
   final int currentChapterIndex;
   final int lastLoadedChapterIndex;
@@ -51,6 +55,14 @@ class ReaderState extends Equatable {
   /// Whether images are still being progressively resolved (EH stream)
   final bool isProgressiveLoading;
 
+  // --- Reader enhancements (phase 2) ---
+  final bool cropBorders;
+  final ScaleType scaleType;
+  final bool splitWidePages;
+  final bool showPageNumber;
+  final bool tapZonesInvert;
+  final bool showTapZones;
+
   const ReaderState({
     this.status = ReaderStatus.initial,
     this.layoutMode = LayoutMode.horizontal,
@@ -64,6 +76,8 @@ class ReaderState extends Equatable {
     this.sourceId = '',
     this.mangaId = '',
     this.chapterId = '',
+    this.mangaTitle = '',
+    this.coverUrl = '',
     this.chapterList = const [],
     this.currentChapterIndex = -1,
     this.lastLoadedChapterIndex = 0,
@@ -71,6 +85,12 @@ class ReaderState extends Equatable {
     this.chapterBoundaries = const [],
     this.isAppendingNext = false,
     this.isProgressiveLoading = false,
+    this.cropBorders = false,
+    this.scaleType = ScaleType.fitWidth,
+    this.splitWidePages = false,
+    this.showPageNumber = true,
+    this.tapZonesInvert = false,
+    this.showTapZones = false,
   });
 
   ReaderState copyWith({
@@ -86,6 +106,8 @@ class ReaderState extends Equatable {
     String? sourceId,
     String? mangaId,
     String? chapterId,
+    String? mangaTitle,
+    String? coverUrl,
     List<ChapterItem>? chapterList,
     int? currentChapterIndex,
     int? lastLoadedChapterIndex,
@@ -93,6 +115,12 @@ class ReaderState extends Equatable {
     List<ChapterBoundary>? chapterBoundaries,
     bool? isAppendingNext,
     bool? isProgressiveLoading,
+    bool? cropBorders,
+    ScaleType? scaleType,
+    bool? splitWidePages,
+    bool? showPageNumber,
+    bool? tapZonesInvert,
+    bool? showTapZones,
   }) {
     return ReaderState(
       status: status ?? this.status,
@@ -107,6 +135,8 @@ class ReaderState extends Equatable {
       sourceId: sourceId ?? this.sourceId,
       mangaId: mangaId ?? this.mangaId,
       chapterId: chapterId ?? this.chapterId,
+      mangaTitle: mangaTitle ?? this.mangaTitle,
+      coverUrl: coverUrl ?? this.coverUrl,
       chapterList: chapterList ?? this.chapterList,
       currentChapterIndex: currentChapterIndex ?? this.currentChapterIndex,
       lastLoadedChapterIndex: lastLoadedChapterIndex ?? this.lastLoadedChapterIndex,
@@ -114,6 +144,12 @@ class ReaderState extends Equatable {
       chapterBoundaries: chapterBoundaries ?? this.chapterBoundaries,
       isAppendingNext: isAppendingNext ?? this.isAppendingNext,
       isProgressiveLoading: isProgressiveLoading ?? this.isProgressiveLoading,
+      cropBorders: cropBorders ?? this.cropBorders,
+      scaleType: scaleType ?? this.scaleType,
+      splitWidePages: splitWidePages ?? this.splitWidePages,
+      showPageNumber: showPageNumber ?? this.showPageNumber,
+      tapZonesInvert: tapZonesInvert ?? this.tapZonesInvert,
+      showTapZones: showTapZones ?? this.showTapZones,
     );
   }
 
@@ -129,6 +165,20 @@ class ReaderState extends Equatable {
   bool get hasPreviousChapter =>
       chapterList.isNotEmpty && currentChapterIndex > 0;
 
+  /// Maps the configured [scaleType] to a Flutter [BoxFit] for the image widget.
+  BoxFit get scaleBoxFit {
+    switch (scaleType) {
+      case ScaleType.fitScreen:
+        return BoxFit.contain;
+      case ScaleType.fitWidth:
+        return BoxFit.fitWidth;
+      case ScaleType.fitHeight:
+        return BoxFit.fitHeight;
+      case ScaleType.original:
+        return BoxFit.none;
+    }
+  }
+
   @override
   List<Object?> get props => [
         status,
@@ -143,6 +193,8 @@ class ReaderState extends Equatable {
         sourceId,
         mangaId,
         chapterId,
+        mangaTitle,
+        coverUrl,
         chapterList,
         currentChapterIndex,
         lastLoadedChapterIndex,
@@ -150,5 +202,11 @@ class ReaderState extends Equatable {
         chapterBoundaries,
         isAppendingNext,
         isProgressiveLoading,
+        cropBorders,
+        scaleType,
+        splitWidePages,
+        showPageNumber,
+        tapZonesInvert,
+        showTapZones,
       ];
 }

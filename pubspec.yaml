@@ -66,6 +66,8 @@ dependencies:
   uuid: ^4.3.3
   web: ^1.1.1
   gal: ^2.3.0
+  # Keep screen awake while reading (mobile only, no-op elsewhere)
+  wakelock_plus: ^1.2.8
 
 dev_dependencies:
   flutter_test:

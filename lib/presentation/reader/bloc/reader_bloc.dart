@@ -54,7 +54,16 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
         ? ReadingDirection.rtl
         : ReadingDirection.ltr;
     // ignore: invalid_use_of_visible_for_testing_member
-    emit(state.copyWith(layoutMode: layoutMode, direction: direction));
+    emit(state.copyWith(
+      layoutMode: layoutMode,
+      direction: direction,
+      cropBorders: s.cropBorders,
+      scaleType: s.scaleType,
+      splitWidePages: s.splitWidePages,
+      showPageNumber: s.showPageNumber,
+      tapZonesInvert: s.tapZonesInvert,
+      showTapZones: s.showTapZones,
+    ));
 
     if (s.autoPageTurn) {
       add(StartAutoPageTurn(intervalSeconds: s.autoPageTurnInterval));
@@ -96,6 +105,8 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
       sourceId: event.sourceId,
       mangaId: event.mangaId,
       chapterId: event.chapterId,
+      mangaTitle: event.mangaTitle.isNotEmpty ? event.mangaTitle : state.mangaTitle,
+      coverUrl: event.coverUrl.isNotEmpty ? event.coverUrl : state.coverUrl,
       chapterList: event.chapterList.isNotEmpty ? event.chapterList : null,
       showControls: false,
       isProgressiveLoading: false,
@@ -166,6 +177,16 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
       // Stream completed - mark progressive loading as done
       emit(state.copyWith(isProgressiveLoading: false));
       _historyStore.markChapterRead(state.sourceId, state.mangaId, state.chapterId);
+      _historyStore.addHistory(HistoryEntry(
+        sourceId: state.sourceId,
+        mangaId: state.mangaId,
+        mangaTitle: state.mangaTitle,
+        coverUrl: state.coverUrl,
+        chapterId: state.chapterId,
+        chapterTitle: state.chapterTitle ?? '',
+        page: state.currentPage,
+        timestamp: DateTime.now().toIso8601String(),
+      ));
       return;
     }
 

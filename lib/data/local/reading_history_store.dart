@@ -1,9 +1,59 @@
 import 'local_storage.dart';
 
+/// A single entry in the reading timeline (most-recent-first).
+class HistoryEntry {
+  final String sourceId;
+  final String mangaId;
+  final String mangaTitle;
+  final String coverUrl;
+  final String chapterId;
+  final String chapterTitle;
+  final int page;
+  final String timestamp; // ISO8601
+
+  const HistoryEntry({
+    required this.sourceId,
+    required this.mangaId,
+    required this.mangaTitle,
+    required this.coverUrl,
+    required this.chapterId,
+    required this.chapterTitle,
+    required this.page,
+    required this.timestamp,
+  });
+
+  /// Identifies the manga (timeline keeps only the latest entry per manga).
+  String get mangaKey => '${sourceId}_$mangaId';
+
+  Map<String, dynamic> toJson() => {
+        'sourceId': sourceId,
+        'mangaId': mangaId,
+        'mangaTitle': mangaTitle,
+        'coverUrl': coverUrl,
+        'chapterId': chapterId,
+        'chapterTitle': chapterTitle,
+        'page': page,
+        'timestamp': timestamp,
+      };
+
+  factory HistoryEntry.fromJson(Map<String, dynamic> json) => HistoryEntry(
+        sourceId: json['sourceId'] as String? ?? '',
+        mangaId: json['mangaId'] as String? ?? '',
+        mangaTitle: json['mangaTitle'] as String? ?? '',
+        coverUrl: json['coverUrl'] as String? ?? '',
+        chapterId: json['chapterId'] as String? ?? '',
+        chapterTitle: json['chapterTitle'] as String? ?? '',
+        page: json['page'] as int? ?? 0,
+        timestamp: json['timestamp'] as String? ?? '',
+      );
+}
+
 /// Stores reading progress per manga chapter.
 class ReadingHistoryStore {
   final LocalStorage _storage;
   static const _key = 'reading_history';
+  static const _timelineKey = 'reading_timeline';
+  static const _maxHistory = 200;
 
   Map<String, dynamic>? _cache;
 
@@ -67,5 +117,64 @@ class ReadingHistoryStore {
     data[key] = chapters.toList();
     _cache = data;
     await _storage.write(_key, data);
+  }
+
+  // ---- Reading timeline (most-recent-first, de-duplicated per manga) ----
+
+  List<HistoryEntry>? _timelineCache;
+
+  Future<List<HistoryEntry>> _getTimeline() async {
+    if (_timelineCache != null) return _timelineCache!;
+    final raw = await _storage.read(_timelineKey);
+    final items = raw?['items'];
+    if (items is List) {
+      _timelineCache = items
+          .whereType<Map>()
+          .map((e) => HistoryEntry.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+    } else {
+      _timelineCache = [];
+    }
+    return _timelineCache!;
+  }
+
+  Future<void> _saveTimeline() async {
+    await _storage.write(_timelineKey, {
+      'items': (_timelineCache ?? []).map((e) => e.toJson()).toList(),
+    });
+  }
+
+  /// Append an entry to the reading timeline. If the same manga already exists,
+  /// the previous entry is removed and the new one is placed at the top (most
+  /// recent). The list is capped at [_maxHistory].
+  Future<void> addHistory(HistoryEntry entry) async {
+    final timeline = await _getTimeline();
+    timeline.removeWhere((e) => e.mangaKey == entry.mangaKey);
+    timeline.insert(0, entry);
+    if (timeline.length > _maxHistory) {
+      timeline.removeRange(_maxHistory, timeline.length);
+    }
+    _timelineCache = timeline;
+    await _saveTimeline();
+  }
+
+  /// Get the reading timeline, most-recent-first.
+  Future<List<HistoryEntry>> getHistory() async {
+    return List.of(await _getTimeline());
+  }
+
+  /// Remove a single manga's entry from the timeline.
+  Future<void> removeHistory(String sourceId, String mangaId) async {
+    final timeline = await _getTimeline();
+    final key = '${sourceId}_$mangaId';
+    timeline.removeWhere((e) => e.mangaKey == key);
+    _timelineCache = timeline;
+    await _saveTimeline();
+  }
+
+  /// Clear the entire reading timeline.
+  Future<void> clearHistory() async {
+    _timelineCache = [];
+    await _storage.write(_timelineKey, {'items': []});
   }
 }

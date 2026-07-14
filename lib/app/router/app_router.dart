@@ -1,6 +1,8 @@
 import 'package:go_router/go_router.dart';
 import 'package:comic_reader/presentation/home/home_screen.dart';
 import 'package:comic_reader/presentation/discovery/discovery_screen.dart';
+import 'package:comic_reader/presentation/updates/update_screen.dart';
+import 'package:comic_reader/presentation/history/history_screen.dart';
 import 'package:comic_reader/presentation/search/search_screen.dart';
 import 'package:comic_reader/presentation/detail/detail_screen.dart';
 import 'package:comic_reader/presentation/reader/reader_screen.dart';
@@ -39,6 +41,14 @@ class AppRouter {
           StatefulShellBranch(
             routes: [
               GoRoute(
+                path: AppRoutes.updates,
+                builder: (context, state) => const UpdatesScreen(),
+              ),
+            ],
+          ),
+          StatefulShellBranch(
+            routes: [
+              GoRoute(
                 path: AppRoutes.settings,
                 builder: (context, state) => const SettingsScreen(),
               ),
@@ -50,6 +60,10 @@ class AppRouter {
       GoRoute(
         path: AppRoutes.search,
         builder: (context, state) => const SearchScreen(),
+      ),
+      GoRoute(
+        path: AppRoutes.history,
+        builder: (context, state) => const HistoryScreen(),
       ),
       GoRoute(
         path: AppRoutes.detail,
@@ -73,6 +87,8 @@ class AppRouter {
             chapterId: chapterId,
             chapterList: extra?['chapterList'] as List<dynamic>? ?? const [],
             initialPage: extra?['initialPage'] as int? ?? 0,
+            mangaTitle: extra?['mangaTitle'] as String? ?? '',
+            coverUrl: extra?['coverUrl'] as String? ?? '',
           );
         },
       ),
