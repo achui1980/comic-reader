@@ -49,6 +49,9 @@ class ManhuaGuiMobile extends MangaSource {
   String get shortName => 'MHGM';
 
   @override
+  bool get isAdult => true;
+
+  @override
   String? get description => '需要代理，频繁访问会封IP';
 
   @override

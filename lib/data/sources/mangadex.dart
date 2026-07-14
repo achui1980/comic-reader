@@ -68,6 +68,9 @@ class MangaDexSource extends MangaSource {
   String get shortName => 'MDx';
 
   @override
+  bool get isAdult => true;
+
+  @override
   String? get description => '国际漫画平台,仅展示简体/繁体中文翻译';
 
   @override

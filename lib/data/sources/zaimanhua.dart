@@ -43,6 +43,9 @@ class Zaimanhua extends MangaSource {
   String get shortName => 'ZMH';
 
   @override
+  bool get isAdult => true;
+
+  @override
   String? get description => '免费在线漫画';
 
   @override

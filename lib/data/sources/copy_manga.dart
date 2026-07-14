@@ -62,6 +62,9 @@ class CopyManga extends MangaSource {
   String get shortName => 'COPY';
 
   @override
+  bool get isAdult => true;
+
+  @override
   String? get description => '';
 
   @override
