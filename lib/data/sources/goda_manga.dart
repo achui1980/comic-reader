@@ -276,15 +276,12 @@ class GodaManga extends MangaSource {
             document.querySelector('title')?.text.trim() ??
             '';
 
-    // Cover
-    final coverEl = document.querySelector('.comics-detail__info amp-img') ??
-        document.querySelector('.comics-detail__info img') ??
-        document.querySelector('.l-content amp-img') ??
-        document.querySelector('.l-content img');
-    final coverSrc = coverEl?.attributes['src'] ?? '';
-    final coverUrl = coverSrc.isNotEmpty
-        ? coverSrc
-        : '$_coverCdn/$mangaId.jpg?w=285&h=380&q=100';
+    // Cover: the detail page's real cover is a CSS background-image on
+    // `.de-info__bg`, not an <img>. The first <img> on the page belongs to the
+    // "related manga" list, so selecting it grabbed the wrong cover. The CDN
+    // filename is always the slug (mangaId), so derive it directly — this is
+    // the same scheme parseSearch falls back to and is防盗链-free.
+    final coverUrl = '$_coverCdn/$mangaId.jpg?w=285&h=380&q=100';
 
     // Author
     final author =
