@@ -1,6 +1,7 @@
 import 'dart:ui' as ui;
 import 'dart:convert' show base64Decode, utf8;
 
+import 'package:dio/dio.dart' show ResponseType;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:extended_image/extended_image.dart';
@@ -8,7 +9,10 @@ import 'package:crypto/crypto.dart' as crypto_lib;
 import 'package:get_it/get_it.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/core/utils/image_proxy.dart';
+import 'package:comic_reader/core/utils/image_response_decoder.dart';
+import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
+import 'package:comic_reader/data/remote/http_client.dart';
 import 'package:comic_reader/core/utils/save_image.dart';
 import 'package:comic_reader/data/sources/wu55comic_decoder.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
@@ -53,6 +57,7 @@ class MangaImage extends StatefulWidget {
 class _MangaImageState extends State<MangaImage> {
   String? _localPath;
   bool _checkedCache = false;
+  Future<Uint8List>? _encodedImageBytes;
 
   bool get _canCache =>
       !kIsWeb &&
@@ -68,6 +73,25 @@ class _MangaImageState extends State<MangaImage> {
       _checkCache();
     } else {
       _checkedCache = true;
+      _startEncodedImageLoad();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant MangaImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.image.url == widget.image.url &&
+        oldWidget.image.responseEncoding == widget.image.responseEncoding) {
+      return;
+    }
+    _localPath = null;
+    _encodedImageBytes = null;
+    if (_canCache) {
+      _checkedCache = false;
+      _checkCache();
+    } else {
+      _checkedCache = true;
+      _startEncodedImageLoad();
     }
   }
 
@@ -83,8 +107,42 @@ class _MangaImageState extends State<MangaImage> {
       setState(() {
         _localPath = path;
         _checkedCache = true;
+        if (path == null) _startEncodedImageLoad();
       });
     }
+  }
+
+  void _startEncodedImageLoad() {
+    if (widget.image.responseEncoding == ImageResponseEncoding.binary) return;
+    _encodedImageBytes = _loadEncodedImage();
+  }
+
+  Future<Uint8List> _loadEncodedImage() async {
+    final response = await GetIt.instance<HttpClient>().execute(
+      FetchConfig(
+        url: widget.image.url,
+        headers: widget.image.headers,
+        responseType: ResponseType.bytes,
+      ),
+    );
+    final responseData = response.data;
+    if (responseData is! List<int>) {
+      throw const FormatException('Image response did not contain bytes');
+    }
+    final bytes = decodeImageResponseBytes(
+      Uint8List.fromList(responseData),
+      widget.image.responseEncoding,
+    );
+    if (_canCache) {
+      await GetIt.instance<ChapterCacheService>().saveImage(
+        widget.sourceId!,
+        widget.mangaId!,
+        widget.chapterId!,
+        widget.imageIndex!,
+        bytes,
+      );
+    }
+    return bytes;
   }
 
   Future<void> _saveToCache(ExtendedImageState state) async {
@@ -171,6 +229,7 @@ class _MangaImageState extends State<MangaImage> {
       final success = await saveImageToGallery(
         widget.image.url,
         headers: widget.image.headers,
+        responseEncoding: widget.image.responseEncoding,
       );
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -257,11 +316,12 @@ class _MangaImageState extends State<MangaImage> {
         fit: widget.fit,
         onFailed: () {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              setState(() {
-                _localPath = null;
-              });
-            }
+              if (mounted) {
+                setState(() {
+                  _localPath = null;
+                  _startEncodedImageLoad();
+                });
+              }
           });
         },
         onCompleted: widget.image.scrambleType == ScrambleType.jmc
@@ -287,6 +347,10 @@ class _MangaImageState extends State<MangaImage> {
       debugPrint('[MangaImage] data: URI detected, scrambleType=${widget.image.scrambleType}, '
           'bookId=${widget.image.wu55BookId}, pageNumber=${widget.image.wu55PageNumber}');
       return _buildMemoryImage();
+    }
+
+    if (widget.image.responseEncoding != ImageResponseEncoding.binary) {
+      return _buildEncodedNetworkImage();
     }
 
     // Web direct image: bypass CORS proxy for sources with CF-protected CDN.
@@ -434,6 +498,55 @@ class _MangaImageState extends State<MangaImage> {
                 );
             }
           },
+        );
+      },
+    );
+  }
+
+  Widget _buildEncodedNetworkImage() {
+    final future = _encodedImageBytes;
+    if (future == null) return const SizedBox.shrink();
+    return FutureBuilder<Uint8List>(
+      future: future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+        }
+        if (snapshot.hasError || !snapshot.hasData) {
+          debugPrint('[MangaImage] FAILED: ${widget.image.url} - ${snapshot.error}');
+          return GestureDetector(
+            onTap: () => setState(_startEncodedImageLoad),
+            child: const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.broken_image_outlined, size: 48, color: Colors.white54),
+                  SizedBox(height: 8),
+                  Text('点击重试', style: TextStyle(color: Colors.white54)),
+                ],
+              ),
+            ),
+          );
+        }
+        return ExtendedImage.memory(
+          snapshot.data!,
+          fit: widget.fit,
+          mode: widget.disableGesture
+              ? ExtendedImageMode.none
+              : ExtendedImageMode.gesture,
+          initGestureConfigHandler: widget.disableGesture
+              ? null
+              : (state) => GestureConfig(
+                    minScale: 1.0,
+                    animationMinScale: 0.8,
+                    maxScale: 5.0,
+                    animationMaxScale: 5.5,
+                    speed: 1.0,
+                    inertialSpeed: 100.0,
+                    initialScale: 1.0,
+                    inPageView: true,
+                    initialAlignment: InitialAlignment.topCenter,
+                  ),
         );
       },
     );

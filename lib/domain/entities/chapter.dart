@@ -2,6 +2,9 @@ import 'package:equatable/equatable.dart';
 
 enum ScrambleType { none, jmc, rm5, wu55 }
 
+/// How the image endpoint represents image bytes in its HTTP response.
+enum ImageResponseEncoding { binary, base64OrBinary }
+
 class ChapterItem extends Equatable {
   final String id;
   final String mangaId;
@@ -22,6 +25,7 @@ class ChapterItem extends Equatable {
 class ChapterImage extends Equatable {
   final String url;
   final ScrambleType scrambleType;
+  final ImageResponseEncoding responseEncoding;
   final Map<String, String>? headers;
   /// The scramble_id threshold used for JMC unscrambling.
   /// Only relevant when scrambleType == ScrambleType.jmc.
@@ -36,6 +40,7 @@ class ChapterImage extends Equatable {
   const ChapterImage({
     required this.url,
     this.scrambleType = ScrambleType.none,
+    this.responseEncoding = ImageResponseEncoding.binary,
     this.headers,
     this.scrambleId,
     this.wu55BookId,
@@ -43,7 +48,14 @@ class ChapterImage extends Equatable {
   });
 
   @override
-  List<Object?> get props => [url, scrambleType, scrambleId, wu55BookId, wu55PageNumber];
+  List<Object?> get props => [
+    url,
+    scrambleType,
+    responseEncoding,
+    scrambleId,
+    wu55BookId,
+    wu55PageNumber,
+  ];
 }
 
 class Chapter extends Equatable {

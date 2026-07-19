@@ -4,6 +4,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/core/utils/image_proxy.dart';
+import 'package:comic_reader/core/utils/image_response_decoder.dart';
 
 /// Manages local caching and downloading of chapter images.
 /// On web: all methods are no-ops (web uses online-only browsing).
@@ -160,7 +161,11 @@ class ChapterCacheService {
           final contentType = response.headers.value('content-type');
           final ext = _extensionFromContentType(contentType);
           final file = File('$dir/$baseName$ext');
-          await file.writeAsBytes(response.data as List<int>);
+          final bytes = decodeImageResponseBytes(
+            Uint8List.fromList(response.data as List<int>),
+            images[i].responseEncoding,
+          );
+          await file.writeAsBytes(bytes);
         }
         completed++;
         onProgress?.call(completed, total);

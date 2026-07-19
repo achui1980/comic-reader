@@ -4,9 +4,15 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:dio/dio.dart';
 import 'package:gal/gal.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:comic_reader/core/utils/image_response_decoder.dart';
+import 'package:comic_reader/domain/entities/entities.dart';
 
 /// Save an image from URL to device gallery.
-Future<bool> saveImageToGallery(String url, {Map<String, String>? headers}) async {
+Future<bool> saveImageToGallery(
+  String url, {
+  Map<String, String>? headers,
+  ImageResponseEncoding responseEncoding = ImageResponseEncoding.binary,
+}) async {
   if (kIsWeb) return false;
 
   try {
@@ -19,7 +25,10 @@ Future<bool> saveImageToGallery(String url, {Map<String, String>? headers}) asyn
       ),
     );
 
-    final bytes = Uint8List.fromList(response.data!);
+    final bytes = decodeImageResponseBytes(
+      Uint8List.fromList(response.data!),
+      responseEncoding,
+    );
     final dir = await getTemporaryDirectory();
     final ext = url.contains('.png') ? 'png' : 'jpg';
     final file = File('${dir.path}/save_${DateTime.now().millisecondsSinceEpoch}.$ext');

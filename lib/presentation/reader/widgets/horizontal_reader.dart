@@ -126,7 +126,9 @@ class _HorizontalReaderState extends State<HorizontalReader> {
     for (int i = 1; i <= 2; i++) {
       final nextIdx = currentPage + i;
       if (nextIdx < widget.images.length) {
-        final url = ImageProxy.url(widget.images[nextIdx].url);
+        final image = widget.images[nextIdx];
+        if (image.responseEncoding != ImageResponseEncoding.binary) continue;
+        final url = ImageProxy.url(image.url);
         precacheImage(ExtendedNetworkImageProvider(url, cache: true), context);
       }
     }

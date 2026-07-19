@@ -36,6 +36,7 @@ import 'package:comic_reader/data/sources/weeb_central.dart';
 import 'package:comic_reader/data/sources/vymanga.dart';
 import 'package:comic_reader/data/sources/mangago.dart';
 import 'package:comic_reader/data/sources/hmjd9.dart';
+import 'package:comic_reader/data/sources/mmero.dart';
 import 'package:comic_reader/data/repositories/manga_repository_impl.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
@@ -127,6 +128,7 @@ void configureDependencies() {
   registry.register(VyMangaSource());
   registry.register(Mangago());
   registry.register(Hmjd9());
+  registry.register(MmeroSource());
   getIt.registerSingleton<SourceRegistry>(registry);
 
   // Repository
