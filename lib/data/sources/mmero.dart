@@ -54,6 +54,96 @@ class MmeroSource extends MangaSource {
         FilterChoice(label: '已完结', value: 'completed'),
       ],
     ),
+    FilterOption(
+      name: 'tagId',
+      label: '标签',
+      defaultValue: 'all',
+      choices: [
+        FilterChoice(label: '全部', value: 'all'),
+        // 角色/职业
+        FilterChoice(label: '熟女', value: '50'),
+        FilterChoice(label: '学生', value: '70'),
+        FilterChoice(label: '魔法少女', value: '129'),
+        FilterChoice(label: '辣妹', value: '159'),
+        FilterChoice(label: '巫女', value: '167'),
+        FilterChoice(label: '女骑士', value: '196'),
+        FilterChoice(label: '姐姐', value: '295'),
+        FilterChoice(label: '妹妹', value: '307'),
+        FilterChoice(label: '青梅竹马', value: '348'),
+        FilterChoice(label: '护士', value: '412'),
+        FilterChoice(label: '人妻', value: '510'),
+        FilterChoice(label: '女僕', value: '602'),
+        FilterChoice(label: '未亡人', value: '603'),
+        FilterChoice(label: '修女', value: '604'),
+        FilterChoice(label: '女王', value: '605'),
+        FilterChoice(label: '公主', value: '606'),
+        FilterChoice(label: '病娇', value: '607'),
+        FilterChoice(label: '女忍者', value: '608'),
+        FilterChoice(label: '女战士', value: '609'),
+        FilterChoice(label: '御姐', value: '617'),
+        FilterChoice(label: '女医', value: '627'),
+        // 服装/样貌
+        FilterChoice(label: '幽灵', value: '9'),
+        FilterChoice(label: '巨乳', value: '25'),
+        FilterChoice(label: '萝莉', value: '30'),
+        FilterChoice(label: '泳装', value: '36'),
+        FilterChoice(label: '兽耳', value: '39'),
+        FilterChoice(label: '眼镜', value: '74'),
+        FilterChoice(label: '贫乳', value: '82'),
+        FilterChoice(label: '兔女郎', value: '86'),
+        FilterChoice(label: '扶他', value: '112'),
+        FilterChoice(label: '正太', value: '113'),
+        FilterChoice(label: '精灵', value: '135'),
+        FilterChoice(label: 'OL', value: '408'),
+        FilterChoice(label: '痴女', value: '466'),
+        FilterChoice(label: '碧池', value: '490'),
+        FilterChoice(label: '运动服', value: '565'),
+        FilterChoice(label: '黑长直', value: '610'),
+        FilterChoice(label: '雌小鬼', value: '611'),
+        FilterChoice(label: '魅魔', value: '612'),
+        FilterChoice(label: '人外', value: '618'),
+        FilterChoice(label: '黑肉', value: '619'),
+        FilterChoice(label: '金发', value: '620'),
+        // 倾向
+        FilterChoice(label: '后宫', value: '12'),
+        FilterChoice(label: '口交', value: '38'),
+        FilterChoice(label: '洗脑/催眠', value: '59'),
+        FilterChoice(label: '百合', value: '77'),
+        FilterChoice(label: '触手', value: '85'),
+        FilterChoice(label: '中出', value: '101'),
+        FilterChoice(label: '颜射', value: '126'),
+        FilterChoice(label: '绑缚', value: '174'),
+        FilterChoice(label: '肛交', value: '181'),
+        FilterChoice(label: '堕落', value: '184'),
+        FilterChoice(label: '足交', value: '220'),
+        FilterChoice(label: 'BL', value: '263'),
+        FilterChoice(label: '援交', value: '271'),
+        FilterChoice(label: '黑丝', value: '319'),
+        FilterChoice(label: 'SM', value: '329'),
+        FilterChoice(label: '凌辱', value: '398'),
+        FilterChoice(label: '多人', value: '511'),
+        FilterChoice(label: '裸足', value: '613'),
+        FilterChoice(label: '轮姦', value: '616'),
+        FilterChoice(label: '妊娠', value: '626'),
+        // 剧情
+        FilterChoice(label: '近未来', value: '11'),
+        FilterChoice(label: '校园', value: '24'),
+        FilterChoice(label: 'NTR', value: '143'),
+        FilterChoice(label: '性转', value: '209'),
+        FilterChoice(label: '纯爱', value: '338'),
+        FilterChoice(label: '异世界', value: '379'),
+        FilterChoice(label: '职场', value: '621'),
+        FilterChoice(label: '历史', value: '625'),
+        // 重口
+        FilterChoice(label: '猎奇', value: '520'),
+        FilterChoice(label: '人体改造', value: '614'),
+        FilterChoice(label: '兽姦', value: '629'),
+        // 作品属性
+        FilterChoice(label: '中文', value: '312'),
+        FilterChoice(label: '全彩', value: '33'),
+        FilterChoice(label: '无修正', value: '71'),
+      ],
+    ),
   ];
 
   @override
@@ -64,6 +154,8 @@ class MmeroSource extends MangaSource {
     };
     final channel = int.tryParse(filters['channel'] ?? '');
     if (channel != null) queryParameters['channel'] = channel;
+    final tagId = int.tryParse(filters['tagId'] ?? '');
+    if (tagId != null) queryParameters['tagIds'] = tagId;
     if (filters['status'] == 'ongoing') queryParameters['isEnded'] = false;
     if (filters['status'] == 'completed') queryParameters['isEnded'] = true;
     return FetchConfig(

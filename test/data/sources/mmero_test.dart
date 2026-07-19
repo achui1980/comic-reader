@@ -22,6 +22,7 @@ void main() {
       expect(source.discoveryFilters.map((filter) => filter.name), [
         'channel',
         'status',
+        'tagId',
       ]);
       final channel = source.discoveryFilters[0];
       expect(channel.label, '频道');
@@ -47,6 +48,7 @@ void main() {
       final config = source.prepareDiscoveryFetch(2, {
         'channel': '2',
         'status': 'completed',
+        'tagId': '25',
       });
       expect(config.url, 'https://mmero.com/api/comic/items');
       expect(config.method, HttpMethod.get);
@@ -54,6 +56,7 @@ void main() {
         'pageNo': 2,
         'pageSize': 30,
         'channel': 2,
+        'tagIds': 25,
         'isEnded': true,
       });
       final ongoing = source.prepareDiscoveryFetch(1, {'status': 'ongoing'});
