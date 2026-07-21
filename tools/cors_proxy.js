@@ -330,17 +330,68 @@ const server = http.createServer((req, res) => {
           return;
         }
 
-        // Add CORS headers to response
-        const responseHeaders = { ...proxyRes.headers };
-        responseHeaders['access-control-allow-origin'] = '*';
-        responseHeaders['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-        responseHeaders['access-control-allow-headers'] = '*';
-        responseHeaders['access-control-expose-headers'] = '*';
-        // Remove any Location header to prevent browser from following redirects
-        delete responseHeaders['location'];
+        // Buffer the full response body instead of piping it straight through.
+        // Small/rate-limited CDNs (e.g. image hosts like nnpic.xyz/jmpic.xyz)
+        // sometimes reset the upstream connection mid-transfer. With a naive
+        // `proxyRes.pipe(res)`, that premature close is indistinguishable
+        // from a normal end-of-stream: the browser still gets a 200 with
+        // whatever bytes arrived, and things like ExtendedImage's web XHR
+        // path only check `status`, not body completeness, so a truncated
+        // JPEG gets handed straight to the image decoder and fails with
+        // "Failed to decode frame at index 0". Buffering lets us verify the
+        // transfer actually completed (and, when present, that the byte
+        // count matches Content-Length) before forwarding anything.
+        const chunks = [];
+        let received = 0;
+        let endedNormally = false;
 
-        res.writeHead(proxyRes.statusCode, responseHeaders);
-        proxyRes.pipe(res);
+        proxyRes.on('data', (chunk) => {
+          chunks.push(chunk);
+          received += chunk.length;
+        });
+
+        proxyRes.on('error', (err) => {
+          if (!res.headersSent) {
+            console.error('Upstream response error:', err.message, '→', targetUrl);
+            res.writeHead(502, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
+            res.end('Upstream response error: ' + err.message);
+          }
+        });
+
+        proxyRes.on('end', () => {
+          endedNormally = true;
+        });
+
+        proxyRes.on('close', () => {
+          if (res.headersSent) return;
+
+          if (!endedNormally) {
+            console.error(`Upstream closed before response completed (${received} bytes received):`, targetUrl);
+            res.writeHead(502, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
+            res.end(`Upstream connection closed before response completed (${received} bytes received)`);
+            return;
+          }
+
+          const declaredLength = parseInt(proxyRes.headers['content-length'], 10);
+          if (Number.isFinite(declaredLength) && received !== declaredLength) {
+            console.error(`Upstream response truncated (${received}/${declaredLength} bytes):`, targetUrl);
+            res.writeHead(502, { 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
+            res.end(`Upstream response truncated (${received}/${declaredLength} bytes)`);
+            return;
+          }
+
+          // Add CORS headers to response
+          const responseHeaders = { ...proxyRes.headers };
+          responseHeaders['access-control-allow-origin'] = '*';
+          responseHeaders['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+          responseHeaders['access-control-allow-headers'] = '*';
+          responseHeaders['access-control-expose-headers'] = '*';
+          // Remove any Location header to prevent browser from following redirects
+          delete responseHeaders['location'];
+
+          res.writeHead(proxyRes.statusCode, responseHeaders);
+          res.end(Buffer.concat(chunks));
+        });
       }
     );
 
