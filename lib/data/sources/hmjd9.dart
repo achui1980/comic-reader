@@ -11,7 +11,8 @@ import 'package:comic_reader/domain/entities/entities.dart';
 /// the reader page HTML via `data-original` lazy-load attributes. Chapters are
 /// embedded in the manga info page, so [prepareChapterListFetch] returns null.
 ///
-/// Images/covers are served from the jmpic.xyz CDN which may hotlink-protect,
+/// Images/covers are served from a `*pic.xyz` CDN (subdomain observed to
+/// rotate over time, e.g. jmpic.xyz -> nnpic.xyz) which may hotlink-protect,
 /// so a Referer header is attached to both cover summaries and chapter images.
 class Hmjd9 extends MangaSource {
   static const String sourceId = 'hmjd9';
@@ -216,13 +217,15 @@ class Hmjd9 extends MangaSource {
     final document = html_parser.parse(htmlStr);
 
     final images = <ChapterImage>[];
-    // Reader images are lazy-loaded via data-original on jmpic.xyz.
+    // Reader images are lazy-loaded via data-original. The site's image CDN
+    // has rotated subdomains over time (jmpic.xyz -> nnpic.xyz observed), so
+    // match any *pic.xyz host instead of a single hardcoded domain.
     final imgEls = document.querySelectorAll('img[data-original]');
     for (final img in imgEls) {
       final url = img.attributes['data-original'] ?? '';
       if (url.isEmpty) continue;
       // Only keep CDN image URLs, skip icons/placeholders.
-      if (!url.contains('jmpic.xyz')) continue;
+      if (!_isCdnImageUrl(url)) continue;
       images.add(ChapterImage(
         url: _ensureAbsoluteUrl(url),
         headers: const {'Referer': _baseUrl},
@@ -231,9 +234,9 @@ class Hmjd9 extends MangaSource {
 
     // Fallback: some pages may use src directly.
     if (images.isEmpty) {
-      for (final img in document.querySelectorAll('img[src*="jmpic.xyz"]')) {
+      for (final img in document.querySelectorAll('img[src]')) {
         final url = img.attributes['src'] ?? '';
-        if (url.isEmpty) continue;
+        if (url.isEmpty || !_isCdnImageUrl(url)) continue;
         images.add(ChapterImage(
           url: _ensureAbsoluteUrl(url),
           headers: const {'Referer': _baseUrl},
@@ -313,6 +316,16 @@ class Hmjd9 extends MangaSource {
     final match =
         RegExp(r'/manhua-\d+/([A-Za-z0-9]+)\.html').firstMatch(href);
     return match?.group(1);
+  }
+
+  /// Whether [url] points at the site's image CDN. The CDN base domain has
+  /// rotated over time (`jmpic.xyz`, `nnpic.xyz`, ... all observed), but they
+  /// all share the `pic.xyz` apex, so match that suffix rather than a single
+  /// hardcoded host. Note there is NO dot between the site prefix (`jm`/`nn`)
+  /// and `pic.xyz` — it's one apex domain, e.g. `p8.jmpic.xyz`.
+  bool _isCdnImageUrl(String url) {
+    final host = Uri.tryParse(url)?.host ?? url;
+    return host.endsWith('pic.xyz');
   }
 
   String _ensureAbsoluteUrl(String url) {
