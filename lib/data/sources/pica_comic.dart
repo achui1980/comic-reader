@@ -428,6 +428,9 @@ class PicaComic extends MangaSource {
     final thumb = comic['thumb'] as Map? ?? {};
     final coverUrl = _buildImageUrl(thumb);
     final finished = comic['finished'] as bool? ?? false;
+    // BookSimpleInfo(列表项)带 epsCount(分话数)/likesCount(点赞数)。
+    final epsCount = comic['epsCount'];
+    final likesCount = comic['likesCount'];
 
     return MangaSummary(
       id: mangaId,
@@ -436,6 +439,9 @@ class PicaComic extends MangaSource {
       coverUrl: coverUrl,
       author: author,
       latestChapter: finished ? 'Completed' : null,
+      chapterCount: epsCount is num ? epsCount.toInt() : null,
+      popularityText:
+          likesCount is num && likesCount > 0 ? '❤ ${likesCount.toInt()}' : null,
     );
   }
 

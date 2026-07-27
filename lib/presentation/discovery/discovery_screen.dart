@@ -272,8 +272,28 @@ class _MangaCard extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 12),
           ),
+          if (_metaText != null)
+            Text(
+              _metaText!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 10, color: Colors.grey),
+            ),
         ],
       ),
     );
+  }
+
+  /// 章节数 + 热度拼成的展示文本;两者均缺失时返回 null(该行不显示)。
+  /// 目前只有少数源(comick/pica_comic 等)会填充这两个字段。
+  String? get _metaText {
+    final parts = <String>[];
+    if (manga.chapterCount != null) {
+      parts.add('${manga.chapterCount}章');
+    }
+    if (manga.popularityText != null && manga.popularityText!.isNotEmpty) {
+      parts.add(manga.popularityText!);
+    }
+    return parts.isEmpty ? null : parts.join(' · ');
   }
 }

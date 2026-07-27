@@ -497,10 +497,31 @@ class ComicKSource extends MangaSource {
           author: '',
           latestChapter: _stringify(item['last_chapter']),
           headers: defaultHeaders,
+          popularityText: _buildPopularityText(item),
         ),
       );
     }
     return result;
+  }
+
+  /// 用 rating(评分)/follow_count(关注数)拼一段展示用的热度文本。
+  /// 两者均缺失时返回 null(卡片不显示这一行)。
+  String? _buildPopularityText(Map<String, dynamic> item) {
+    final rating = item['rating'];
+    final followCount = item['follow_count'];
+    final parts = <String>[];
+    if (rating != null) {
+      final ratingStr = rating is num
+          ? rating.toStringAsFixed(1)
+          : rating.toString();
+      if (ratingStr.isNotEmpty && ratingStr != '0' && ratingStr != '0.0') {
+        parts.add('★$ratingStr');
+      }
+    }
+    if (followCount is num && followCount > 0) {
+      parts.add('${followCount.toInt()}关注');
+    }
+    return parts.isEmpty ? null : parts.join(' · ');
   }
 
   /// 列表项标题:优先 md_titles 里的中文,否则 title。

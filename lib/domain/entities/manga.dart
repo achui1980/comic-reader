@@ -12,6 +12,8 @@ class MangaSummary extends Equatable {
   final String? latestChapter;
   final String? updateTime;
   final Map<String, String>? headers;
+  final int? chapterCount;
+  final String? popularityText;
 
   const MangaSummary({
     required this.id,
@@ -22,10 +24,22 @@ class MangaSummary extends Equatable {
     this.latestChapter,
     this.updateTime,
     this.headers,
+    this.chapterCount,
+    this.popularityText,
   });
 
   @override
-  List<Object?> get props => [id, sourceId, title, coverUrl, author, latestChapter, updateTime];
+  List<Object?> get props => [
+        id,
+        sourceId,
+        title,
+        coverUrl,
+        author,
+        latestChapter,
+        updateTime,
+        chapterCount,
+        popularityText,
+      ];
 }
 
 class MangaDetail extends Equatable {

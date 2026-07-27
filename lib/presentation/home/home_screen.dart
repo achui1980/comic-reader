@@ -9,6 +9,7 @@ import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/local/update_store.dart';
 import 'package:comic_reader/data/local/category_store.dart';
 import 'package:comic_reader/data/local/download_manager.dart';
+import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/presentation/downloads/download_drawer.dart';
@@ -278,6 +279,8 @@ class _HomeViewState extends State<_HomeView> {
     final hasNewUpdate = state.hasUpdate(manga.sourceId, manga.id);
     final key = '${manga.sourceId}_${manga.id}';
     final isSelected = state.selectedKeys.contains(key);
+    final sourceName =
+        GetIt.instance<SourceRegistry>().get(manga.sourceId)?.shortName;
 
     return GestureDetector(
       onTap: () async {
@@ -369,6 +372,16 @@ class _HomeViewState extends State<_HomeView> {
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodySmall,
           ),
+          if (sourceName != null)
+            Text(
+              sourceName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Colors.grey,
+                    fontSize: 10,
+                  ),
+            ),
         ],
       ),
     );

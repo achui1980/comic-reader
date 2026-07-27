@@ -1,14 +1,13 @@
 import 'dart:ui' as ui;
 import 'dart:convert' show base64Decode, utf8;
 
-import 'package:dio/dio.dart' show ResponseType;
+import 'package:dio/dio.dart' show ResponseType, Response, Headers;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:extended_image/extended_image.dart';
 import 'package:crypto/crypto.dart' as crypto_lib;
 import 'package:get_it/get_it.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
-import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/core/utils/image_response_decoder.dart';
 import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
@@ -112,58 +111,93 @@ class _MangaImageState extends State<MangaImage> {
     }
   }
 
+  /// Whether this image must be rendered via a raw `<img>` element on web
+  /// (bypassing Dio/the CORS proxy) so the browser attaches its own
+  /// Cloudflare cookies. Only applies on web, and only for sources that
+  /// opt in via [MangaSource.webDirectImage]. Such images manage their own
+  /// loading and must never be double-fetched through [_loadEncodedImage].
+  bool get _usesWebDirectImage {
+    if (!kIsWeb || widget.sourceId == null) return false;
+    final source = GetIt.instance<SourceRegistry>().get(widget.sourceId!);
+    return source != null && source.webDirectImage;
+  }
+
   void _startEncodedImageLoad() {
-    if (widget.image.responseEncoding == ImageResponseEncoding.binary) return;
+    // data: URIs are decoded locally in _buildMemoryImage and never need a
+    // network fetch.
+    if (widget.image.url.startsWith('data:')) return;
+    if (_usesWebDirectImage) return;
     _encodedImageBytes = _loadEncodedImage();
   }
 
-  Future<Uint8List> _loadEncodedImage() async {
-    final response = await GetIt.instance<HttpClient>().execute(
-      FetchConfig(
-        url: widget.image.url,
-        headers: widget.image.headers,
-        responseType: ResponseType.bytes,
-      ),
-    );
-    final responseData = response.data;
-    if (responseData is! List<int>) {
-      throw const FormatException('Image response did not contain bytes');
-    }
-    final bytes = decodeImageResponseBytes(
-      Uint8List.fromList(responseData),
-      widget.image.responseEncoding,
-    );
-    if (_canCache) {
-      await GetIt.instance<ChapterCacheService>().saveImage(
-        widget.sourceId!,
-        widget.mangaId!,
-        widget.chapterId!,
-        widget.imageIndex!,
-        bytes,
-      );
-    }
-    return bytes;
-  }
+  static const int _maxLoadAttempts = 3;
 
-  Future<void> _saveToCache(ExtendedImageState state) async {
-    if (!_canCache || _localPath != null) return;
-    try {
-      final data = state.extendedImageInfo?.image;
-      if (data == null) return;
-      final cacheService = GetIt.instance<ChapterCacheService>();
-      final url = ImageProxy.url(widget.image.url);
-      final file = await getCachedImageFile(url);
-      if (file != null) {
-        final bytes = await file.readAsBytes();
-        await cacheService.saveImage(
-          widget.sourceId!,
-          widget.mangaId!,
-          widget.chapterId!,
-          widget.imageIndex!,
-          bytes,
+  /// Downloads the image bytes through the shared [HttpClient], retrying on
+  /// failure (with exponential backoff) and verifying that the number of
+  /// bytes received matches the server-declared Content-Length. This guards
+  /// against proxies/upstreams that close the connection early while still
+  /// returning a 2xx status, which would otherwise be silently decoded as a
+  /// (corrupt) truncated image.
+  Future<Uint8List> _loadEncodedImage() async {
+    Object? lastError;
+    for (var attempt = 1; attempt <= _maxLoadAttempts; attempt++) {
+      try {
+        final response = await GetIt.instance<HttpClient>().execute(
+          FetchConfig(
+            url: widget.image.url,
+            headers: widget.image.headers,
+            responseType: ResponseType.bytes,
+          ),
+        );
+        final responseData = response.data;
+        if (responseData is! List<int>) {
+          throw const FormatException('Image response did not contain bytes');
+        }
+        final rawBytes = Uint8List.fromList(responseData);
+        _verifyResponseIntegrity(response, rawBytes);
+        final bytes = decodeImageResponseBytes(
+          rawBytes,
+          widget.image.responseEncoding,
+        );
+        if (bytes.isEmpty) {
+          throw const FormatException('Decoded image is empty');
+        }
+        if (_canCache) {
+          await GetIt.instance<ChapterCacheService>().saveImage(
+            widget.sourceId!,
+            widget.mangaId!,
+            widget.chapterId!,
+            widget.imageIndex!,
+            bytes,
+          );
+        }
+        return bytes;
+      } catch (e) {
+        lastError = e;
+        debugPrint(
+          '[MangaImage] load attempt $attempt/$_maxLoadAttempts failed: '
+          '${widget.image.url} - $e',
+        );
+        if (attempt == _maxLoadAttempts) break;
+        await Future.delayed(
+          Duration(milliseconds: 300 * (1 << (attempt - 1))),
         );
       }
-    } catch (_) {}
+    }
+    throw lastError ?? const FormatException('Failed to load image');
+  }
+
+  /// Throws if the downloaded [bytes] don't match the response's declared
+  /// Content-Length (when present), catching truncated-but-200 responses.
+  void _verifyResponseIntegrity(Response response, Uint8List bytes) {
+    final declared = response.headers.value(Headers.contentLengthHeader);
+    final declaredLength = declared != null ? int.tryParse(declared) : null;
+    if (declaredLength != null && declaredLength != bytes.length) {
+      throw FormatException(
+        'Image response truncated: expected $declaredLength bytes, got '
+        '${bytes.length}',
+      );
+    }
   }
 
   /// Calculate segment count for JMC unscrambling.
@@ -349,158 +383,29 @@ class _MangaImageState extends State<MangaImage> {
       return _buildMemoryImage();
     }
 
-    if (widget.image.responseEncoding != ImageResponseEncoding.binary) {
-      return _buildEncodedNetworkImage();
-    }
-
     // Web direct image: bypass CORS proxy for sources with CF-protected CDN.
     // Uses a raw HTML <img> element so the browser sends its own CF cookies.
-    if (kIsWeb && widget.sourceId != null) {
-      final source = GetIt.instance<SourceRegistry>().get(widget.sourceId!);
-      if (source != null && source.webDirectImage) {
-        final viewId = '${widget.sourceId}_${widget.image.url.hashCode}';
-        final directWidget = buildWebDirectImage(
-          imageUrl: widget.image.url,
-          fit: widget.fit,
-          viewId: viewId,
-        );
-        if (directWidget != null) {
-          return directWidget;
-        }
+    if (_usesWebDirectImage) {
+      final viewId = '${widget.sourceId}_${widget.image.url.hashCode}';
+      final directWidget = buildWebDirectImage(
+        imageUrl: widget.image.url,
+        fit: widget.fit,
+        viewId: viewId,
+      );
+      if (directWidget != null) {
+        return directWidget;
       }
     }
 
-    final imageUrl = ImageProxy.url(widget.image.url);
-    debugPrint('[MangaImage] Loading: $imageUrl');
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final screenWidth = constraints.maxWidth;
-        final screenHeight = constraints.maxHeight;
-        final isJmcScrambled = widget.image.scrambleType == ScrambleType.jmc;
-        // Disable gesture mode for JMC scrambled images because they render
-        // via _UnscrambledImage (CustomPaint). The gesture system's transform
-        // conflicts with the FittedBox sizing in _UnscrambledImage, causing
-        // broken display in horizontal page view mode.
-        final useGesture = !widget.disableGesture && !isJmcScrambled;
-        return ExtendedImage.network(
-          imageUrl,
-          fit: widget.fit,
-          cache: true,
-          retries: 3,
-          timeLimit: const Duration(seconds: 15),
-          headers: ImageProxy.safeHeaders(widget.image.headers),
-          enableLoadState: true,
-          mode: useGesture
-              ? ExtendedImageMode.gesture
-              : ExtendedImageMode.none,
-          initGestureConfigHandler: !useGesture
-              ? null
-              : (state) {
-                  double initialScale = 1.0;
-                  InitialAlignment alignment = InitialAlignment.topCenter;
-
-                  final imageInfo = state.extendedImageInfo;
-                  if (imageInfo != null &&
-                      screenWidth > 0 &&
-                      screenHeight > 0) {
-                    final double imgW = imageInfo.image.width.toDouble();
-                    final double imgH = imageInfo.image.height.toDouble();
-                    final double imageAspect = imgW / imgH;
-                    final double screenAspect = screenWidth / screenHeight;
-
-                    if (imageAspect > screenAspect) {
-                      // Wide image: fitWidth makes it too short. Scale up to fill height.
-                      // With fitWidth, displayed height = screenWidth / imageAspect
-                      // We want displayed height = screenHeight
-                      // scale = screenHeight / (screenWidth / imageAspect)
-                      initialScale =
-                          (screenHeight * imageAspect) / screenWidth;
-                      alignment = InitialAlignment.centerLeft;
-                    }
-                    // Tall image: fitWidth already fills width, user scrolls vertically
-                  }
-
-                  const double minScale = 1.0;
-                  const double maxScale = 5.0;
-                  initialScale = initialScale.clamp(minScale, maxScale);
-
-                  return GestureConfig(
-                    minScale: minScale,
-                    animationMinScale: 0.8,
-                    maxScale: maxScale,
-                    animationMaxScale: 5.5,
-                    speed: 1.0,
-                    inertialSpeed: 100.0,
-                    initialScale: initialScale,
-                    inPageView: true,
-                    initialAlignment: alignment,
-                  );
-                },
-          loadStateChanged: (state) {
-            switch (state.extendedImageLoadState) {
-              case LoadState.loading:
-                return const Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white70,
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        '加载中...',
-                        style: TextStyle(
-                          color: Colors.white54,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              case LoadState.completed:
-                // Save to local cache asynchronously
-                if (_canCache) {
-                  _saveToCache(state);
-                }
-
-                // If image needs unscrambling, use custom painter
-                if (widget.image.scrambleType == ScrambleType.jmc) {
-                  final imageInfo = state.extendedImageInfo;
-                  if (imageInfo != null) {
-                    final segs = _calculateSegments(imageInfo.image.width, imageInfo.image.height);
-                    debugPrint('[JMC Unscramble] chapterId=${widget.chapterId}, url=${widget.image.url}, imgSize=${imageInfo.image.width}x${imageInfo.image.height}, segments=$segs');
-                    return _UnscrambledImage(
-                      image: imageInfo.image,
-                      fit: widget.fit,
-                      alignment: widget.jmcAlignment,
-                      calculateSegments: _calculateSegments,
-                    );
-                  }
-                }
-
-                return state.completedWidget;
-              case LoadState.failed:
-                debugPrint('[MangaImage] FAILED: ${widget.image.url} - ${state.lastException}');
-                return GestureDetector(
-                  onTap: () => state.reLoadImage(),
-                  child: const Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.broken_image_outlined,
-                            size: 48, color: Colors.white54),
-                        SizedBox(height: 8),
-                        Text('点击重试', style: TextStyle(color: Colors.white54)),
-                      ],
-                    ),
-                  ),
-                );
-            }
-          },
-        );
-      },
-    );
+    // All other images -- both `binary` and `base64OrBinary` responses --
+    // are downloaded as raw bytes through the shared HttpClient (with
+    // retries + integrity checks) and rendered locally via
+    // ExtendedImage.memory. This unifies native/web behavior instead of
+    // relying on extended_image's built-in network loader, whose
+    // retry/timeLimit options are dead code on web (network_image_web.dart
+    // never reads them) and which has no way to detect a truncated-but-200
+    // response from a misbehaving CDN/proxy.
+    return _buildEncodedNetworkImage();
   }
 
   Widget _buildEncodedNetworkImage() {
@@ -510,7 +415,19 @@ class _MangaImageState extends State<MangaImage> {
       future: future,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
-          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+          return const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
+                SizedBox(height: 8),
+                Text(
+                  '加载中...',
+                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                ),
+              ],
+            ),
+          );
         }
         if (snapshot.hasError || !snapshot.hasData) {
           debugPrint('[MangaImage] FAILED: ${widget.image.url} - ${snapshot.error}');
@@ -528,25 +445,91 @@ class _MangaImageState extends State<MangaImage> {
             ),
           );
         }
-        return ExtendedImage.memory(
-          snapshot.data!,
-          fit: widget.fit,
-          mode: widget.disableGesture
-              ? ExtendedImageMode.none
-              : ExtendedImageMode.gesture,
-          initGestureConfigHandler: widget.disableGesture
-              ? null
-              : (state) => GestureConfig(
-                    minScale: 1.0,
-                    animationMinScale: 0.8,
-                    maxScale: 5.0,
-                    animationMaxScale: 5.5,
-                    speed: 1.0,
-                    inertialSpeed: 100.0,
-                    initialScale: 1.0,
-                    inPageView: true,
-                    initialAlignment: InitialAlignment.topCenter,
-                  ),
+
+        final bytes = snapshot.data!;
+        final isJmcScrambled = widget.image.scrambleType == ScrambleType.jmc;
+        // Disable gesture mode for JMC scrambled images because they render
+        // via _UnscrambledImage (CustomPaint). The gesture system's transform
+        // conflicts with the FittedBox sizing in _UnscrambledImage, causing
+        // broken display in horizontal page view mode.
+        final useGesture = !widget.disableGesture && !isJmcScrambled;
+
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final screenWidth = constraints.maxWidth;
+            final screenHeight = constraints.maxHeight;
+            return ExtendedImage.memory(
+              bytes,
+              fit: widget.fit,
+              enableLoadState: true,
+              mode: useGesture
+                  ? ExtendedImageMode.gesture
+                  : ExtendedImageMode.none,
+              initGestureConfigHandler: !useGesture
+                  ? null
+                  : (state) {
+                      double initialScale = 1.0;
+                      InitialAlignment alignment = InitialAlignment.topCenter;
+
+                      final imageInfo = state.extendedImageInfo;
+                      if (imageInfo != null &&
+                          screenWidth > 0 &&
+                          screenHeight > 0) {
+                        final double imgW = imageInfo.image.width.toDouble();
+                        final double imgH = imageInfo.image.height.toDouble();
+                        final double imageAspect = imgW / imgH;
+                        final double screenAspect = screenWidth / screenHeight;
+
+                        if (imageAspect > screenAspect) {
+                          // Wide image: fitWidth makes it too short. Scale up to fill height.
+                          // With fitWidth, displayed height = screenWidth / imageAspect
+                          // We want displayed height = screenHeight
+                          // scale = screenHeight / (screenWidth / imageAspect)
+                          initialScale =
+                              (screenHeight * imageAspect) / screenWidth;
+                          alignment = InitialAlignment.centerLeft;
+                        }
+                        // Tall image: fitWidth already fills width, user scrolls vertically
+                      }
+
+                      const double minScale = 1.0;
+                      const double maxScale = 5.0;
+                      initialScale = initialScale.clamp(minScale, maxScale);
+
+                      return GestureConfig(
+                        minScale: minScale,
+                        animationMinScale: 0.8,
+                        maxScale: maxScale,
+                        animationMaxScale: 5.5,
+                        speed: 1.0,
+                        inertialSpeed: 100.0,
+                        initialScale: initialScale,
+                        inPageView: true,
+                        initialAlignment: alignment,
+                      );
+                    },
+              loadStateChanged: (state) {
+                if (state.extendedImageLoadState != LoadState.completed) {
+                  return null;
+                }
+                // If image needs unscrambling, use custom painter
+                if (isJmcScrambled) {
+                  final imageInfo = state.extendedImageInfo;
+                  if (imageInfo != null) {
+                    final segs = _calculateSegments(imageInfo.image.width, imageInfo.image.height);
+                    debugPrint('[JMC Unscramble] chapterId=${widget.chapterId}, url=${widget.image.url}, imgSize=${imageInfo.image.width}x${imageInfo.image.height}, segments=$segs');
+                    return _UnscrambledImage(
+                      image: imageInfo.image,
+                      fit: widget.fit,
+                      alignment: widget.jmcAlignment,
+                      calculateSegments: _calculateSegments,
+                    );
+                  }
+                }
+                return state.completedWidget;
+              },
+            );
+          },
         );
       },
     );
