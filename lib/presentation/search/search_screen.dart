@@ -41,6 +41,15 @@ class _SearchViewState extends State<_SearchView> {
     super.dispose();
   }
 
+  void _submit(BuildContext context, String value) {
+    final cubit = context.read<SearchCubit>();
+    if (cubit.state.aggregateMode) {
+      cubit.searchAll(value);
+    } else {
+      cubit.search(value);
+    }
+  }
+
   void _showSourcePicker(BuildContext context, SearchCubit cubit) {
     final sources = cubit.registry.enabled;
     showModalBottomSheet(
@@ -72,90 +81,291 @@ class _SearchViewState extends State<_SearchView> {
             border: InputBorder.none,
           ),
           textInputAction: TextInputAction.search,
-          onSubmitted: (value) => context.read<SearchCubit>().search(value),
+          onSubmitted: (value) => _submit(context, value),
         ),
         actions: [
           IconButton(
             icon: const Icon(Icons.search),
-            onPressed: () => context.read<SearchCubit>().search(_controller.text),
+            onPressed: () => _submit(context, _controller.text),
           ),
         ],
       ),
       body: Column(
         children: [
-          // Source selector bar
+          // Aggregate / single-source toggle
           BlocBuilder<SearchCubit, SearchState>(
-            buildWhen: (prev, curr) => prev.sourceId != curr.sourceId,
+            buildWhen: (prev, curr) =>
+                prev.aggregateMode != curr.aggregateMode ||
+                prev.sourceId != curr.sourceId,
             builder: (context, state) {
               final cubit = context.read<SearchCubit>();
-              final source = cubit.registry.get(state.sourceId);
-              return Container(
+              return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                child: GestureDetector(
-                  onTap: () => _showSourcePicker(context, cubit),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.source_outlined, size: 16, color: Colors.grey),
-                      const SizedBox(width: 6),
-                      Text(
-                        source?.name ?? '选择源',
-                        style: const TextStyle(fontSize: 13, color: Colors.blue),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: _ModeToggle(
+                        aggregateMode: state.aggregateMode,
+                        onChanged: (aggregate) =>
+                            cubit.setAggregateMode(aggregate),
                       ),
-                      const Icon(Icons.arrow_drop_down, size: 18, color: Colors.blue),
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 6),
+                    // Single-source picker (only in single mode)
+                    if (!state.aggregateMode)
+                      GestureDetector(
+                        onTap: () => _showSourcePicker(context, cubit),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.source_outlined,
+                                size: 16, color: Colors.grey),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                cubit.registry.get(state.sourceId)?.name ??
+                                    '选择源',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontSize: 13, color: Colors.blue),
+                              ),
+                            ),
+                            const Icon(Icons.arrow_drop_down,
+                                size: 18, color: Colors.blue),
+                          ],
+                        ),
+                      )
+                    else
+                      const Text(
+                        '聚合所有已启用源',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 13, color: Colors.grey),
+                      ),
+                  ],
                 ),
               );
             },
           ),
+          const Divider(height: 1),
           Expanded(
             child: BlocBuilder<SearchCubit, SearchState>(
               builder: (context, state) {
-                if (state.status == SearchStatus.initial) {
-                  return const Center(
-                    child: Text('输入关键词搜索', style: TextStyle(color: Colors.grey)),
-                  );
+                if (state.aggregateMode) {
+                  return const _AggregateResults();
                 }
-                if (state.status == SearchStatus.loading) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (state.status == SearchStatus.error) {
-                  return Center(child: Text(state.errorMessage ?? '搜索失败'));
-                }
-                if (state.results.isEmpty) {
-                  return const Center(
-                    child: Text('没有找到结果', style: TextStyle(color: Colors.grey)),
-                  );
-                }
-                return NotificationListener<ScrollNotification>(
-                  onNotification: (notification) {
-                    if (notification is ScrollEndNotification &&
-                        notification.metrics.extentAfter < 200) {
-                      context.read<SearchCubit>().loadMore();
-                    }
-                    return false;
-                  },
-                  child: RefreshIndicator(
-                    onRefresh: () => context.read<SearchCubit>().refresh(),
-                    child: ListView.builder(
-                      itemCount: state.results.length + (state.hasMore ? 1 : 0),
-                      itemBuilder: (context, index) {
-                        if (index >= state.results.length) {
-                          return const Padding(
-                            padding: EdgeInsets.all(16),
-                            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                          );
-                        }
-                        return _SearchResultItem(manga: state.results[index]);
-                      },
-                    ),
-                  ),
-                );
+                return const _SingleSourceResults();
               },
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _ModeToggle extends StatelessWidget {
+  final bool aggregateMode;
+  final ValueChanged<bool> onChanged;
+  const _ModeToggle({required this.aggregateMode, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<bool>(
+      showSelectedIcon: false,
+      style: const ButtonStyle(
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      segments: const [
+        ButtonSegment(value: false, label: Text('单源', style: TextStyle(fontSize: 12))),
+        ButtonSegment(value: true, label: Text('聚合', style: TextStyle(fontSize: 12))),
+      ],
+      selected: {aggregateMode},
+      onSelectionChanged: (set) => onChanged(set.first),
+    );
+  }
+}
+
+/// Single-source result list (original behavior).
+class _SingleSourceResults extends StatelessWidget {
+  const _SingleSourceResults();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<SearchCubit, SearchState>(
+      builder: (context, state) {
+        if (state.status == SearchStatus.initial) {
+          return const Center(
+            child: Text('输入关键词搜索', style: TextStyle(color: Colors.grey)),
+          );
+        }
+        if (state.status == SearchStatus.loading) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (state.status == SearchStatus.error) {
+          return Center(child: Text(state.errorMessage ?? '搜索失败'));
+        }
+        if (state.results.isEmpty) {
+          return const Center(
+            child: Text('没有找到结果', style: TextStyle(color: Colors.grey)),
+          );
+        }
+        return NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            if (notification is ScrollEndNotification &&
+                notification.metrics.extentAfter < 200) {
+              context.read<SearchCubit>().loadMore();
+            }
+            return false;
+          },
+          child: RefreshIndicator(
+            onRefresh: () => context.read<SearchCubit>().refresh(),
+            child: ListView.builder(
+              itemCount: state.results.length + (state.hasMore ? 1 : 0),
+              itemBuilder: (context, index) {
+                if (index >= state.results.length) {
+                  return const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                  );
+                }
+                return _SearchResultItem(manga: state.results[index]);
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Aggregate results grouped per source.
+class _AggregateResults extends StatelessWidget {
+  const _AggregateResults();
+
+  @override
+  Widget build(BuildContext context) {
+    return BlocBuilder<SearchCubit, SearchState>(
+      builder: (context, state) {
+        if (state.status == SearchStatus.initial) {
+          return const Center(
+            child: Text('输入关键词聚合搜索', style: TextStyle(color: Colors.grey)),
+          );
+        }
+        if (state.status == SearchStatus.error && state.slices.isEmpty) {
+          return Center(child: Text(state.errorMessage ?? '搜索失败'));
+        }
+        final slices = state.slices.values.toList();
+        if (slices.isEmpty) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final cubit = context.read<SearchCubit>();
+        return RefreshIndicator(
+          onRefresh: () => cubit.refresh(),
+          child: ListView.builder(
+            itemCount: slices.length,
+            itemBuilder: (context, index) {
+              return _SourceGroup(slice: slices[index]);
+            },
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// A collapsible group showing one source's results/loading/error state.
+class _SourceGroup extends StatelessWidget {
+  final SourceSearchSlice slice;
+  const _SourceGroup({required this.slice});
+
+  @override
+  Widget build(BuildContext context) {
+    final cubit = context.read<SearchCubit>();
+    final source = cubit.registry.get(slice.sourceId);
+    final sourceName = source?.name ?? slice.sourceId;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Source header
+        Container(
+          width: double.infinity,
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Row(
+            children: [
+              const Icon(Icons.source_outlined, size: 16, color: Colors.grey),
+              const SizedBox(width: 6),
+              Text(
+                sourceName,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(width: 8),
+              if (slice.status == SearchStatus.loading ||
+                  slice.status == SearchStatus.loadingMore)
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else if (slice.status == SearchStatus.loaded)
+                Text(
+                  '${slice.results.length} 条',
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              const Spacer(),
+              if (slice.status == SearchStatus.error)
+                TextButton.icon(
+                  onPressed: () => cubit.retrySource(slice.sourceId),
+                  icon: const Icon(Icons.refresh, size: 14),
+                  label: const Text('重试', style: TextStyle(fontSize: 12)),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        // Source body
+        if (slice.status == SearchStatus.error)
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Text(
+              slice.errorMessage ?? '加载失败',
+              style: const TextStyle(fontSize: 12, color: Colors.red),
+            ),
+          )
+        else if (slice.status == SearchStatus.loaded && slice.results.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(12),
+            child: Text('没有结果', style: TextStyle(fontSize: 12, color: Colors.grey)),
+          )
+        else
+          ...slice.results.map((m) => _SearchResultItem(manga: m)),
+        // Load more for this source
+        if (slice.status == SearchStatus.loaded && slice.hasMore)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Center(
+              child: TextButton(
+                onPressed: () => cubit.loadMoreSource(slice.sourceId),
+                child: const Text('加载更多', style: TextStyle(fontSize: 12)),
+              ),
+            ),
+          )
+        else if (slice.status == SearchStatus.loadingMore)
+          const Padding(
+            padding: EdgeInsets.all(8),
+            child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+          ),
+      ],
     );
   }
 }

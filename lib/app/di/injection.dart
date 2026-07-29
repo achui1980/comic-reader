@@ -40,6 +40,8 @@ import 'package:comic_reader/data/sources/mmero.dart';
 import 'package:comic_reader/data/repositories/manga_repository_impl.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
+import 'package:comic_reader/data/local/secure_store.dart';
+import 'package:comic_reader/core/activation/activation_service.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/local/category_store.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
@@ -57,6 +59,10 @@ final getIt = GetIt.instance;
 void configureDependencies() {
   // Local Storage
   getIt.registerLazySingleton<LocalStorage>(() => LocalStorage());
+  getIt.registerLazySingleton<SecureStore>(() => SecureStore());
+  getIt.registerLazySingleton<ActivationService>(
+    () => ActivationService(secureStore: getIt<SecureStore>()),
+  );
   getIt.registerLazySingleton<FavoritesStore>(
     () => FavoritesStore(storage: getIt<LocalStorage>()),
   );
@@ -70,7 +76,10 @@ void configureDependencies() {
     () => ChapterCacheService(),
   );
   getIt.registerLazySingleton<AuthStore>(
-    () => AuthStore(storage: getIt<LocalStorage>()),
+    () => AuthStore(
+      storage: getIt<LocalStorage>(),
+      secureStore: getIt<SecureStore>(),
+    ),
   );
   getIt.registerLazySingleton<UpdateStore>(
     () => UpdateStore(storage: getIt<LocalStorage>()),

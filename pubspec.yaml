@@ -41,6 +41,8 @@ dependencies:
   html: ^0.15.4
   # Local storage
   path_provider: ^2.1.2
+  # Secure storage (Keychain/Keystore on native; encrypted localStorage fallback on web)
+  flutter_secure_storage: ^9.2.2
   # Image
   cached_network_image: ^3.3.1
   extended_image: ^8.2.1

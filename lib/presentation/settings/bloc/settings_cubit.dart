@@ -8,6 +8,7 @@ import 'package:comic_reader/data/local/local_storage.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
+import 'package:comic_reader/core/activation/activation_service.dart';
 import 'package:comic_reader/main.dart';
 import 'settings_state.dart';
 
@@ -136,6 +137,35 @@ class SettingsCubit extends Cubit<SettingsState> {
     await _settingsStore.save(updated);
     // Update source registry so adult sources take effect immediately
     _sourceRegistry.setAdultUnlocked(value);
+  }
+
+  /// Attempts to unlock adult sources with an activation [code].
+  ///
+  /// On success the code is verified & persisted (in secure storage) by
+  /// [ActivationService], the registry is unlocked immediately, and the
+  /// plaintext settings flag is mirrored for backward compatibility. Returns
+  /// an error message on failure, or `null` on success.
+  Future<String?> unlockWithCode(String code) async {
+    final activation = GetIt.instance<ActivationService>();
+    final result = await activation.verify(code);
+    if (!result.success) {
+      return result.error ?? '激活码无效';
+    }
+    final updated = state.settings.copyWith(adultUnlocked: true);
+    emit(state.copyWith(settings: updated));
+    await _settingsStore.save(updated);
+    _sourceRegistry.setAdultUnlocked(true);
+    return null;
+  }
+
+  /// Re-locks adult sources: clears the stored activation token and resets the
+  /// registry + settings flag.
+  Future<void> lockAdult() async {
+    await GetIt.instance<ActivationService>().clear();
+    final updated = state.settings.copyWith(adultUnlocked: false);
+    emit(state.copyWith(settings: updated));
+    await _settingsStore.save(updated);
+    _sourceRegistry.setAdultUnlocked(false);
   }
 
   Future<void> clearFavorites() async {
