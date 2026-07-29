@@ -90,18 +90,18 @@
 
 ### AI 功能（BYOK）
 
-- [ ] **#12 新建 `core/ai/` 三件套**
+- [x] **#12 新建 `core/ai/` 三件套**（ai_config.dart: AiProvider openai/gemini + AiConfig + AiConfigStore(apiKey→SecureStore, 其余→LocalStorage 'ai_config'); ai_client.dart: AiClient.chat 适配 OpenAI /v1/chat/completions + Gemini :generateContent; ai_service.dart: SearchIntent/AiMetadata + parseSearchIntent(#15)/normalizeMetadata(#16), 未配置降级; DI 三 lazySingleton; analyze No issues）
   - `AiConfig`：provider(openai/gemini/自定义) / apiKey(SecureStore) / baseUrl / model / enabled
   - `AiClient`：`chat(messages,{json})` → 组装 body → `FetchConfig(post)` → `HttpClient.execute` → 解析文本；provider body 差异在此适配
   - `AiService`：业务编排 / 缓存 / 降级
-- [ ] **#13 AI 设置页**
+- [x] **#13 AI 设置页**
   - 填 provider/key/baseUrl/model，总开关；key 写 SecureStore
-- [ ] **#14 Web CORS 代理放行 AI 域名**
+- [x] **#14 Web CORS 代理放行 AI 域名**
   - `cors_proxy_interceptor` 白名单直连，或 web 走 `fetch` 直连；验证 OpenAI/Gemini CORS
-- [ ] **#15 功能A 自然语言搜索**
+- [x] **#15 功能A 自然语言搜索**（SearchState 加 aiMode/aiInterpretation; SearchCubit 加 AiService? + setAiMode + submitQuery(query)：AI模式先 parseSearchIntent→primaryQuery 喂 search/searchAll，失败/未配置降级原文搜索; search_screen 加 _AiToggle + 解释横幅; 现有 13 测例仍通过; analyze No issues）
   - `AiService.parseSearchIntent(query)` → LLM 返回 `{keywords,tags,excludes}`（仅关键词抽取，零幻觉）→ 喂 #5/#6 跨源搜索
   - 未配置/失败 → 降级普通搜索，不阻断
-- [ ] **#16 功能B 智能元数据归一化**
+- [x] **#16 功能B 智能元数据归一化**
   - `AiService.normalizeMetadata(detail)` → LLM 归一化标签 + 生成简介 + 提取原作名
   - 新建 `ai_metadata_store`（key = `${sourceId}_${mangaId}`）永久缓存，详情页展示
 
@@ -109,13 +109,13 @@
 
 ## P2 · 聚合深化
 
-- [ ] **#17 实体扩展 altTitles**
+- [x] **#17 实体扩展 altTitles**
   - `MangaSummary` / `MangaDetail` 加 `altTitles(List<String>)`
   - 改每个源 parser 填充（能拿到原名的）
-- [ ] **#18 WorkGroup 分组层**
+- [x] **#18 WorkGroup 分组层**
   - 新建 WorkGroup store：canonical work → `[(sourceId,mangaId)]`
   - title/author/altTitles 归一化匹配启发式（可叠加 AI 归一化结果）
-- [ ] **#19 同作品多源**
+- [x] **#19 同作品多源**
   - 详情页展示其他源同作品；某源失效自动切备用源阅读
 
 ---

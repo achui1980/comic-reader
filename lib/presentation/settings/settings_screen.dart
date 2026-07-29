@@ -12,6 +12,7 @@ import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/local/backup_service.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/presentation/common/pica_login_dialog.dart';
+import 'package:comic_reader/presentation/settings/ai_settings_screen.dart';
 import 'bloc/settings_cubit.dart';
 import 'bloc/settings_state.dart';
 
@@ -44,6 +45,7 @@ class _SettingsView extends StatelessWidget {
               if (kIsWeb) const _ProxySettingsSection(),
               if (!kIsWeb) _buildNativeProxySection(context, state),
               _buildAdultSection(context, state),
+              _buildAiSection(context),
               _buildPluginSection(context, state),
               _buildDataSection(context),
               _buildAboutSection(context),
@@ -313,6 +315,27 @@ class _SettingsView extends StatelessWidget {
           onTap: state.adultUnlocked
               ? null
               : () => _showActivationDialog(context, cubit),
+        ),
+        const Divider(),
+      ],
+    );
+  }
+
+  Widget _buildAiSection(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionHeader('AI 智能'),
+        ListTile(
+          leading: const Icon(Icons.auto_awesome),
+          title: const Text('AI 设置'),
+          subtitle: const Text('自然语言搜索与元数据归一化（自备 API Key）'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const AiSettingsScreen(),
+            ),
+          ),
         ),
         const Divider(),
       ],

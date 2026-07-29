@@ -5,6 +5,8 @@ import 'package:get_it/get_it.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
+import 'package:comic_reader/core/ai/ai_service.dart';
+import 'package:comic_reader/data/local/work_group_store.dart';
 import 'package:comic_reader/presentation/common/manga_cover_image.dart';
 import 'package:comic_reader/app/router/routes.dart';
 import 'bloc/search_cubit.dart';
@@ -19,6 +21,8 @@ class SearchScreen extends StatelessWidget {
       create: (_) => SearchCubit(
         repository: GetIt.instance<MangaRepository>(),
         registry: GetIt.instance<SourceRegistry>(),
+        aiService: GetIt.instance<AiService>(),
+        workGroupStore: GetIt.instance<WorkGroupStore>(),
       )..init(),
       child: const _SearchView(),
     );
@@ -43,11 +47,7 @@ class _SearchViewState extends State<_SearchView> {
 
   void _submit(BuildContext context, String value) {
     final cubit = context.read<SearchCubit>();
-    if (cubit.state.aggregateMode) {
-      cubit.searchAll(value);
-    } else {
-      cubit.search(value);
-    }
+    cubit.submitQuery(value);
   }
 
   void _showSourcePicker(BuildContext context, SearchCubit cubit) {
@@ -96,7 +96,9 @@ class _SearchViewState extends State<_SearchView> {
           BlocBuilder<SearchCubit, SearchState>(
             buildWhen: (prev, curr) =>
                 prev.aggregateMode != curr.aggregateMode ||
-                prev.sourceId != curr.sourceId,
+                prev.sourceId != curr.sourceId ||
+                prev.aiMode != curr.aiMode ||
+                prev.aiInterpretation != curr.aiInterpretation,
             builder: (context, state) {
               final cubit = context.read<SearchCubit>();
               return Padding(
@@ -104,13 +106,19 @@ class _SearchViewState extends State<_SearchView> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: _ModeToggle(
-                        aggregateMode: state.aggregateMode,
-                        onChanged: (aggregate) =>
-                            cubit.setAggregateMode(aggregate),
-                      ),
+                    Row(
+                      children: [
+                        _ModeToggle(
+                          aggregateMode: state.aggregateMode,
+                          onChanged: (aggregate) =>
+                              cubit.setAggregateMode(aggregate),
+                        ),
+                        const Spacer(),
+                        _AiToggle(
+                          aiMode: state.aiMode,
+                          onChanged: (v) => cubit.setAiMode(v),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 6),
                     // Single-source picker (only in single mode)
@@ -145,6 +153,24 @@ class _SearchViewState extends State<_SearchView> {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(fontSize: 13, color: Colors.grey),
                       ),
+                    if (state.aiMode && state.aiInterpretation.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.auto_awesome,
+                              size: 14, color: Colors.deepPurple),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              state.aiInterpretation,
+                              style: const TextStyle(
+                                  fontSize: 12, color: Colors.deepPurple),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               );
@@ -186,6 +212,43 @@ class _ModeToggle extends StatelessWidget {
       ],
       selected: {aggregateMode},
       onSelectionChanged: (set) => onChanged(set.first),
+    );
+  }
+}
+
+/// Small toggle enabling AI natural-language search interpretation.
+class _AiToggle extends StatelessWidget {
+  final bool aiMode;
+  final ValueChanged<bool> onChanged;
+  const _AiToggle({required this.aiMode, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: () => onChanged(!aiMode),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.auto_awesome,
+              size: 16,
+              color: aiMode ? Colors.deepPurple : Colors.grey,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'AI 搜索',
+              style: TextStyle(
+                fontSize: 12,
+                color: aiMode ? Colors.deepPurple : Colors.grey,
+                fontWeight: aiMode ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

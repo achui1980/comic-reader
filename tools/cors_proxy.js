@@ -4,6 +4,15 @@
 // This proxies all requests and adds CORS headers so the Flutter web app
 // can make cross-origin requests to manga source APIs.
 //
+// AI (BYOK) passthrough: OpenAI-compatible (api.openai.com) and Google Gemini
+// (generativelanguage.googleapis.com) endpoints work through this proxy with no
+// special-casing. POST bodies are streamed upstream (req.pipe), and the
+// Authorization / x-goog-api-key / Content-Type request headers are NOT in the
+// forbidden-header list, so they pass through untouched. Responses are chunked
+// JSON (no Content-Length), so the truncation guard below does not fire. The
+// upstream proxy (HTTPS_PROXY) is intentionally reused for AI hosts too, since
+// users in restricted regions often need it to reach the AI provider.
+//
 // Supports X-Proxy-* headers: the Flutter app moves browser-forbidden headers
 // (User-Agent, Referer) to X-Proxy-User-Agent / X-Proxy-Referer, and this
 // proxy restores them before forwarding.

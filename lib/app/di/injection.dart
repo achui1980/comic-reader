@@ -42,6 +42,9 @@ import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
 import 'package:comic_reader/data/local/secure_store.dart';
 import 'package:comic_reader/core/activation/activation_service.dart';
+import 'package:comic_reader/core/ai/ai_config.dart';
+import 'package:comic_reader/core/ai/ai_client.dart';
+import 'package:comic_reader/core/ai/ai_service.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/local/category_store.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
@@ -49,6 +52,8 @@ import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
 import 'package:comic_reader/data/local/auth_store.dart';
 import 'package:comic_reader/data/local/update_store.dart';
+import 'package:comic_reader/data/local/ai_metadata_store.dart';
+import 'package:comic_reader/data/local/work_group_store.dart';
 import 'package:comic_reader/data/local/library_update_service.dart';
 import 'package:comic_reader/data/local/backup_service.dart';
 import 'package:comic_reader/data/local/download_manager.dart';
@@ -90,6 +95,12 @@ void configureDependencies() {
   getIt.registerLazySingleton<CategoryStore>(
     () => CategoryStore(storage: getIt<LocalStorage>()),
   );
+  getIt.registerLazySingleton<AiMetadataStore>(
+    () => AiMetadataStore(storage: getIt<LocalStorage>()),
+  );
+  getIt.registerLazySingleton<WorkGroupStore>(
+    () => WorkGroupStore(storage: getIt<LocalStorage>()),
+  );
 
   // HTTP Client
   // WebView-based fetcher for Cloudflare JA3-bound sources (native only;
@@ -104,6 +115,23 @@ void configureDependencies() {
     httpClient.addInterceptor(CorsProxyInterceptor());
   }
   getIt.registerSingleton<HttpClient>(httpClient);
+
+  // AI (BYOK — user brings their own API key; no first-party backend).
+  getIt.registerLazySingleton<AiConfigStore>(
+    () => AiConfigStore(
+      storage: getIt<LocalStorage>(),
+      secureStore: getIt<SecureStore>(),
+    ),
+  );
+  getIt.registerLazySingleton<AiClient>(
+    () => AiClient(httpClient: getIt<HttpClient>()),
+  );
+  getIt.registerLazySingleton<AiService>(
+    () => AiService(
+      client: getIt<AiClient>(),
+      configStore: getIt<AiConfigStore>(),
+    ),
+  );
 
   // Source Registry
   final registry = SourceRegistry();

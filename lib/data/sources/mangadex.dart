@@ -278,6 +278,7 @@ class MangaDexSource extends MangaSource {
       description: description,
       author: author,
       tags: tags,
+      altTitles: _collectAltTitles(attrs['title'], attrs['altTitles'], title),
       status: status,
       headers: defaultHeaders,
     );
@@ -510,6 +511,28 @@ class MangaDexSource extends MangaSource {
       }
     }
     return '未知标题';
+  }
+
+  /// Collect every distinct alt-title string across the `altTitles` list plus
+  /// the localized values inside the main `title` map (minus the chosen
+  /// primary title). Used for cross-source matching.
+  List<String> _collectAltTitles(dynamic title, dynamic altTitles, String primary) {
+    final out = <String>[];
+    final seen = <String>{primary};
+    void add(dynamic localizedMap) {
+      if (localizedMap is! Map) return;
+      for (final v in localizedMap.values) {
+        if (v is String && v.isNotEmpty && seen.add(v)) out.add(v);
+      }
+    }
+
+    add(title);
+    if (altTitles is List) {
+      for (final alt in altTitles) {
+        add(alt);
+      }
+    }
+    return out;
   }
 
   /// 从形如 {'en':'...', 'zh':'...', 'ja-ro':'...'} 的本地化 map 中取值。

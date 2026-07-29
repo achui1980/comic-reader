@@ -66,6 +66,17 @@ class SearchState extends Equatable {
   /// Per-source slices keyed by sourceId. Only populated in aggregate mode.
   final Map<String, SourceSearchSlice> slices;
 
+  // --- AI (natural-language search) fields ---
+  /// When true, submitting the query first runs it through the AI intent
+  /// parser (#15) to extract search keywords before searching. Falls back to a
+  /// plain search when AI is unusable or extraction fails.
+  final bool aiMode;
+
+  /// Human-readable note of how the AI interpreted the last query (e.g. the
+  /// original natural-language input and the extracted keyword). Empty when AI
+  /// was not used or did not alter the query.
+  final String aiInterpretation;
+
   const SearchState({
     this.status = SearchStatus.initial,
     this.results = const [],
@@ -76,6 +87,8 @@ class SearchState extends Equatable {
     this.errorMessage,
     this.aggregateMode = false,
     this.slices = const {},
+    this.aiMode = false,
+    this.aiInterpretation = '',
   });
 
   /// Flattened, de-duplicated results across all source slices, ordered by the
@@ -103,6 +116,8 @@ class SearchState extends Equatable {
     String? errorMessage,
     bool? aggregateMode,
     Map<String, SourceSearchSlice>? slices,
+    bool? aiMode,
+    String? aiInterpretation,
   }) {
     return SearchState(
       status: status ?? this.status,
@@ -114,6 +129,8 @@ class SearchState extends Equatable {
       errorMessage: errorMessage ?? this.errorMessage,
       aggregateMode: aggregateMode ?? this.aggregateMode,
       slices: slices ?? this.slices,
+      aiMode: aiMode ?? this.aiMode,
+      aiInterpretation: aiInterpretation ?? this.aiInterpretation,
     );
   }
 
@@ -128,5 +145,7 @@ class SearchState extends Equatable {
         errorMessage,
         aggregateMode,
         slices,
+        aiMode,
+        aiInterpretation,
       ];
 }

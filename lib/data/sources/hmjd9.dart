@@ -110,8 +110,12 @@ class Hmjd9 extends MangaSource {
   @override
   FetchConfig prepareSearchFetch(
       String keyword, int page, Map<String, String> filters) {
+    // The site's search form submits to `/catalog.php?key=<keyword>` (GET).
+    // The pretty `/search/<keyword>.html` route always renders an empty
+    // "共 0 部" page, so it must NOT be used for keyword search.
     return FetchConfig(
-      url: '$_baseUrl/search/${Uri.encodeComponent(keyword)}.html',
+      url: '$_baseUrl/catalog.php',
+      queryParameters: {'key': keyword},
     );
   }
 

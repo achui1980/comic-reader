@@ -2,17 +2,25 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
+import 'package:comic_reader/data/local/work_group_store.dart';
+import 'package:comic_reader/core/ai/ai_service.dart';
 import 'search_state.dart';
 
 class SearchCubit extends Cubit<SearchState> {
   final MangaRepository _repository;
   final SourceRegistry _registry;
+  final AiService? _aiService;
+  final WorkGroupStore? _workGroupStore;
 
   SearchCubit({
     required MangaRepository repository,
     required SourceRegistry registry,
+    AiService? aiService,
+    WorkGroupStore? workGroupStore,
   })  : _repository = repository,
         _registry = registry,
+        _aiService = aiService,
+        _workGroupStore = workGroupStore,
         super(const SearchState());
 
   void init([String? initialSourceId]) {
@@ -34,6 +42,70 @@ class SearchCubit extends Cubit<SearchState> {
   }
 
   SourceRegistry get registry => _registry;
+
+  /// Whether AI-assisted search is available (service injected & configured).
+  Future<bool> get aiAvailable async {
+    final svc = _aiService;
+    if (svc == null) return false;
+    return svc.isUsable;
+  }
+
+  /// Toggle AI-assisted natural-language search on/off. Does not re-run the
+  /// current query (the user resubmits explicitly).
+  void setAiMode(bool enabled) {
+    if (enabled == state.aiMode) return;
+    emit(state.copyWith(aiMode: enabled, aiInterpretation: ''));
+  }
+
+  /// Entry point used by the UI on submit. When AI mode is on, the raw
+  /// natural-language [query] is first parsed into a keyword via
+  /// [AiService.parseSearchIntent]; the extracted keyword then feeds the normal
+  /// single-source or aggregate search. Any failure (AI unusable, parse error,
+  /// empty extraction) degrades gracefully to a plain search on [query].
+  Future<void> submitQuery(String query) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return;
+
+    if (!state.aiMode || _aiService == null) {
+      emit(state.copyWith(aiInterpretation: ''));
+      await _dispatchSearch(trimmed);
+      return;
+    }
+
+    // AI mode: show a transient loading state while parsing intent.
+    emit(state.copyWith(
+      status: SearchStatus.loading,
+      aiInterpretation: '正在理解你的描述…',
+    ));
+
+    SearchIntent? intent;
+    try {
+      intent = await _aiService.parseSearchIntent(trimmed);
+    } catch (_) {
+      intent = null;
+    }
+
+    final effectiveQuery =
+        (intent != null && intent.primaryQuery.isNotEmpty)
+            ? intent.primaryQuery
+            : trimmed;
+
+    final note = (intent != null && intent.primaryQuery.isNotEmpty)
+        ? 'AI 理解：“$trimmed” → 关键词「$effectiveQuery」'
+            '${intent.tags.isNotEmpty ? '（标签：${intent.tags.join('、')}）' : ''}'
+        : 'AI 未能提炼关键词，已按原文搜索。';
+
+    emit(state.copyWith(aiInterpretation: note));
+    await _dispatchSearch(effectiveQuery);
+  }
+
+  Future<void> _dispatchSearch(String keyword) async {
+    if (state.aggregateMode) {
+      await searchAll(keyword);
+    } else {
+      await search(keyword);
+    }
+  }
 
   /// Switch between aggregate (cross-source) and single-source modes.
   ///
@@ -207,6 +279,20 @@ class SearchCubit extends Cubit<SearchState> {
 
     // Overall status: loaded once every slice settled (loaded or error).
     emit(state.copyWith(status: SearchStatus.loaded));
+
+    // Background: persist WorkGroup groupings so the detail page can surface
+    // alternative sources for the same work.
+    final wgs = _workGroupStore;
+    if (wgs != null) {
+      final allResults = state.slices.values
+          .where((s) => s.status == SearchStatus.loaded)
+          .expand((s) => s.results)
+          .toList();
+      if (allResults.isNotEmpty) {
+        // fire-and-forget; failures are non-critical
+        wgs.buildAndSave(allResults, merge: true).ignore();
+      }
+    }
   }
 
   /// Load the next page for a single source slice in aggregate mode.

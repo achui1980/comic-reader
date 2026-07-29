@@ -9,6 +9,11 @@ class MangaSummary extends Equatable {
   final String title;
   final String coverUrl;
   final String author;
+
+  /// Alternative titles for this work (original-language name, romanization,
+  /// English title, etc.). Used for cross-source matching / dedup. Empty when
+  /// the source cannot provide any.
+  final List<String> altTitles;
   final String? latestChapter;
   final String? updateTime;
   final Map<String, String>? headers;
@@ -21,6 +26,7 @@ class MangaSummary extends Equatable {
     required this.title,
     required this.coverUrl,
     this.author = '',
+    this.altTitles = const [],
     this.latestChapter,
     this.updateTime,
     this.headers,
@@ -35,6 +41,7 @@ class MangaSummary extends Equatable {
         title,
         coverUrl,
         author,
+        altTitles,
         latestChapter,
         updateTime,
         chapterCount,
@@ -50,6 +57,10 @@ class MangaDetail extends Equatable {
   final String? description;
   final String author;
   final List<String> tags;
+
+  /// Alternative titles (original-language name, romanization, English title,
+  /// etc.). Used for cross-source matching / dedup. Empty when unavailable.
+  final List<String> altTitles;
   final MangaStatus status;
   final String? latestChapter;
   final String? updateTime;
@@ -64,6 +75,7 @@ class MangaDetail extends Equatable {
     this.description,
     this.author = '',
     this.tags = const [],
+    this.altTitles = const [],
     this.status = MangaStatus.unknown,
     this.latestChapter,
     this.updateTime,
@@ -72,5 +84,5 @@ class MangaDetail extends Equatable {
   });
 
   @override
-  List<Object?> get props => [id, sourceId, title, coverUrl, description, author, tags, status, chapters];
+  List<Object?> get props => [id, sourceId, title, coverUrl, description, author, tags, altTitles, status, chapters];
 }

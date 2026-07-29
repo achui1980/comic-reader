@@ -7,6 +7,10 @@ import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
+import 'package:comic_reader/data/local/ai_metadata_store.dart';
+import 'package:comic_reader/data/local/work_group_store.dart';
+import 'package:comic_reader/core/ai/ai_service.dart';
+import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/presentation/common/manga_cover_image.dart';
 import 'package:comic_reader/app/router/routes.dart';
 import 'package:comic_reader/presentation/common/cloudflare_dialog.dart';
@@ -96,6 +100,11 @@ class _DetailView extends StatelessWidget {
                     ElevatedButton(
                       onPressed: () => context.read<DetailCubit>().loadDetail(),
                       child: const Text('重试'),
+                    ),
+                    _AlternativeSourcesList(
+                      sourceId: context.read<DetailCubit>().sourceId,
+                      mangaId: context.read<DetailCubit>().mangaId,
+                      inErrorState: true,
                     ),
                   ],
                 ),
@@ -202,6 +211,11 @@ class _DetailView extends StatelessWidget {
               ),
             ],
             const SizedBox(height: 16),
+            _AiMetadataSection(manga: manga),
+            _AlternativeSourcesList(
+              sourceId: manga.sourceId,
+              mangaId: manga.id,
+            ),
             _ReadButton(manga: manga),
           ],
         ),
@@ -596,3 +610,285 @@ class _StatusBadge extends StatelessWidget {
     );
   }
 }
+
+/// Self-contained AI metadata block shown on the detail page.
+///
+/// On mount it reads any cached [AiMetadata] for this work from
+/// [AiMetadataStore]. When AI is configured (via the AI settings page) it
+/// offers an "AI 整理" button that calls [AiService.normalizeMetadata], caches
+/// the result permanently, and renders normalized tags / summary / original
+/// title. When AI is not usable and there is no cached result, the whole
+/// section is hidden.
+class _AiMetadataSection extends StatefulWidget {
+  const _AiMetadataSection({required this.manga});
+
+  final MangaDetail manga;
+
+  @override
+  State<_AiMetadataSection> createState() => _AiMetadataSectionState();
+}
+
+class _AiMetadataSectionState extends State<_AiMetadataSection> {
+  final AiMetadataStore _store = GetIt.instance<AiMetadataStore>();
+  final AiService _ai = GetIt.instance<AiService>();
+
+  bool _loading = true;
+  bool _running = false;
+  bool _aiUsable = false;
+  AiMetadata? _metadata;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final cached =
+        await _store.get(widget.manga.sourceId, widget.manga.id);
+    final usable = await _ai.isUsable;
+    if (!mounted) return;
+    setState(() {
+      _metadata = cached;
+      _aiUsable = usable;
+      _loading = false;
+    });
+  }
+
+  Future<void> _run() async {
+    setState(() => _running = true);
+    try {
+      final result = await _ai.normalizeMetadata(widget.manga);
+      if (!mounted) return;
+      if (result == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('AI 整理失败，请稍后重试')),
+        );
+      } else {
+        await _store.save(widget.manga.sourceId, widget.manga.id, result);
+        if (!mounted) return;
+        setState(() => _metadata = result);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('AI 整理失败：$e')),
+      );
+    } finally {
+      if (mounted) setState(() => _running = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // While loading, or when AI is unusable and nothing cached, render nothing.
+    if (_loading) return const SizedBox.shrink();
+    if (!_aiUsable && _metadata == null) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final meta = _metadata;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.auto_awesome, size: 16, color: Colors.deepPurple),
+            const SizedBox(width: 6),
+            Text(
+              'AI 整理',
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: Colors.deepPurple,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const Spacer(),
+            if (_aiUsable)
+              TextButton.icon(
+                onPressed: _running ? null : _run,
+                icon: _running
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.auto_fix_high, size: 16),
+                label: Text(meta == null ? '生成' : '重新生成'),
+              ),
+          ],
+        ),
+        if (meta != null) ...[
+          if (meta.originalTitle.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              '原作名：${meta.originalTitle}',
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+          if (meta.normalizedTags.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: meta.normalizedTags
+                  .map((tag) => Chip(
+                        label: Text(tag, style: const TextStyle(fontSize: 11)),
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        backgroundColor:
+                            Colors.deepPurple.withValues(alpha: 0.08),
+                      ))
+                  .toList(),
+            ),
+          ],
+          if (meta.summary.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(meta.summary, style: theme.textTheme.bodySmall),
+          ],
+        ] else
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              '点击“生成”让 AI 归一化标签、提炼简介与原作名。',
+              style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
+            ),
+          ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+}
+
+// =============================================================================
+// Alternative sources section
+// =============================================================================
+
+/// Shows links to the same work on other data sources, discovered via
+/// [WorkGroupStore]. Renders nothing if no group is found or if the group
+/// has no other members.
+///
+/// [inErrorState] changes the visual style to fit the centred error layout.
+class _AlternativeSourcesList extends StatefulWidget {
+  final String sourceId;
+  final String mangaId;
+  final bool inErrorState;
+
+  const _AlternativeSourcesList({
+    required this.sourceId,
+    required this.mangaId,
+    this.inErrorState = false,
+  });
+
+  @override
+  State<_AlternativeSourcesList> createState() =>
+      _AlternativeSourcesListState();
+}
+
+class _AlternativeSourcesListState extends State<_AlternativeSourcesList> {
+  final WorkGroupStore _store = GetIt.instance<WorkGroupStore>();
+  WorkGroup? _group;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final group =
+        await _store.findByMember(widget.sourceId, widget.mangaId);
+    if (!mounted) return;
+    setState(() {
+      _group = group;
+      _loading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const SizedBox.shrink();
+    final group = _group;
+    if (group == null) return const SizedBox.shrink();
+
+    final others = group.members
+        .where((m) =>
+            m.sourceId != widget.sourceId || m.mangaId != widget.mangaId)
+        .toList();
+    if (others.isEmpty) return const SizedBox.shrink();
+
+    if (widget.inErrorState) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 16),
+        child: Column(
+          children: [
+            const Text(
+              '当前源无法加载，可尝试其他数据源：',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              alignment: WrapAlignment.center,
+              children: others
+                  .map((m) => _SourceChip(member: m))
+                  .toList(),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.device_hub, size: 16, color: Colors.teal),
+            const SizedBox(width: 6),
+            Text(
+              '其他数据源',
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: Colors.teal,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          children: others.map((m) => _SourceChip(member: m)).toList(),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+}
+
+class _SourceChip extends StatelessWidget {
+  final WorkGroupMember member;
+
+  const _SourceChip({required this.member});
+
+  @override
+  Widget build(BuildContext context) {
+    // Resolve the human-readable source name from the registry (if available).
+    final registry = GetIt.instance<SourceRegistry>();
+    final sourceName =
+        registry.get(member.sourceId)?.name ?? member.sourceId;
+
+    return ActionChip(
+      label: Text(sourceName, style: const TextStyle(fontSize: 11)),
+      avatar: const Icon(Icons.open_in_new, size: 14),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      onPressed: () =>
+          context.push(AppRoutes.detailPath(member.sourceId, member.mangaId)),
+    );
+  }
+}
+
