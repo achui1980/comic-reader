@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data' show Uint8List;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -7,6 +8,7 @@ import 'package:comic_reader/presentation/reader/bloc/reader_bloc.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_event.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_state.dart';
 import 'manga_image.dart';
+import 'manga_image_loader.dart';
 
 /// Vertical scrolling (webtoon-style) manga reader.
 /// Images are stacked vertically in a scrollable list.
@@ -27,6 +29,10 @@ class VerticalReader extends StatefulWidget {
 
 class _VerticalReaderState extends State<VerticalReader> {
   late final ScrollController _scrollController;
+
+  /// Tracks which page indices have already been prefetched this session,
+  /// to avoid re-issuing the same download on every scroll tick.
+  final Set<int> _prefetchedIndices = {};
 
   @override
   void initState() {
@@ -53,6 +59,7 @@ class _VerticalReaderState extends State<VerticalReader> {
       final estimatedPage = (scrollOffset / estimatedImageHeight).floor();
       final page = estimatedPage.clamp(0, widget.images.length - 1);
       context.read<ReaderBloc>().add(PageChanged(page));
+      _prefetchWindow(page);
 
       // Check if we've scrolled near the bottom - use BLoC state as guard
       final maxScroll = _scrollController.position.maxScrollExtent;
@@ -62,6 +69,31 @@ class _VerticalReaderState extends State<VerticalReader> {
           bloc.add(const AppendNextChapter());
         }
       }
+    }
+  }
+
+  /// Prefetches the next 2 images' bytes (mirrors horizontal_reader's
+  /// `_precacheAdjacent` window size) so they're already in
+  /// [ChapterCacheService] by the time the user scrolls to them.
+  void _prefetchWindow(int currentPage) {
+    final state = context.read<ReaderBloc>().state;
+    for (int i = 1; i <= 2; i++) {
+      final nextIdx = currentPage + i;
+      if (nextIdx >= widget.images.length) continue;
+      if (!_prefetchedIndices.add(nextIdx)) continue; // already prefetched
+      final image = widget.images[nextIdx];
+      unawaited(
+        loadAndCacheImageBytes(
+          image: image,
+          sourceId: state.sourceId,
+          mangaId: state.mangaId,
+          chapterId: state.chapterId,
+          imageIndex: nextIdx,
+        ).catchError((Object e) {
+          debugPrint('[VerticalReader] Prefetch failed for index $nextIdx: $e');
+          return Uint8List(0);
+        }),
+      );
     }
   }
 

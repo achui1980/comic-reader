@@ -7,6 +7,7 @@ import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'package:comic_reader/data/local/settings_store.dart' as settings;
+import '../widgets/manga_image_loader.dart';
 import 'reader_event.dart';
 import 'reader_state.dart';
 
@@ -18,6 +19,11 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
   final settings.SettingsStore _settingsStore;
   Timer? _autoPageTimer;
   StreamSubscription<ChapterResult>? _chapterStreamSubscription;
+
+  /// Chapter ids that have already had a background prefetch triggered, so
+  /// we don't kick off redundant `getChapter` calls every time the user
+  /// nears the end of the same chapter.
+  final Set<String> _prefetchedChapterIds = {};
 
   ReaderBloc({
     required MangaRepository repository,
@@ -36,6 +42,7 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
     on<LoadNextChapter>(_onLoadNextChapter);
     on<LoadPreviousChapter>(_onLoadPreviousChapter);
     on<AppendNextChapter>(_onAppendNextChapter);
+    on<PrefetchNextChapter>(_onPrefetchNextChapter);
     on<SeekToPage>(_onSeekToPage);
     on<StartAutoPageTurn>(_onStartAutoPageTurn);
     on<StopAutoPageTurn>(_onStopAutoPageTurn);
@@ -258,6 +265,15 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
         state.sourceId, state.mangaId, chapterId, pageInChapter,
       );
     }
+
+    // Kick off a background prefetch of the next chapter's images once the
+    // reader is near the end of the currently loaded images, so they're
+    // already cached by the time the user actually gets there.
+    if (state.images.isNotEmpty &&
+        event.page >= state.images.length - 2 &&
+        state.canAppendNext) {
+      add(const PrefetchNextChapter());
+    }
   }
 
   void _onToggleControls(ToggleControls event, Emitter<ReaderState> emit) {
@@ -343,6 +359,44 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
     } catch (e, stack) {
       _log.warning('Failed to append next chapter: $e', e, stack);
       emit(state.copyWith(isAppendingNext: false));
+    }
+  }
+
+  /// Silently downloads the next chapter's images into [ChapterCacheService]
+  /// (via [loadAndCacheImageBytes]) without touching `state.images` — unlike
+  /// [_onAppendNextChapter], this does not change what's currently
+  /// displayed. Guarded by [_prefetchedChapterIds] so the same chapter is
+  /// only prefetched once per bloc lifetime.
+  Future<void> _onPrefetchNextChapter(
+      PrefetchNextChapter event, Emitter<ReaderState> emit) async {
+    if (!state.canAppendNext) return;
+
+    final nextIndex = state.lastLoadedChapterIndex + 1;
+    final nextChapter = state.chapterList[nextIndex];
+
+    if (!_prefetchedChapterIds.add(nextChapter.id)) return;
+
+    try {
+      final result = await _repository.getChapter(
+        state.sourceId,
+        state.mangaId,
+        nextChapter.id,
+        1,
+      );
+
+      for (var i = 0; i < result.chapter.images.length; i++) {
+        await loadAndCacheImageBytes(
+          image: result.chapter.images[i],
+          sourceId: state.sourceId,
+          mangaId: state.mangaId,
+          chapterId: nextChapter.id,
+          imageIndex: i,
+        );
+      }
+    } catch (e, stack) {
+      _log.warning('Failed to prefetch next chapter: $e', e, stack);
+      // Allow a later PageChanged to retry the prefetch.
+      _prefetchedChapterIds.remove(nextChapter.id);
     }
   }
 

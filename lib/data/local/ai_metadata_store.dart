@@ -4,7 +4,7 @@ import 'local_storage.dart';
 /// Persistent cache of AI-normalized metadata, keyed by `${sourceId}_${mangaId}`.
 ///
 /// Storage format (key='ai_metadata'):
-///   { '<sourceId>_<mangaId>': AiMetadata.toJson(), ... }
+///   `{ '<sourceId>_<mangaId>': AiMetadata.toJson(), ... }`
 ///
 /// The normalization is expensive (an LLM round-trip) and its result is stable
 /// for a given manga, so entries are cached indefinitely. Callers should look

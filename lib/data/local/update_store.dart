@@ -45,7 +45,7 @@ class NewChapter {
 ///   { 'items': [ NewChapter.toJson(), ... ] }
 ///
 /// Backward compatible with the legacy boolean format
-///   { '<sourceId>_<mangaId>': true, ... }
+///   `{ '<sourceId>_<mangaId>': true, ... }`
 /// which is read as marker-only entries (empty chapter details).
 class UpdateStore {
   final LocalStorage _storage;

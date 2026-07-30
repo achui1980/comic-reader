@@ -230,7 +230,7 @@ class _HomeViewState extends State<_HomeView> {
     );
   }
 
-  /// Horizontal category tab bar: All | Uncategorized | <custom categories...>
+  /// Horizontal category tab bar: All | Uncategorized | `<custom categories...>`
   Widget _buildCategoryTabs(BuildContext context, HomeState state) {
     final tabs = <_CategoryTab>[
       const _CategoryTab(id: kAllCategoryId, name: '全部'),

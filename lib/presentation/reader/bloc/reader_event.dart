@@ -117,6 +117,16 @@ class AppendNextChapter extends ReaderEvent {
   const AppendNextChapter();
 }
 
+/// Silently downloads the next chapter's images into
+/// [ChapterCacheService] without touching `state.images` — unlike
+/// [AppendNextChapter], this does not change what's currently displayed.
+/// Dispatched by the reader UI when the user is close to the end of the
+/// current chapter, so the next chapter's images are already cached by
+/// the time the user actually navigates there.
+class PrefetchNextChapter extends ReaderEvent {
+  const PrefetchNextChapter();
+}
+
 /// Refresh current chapter images (pull-to-refresh)
 class RefreshChapter extends ReaderEvent {
   const RefreshChapter();

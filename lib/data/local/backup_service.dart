@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'local_storage.dart';
@@ -58,7 +58,9 @@ class BackupService {
     // Clean up temp file after sharing
     try {
       await file.delete();
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[BackupService] Failed to delete temp backup file: $e');
+    }
   }
 
   /// Import data from a JSON string. Returns true on success.
