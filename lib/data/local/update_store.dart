@@ -117,18 +117,6 @@ class UpdateStore {
     await _save();
   }
 
-  /// Mark a manga as having new chapters (marker only, no chapter detail).
-  Future<void> markUpdated(String sourceId, String mangaId) async {
-    await addNewChapter(NewChapter(
-      sourceId: sourceId,
-      mangaId: mangaId,
-      mangaTitle: '',
-      coverUrl: '',
-      chapterTitle: '',
-      foundAt: DateTime.now().toIso8601String(),
-    ));
-  }
-
   /// Get all new chapters, most recent first.
   Future<List<NewChapter>> getNewChapters() async {
     final data = await _getData();

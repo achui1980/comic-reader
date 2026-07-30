@@ -83,7 +83,6 @@ void configureDependencies() {
   getIt.registerLazySingleton<AuthStore>(
     () => AuthStore(
       storage: getIt<LocalStorage>(),
-      secureStore: getIt<SecureStore>(),
     ),
   );
   getIt.registerLazySingleton<UpdateStore>(

@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
 import 'package:comic_reader/app/app.dart';
 import 'package:comic_reader/app/di/injection.dart';
-import 'package:comic_reader/core/activation/activation_service.dart';
 import 'package:comic_reader/data/local/auth_store.dart';
 import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/local/download_manager.dart';
@@ -95,13 +94,7 @@ void main() async {
   final settingsStore = GetIt.instance<SettingsStore>();
   final appSettings = await settingsStore.load();
   registry.setDisabledSources(appSettings.disabledSources);
-  // Adult sources unlock only via a valid activation code (verified locally
-  // against the app-embedded key). The legacy plaintext `adultUnlocked` flag is
-  // honored as a fallback so users who unlocked before this change stay
-  // unlocked until they re-verify.
-  final activationService = GetIt.instance<ActivationService>();
-  final unlockedByCode = await activationService.hasValidUnlock();
-  registry.setAdultUnlocked(unlockedByCode || appSettings.adultUnlocked);
+  registry.setAdultUnlocked(appSettings.adultUnlocked);
 
   // Apply proxy settings from persisted config
   if (!kIsWeb) {

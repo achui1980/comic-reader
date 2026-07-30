@@ -9,9 +9,9 @@ import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/local/update_store.dart';
 import 'package:comic_reader/data/local/category_store.dart';
 import 'package:comic_reader/data/local/download_manager.dart';
+import 'package:comic_reader/data/local/library_update_service.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
-import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/presentation/downloads/download_drawer.dart';
 import 'bloc/home_cubit.dart';
 import 'bloc/home_state.dart';
@@ -27,7 +27,7 @@ class HomeScreen extends StatelessWidget {
         favoritesStore: GetIt.instance<FavoritesStore>(),
         updateStore: GetIt.instance<UpdateStore>(),
         categoryStore: GetIt.instance<CategoryStore>(),
-        repository: GetIt.instance<MangaRepository>(),
+        libraryUpdateService: GetIt.instance<LibraryUpdateService>(),
       )..loadFavorites(),
       child: const _HomeView(),
     );
