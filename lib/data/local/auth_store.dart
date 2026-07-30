@@ -1,43 +1,21 @@
-import 'dart:convert';
-
 import 'package:comic_reader/data/local/local_storage.dart';
-import 'package:comic_reader/data/local/secure_store.dart';
 
 /// Stores authentication cookies/tokens per manga source.
 /// Used for Cloudflare bypass and login-based auth.
-///
-/// Auth data (cookies/tokens) is sensitive, so it is persisted through
-/// [SecureStore] (Keychain/Keystore on native, encrypted localStorage on web).
-/// Any legacy plaintext data still living in [LocalStorage] under the `auth`
-/// key is migrated into secure storage once on [init] and then removed.
 class AuthStore {
   static const _storeKey = 'auth';
 
   final LocalStorage _storage;
-  final SecureStore _secureStore;
   Map<String, Map<String, dynamic>> _cache = {};
 
-  AuthStore({required LocalStorage storage, SecureStore? secureStore})
-      : _storage = storage,
-        _secureStore = secureStore ?? SecureStore();
+  AuthStore({required LocalStorage storage}) : _storage = storage;
 
   Future<void> init() async {
-    // Prefer secure storage.
-    final secureRaw = await _secureStore.read(_storeKey);
-    if (secureRaw != null && secureRaw.isNotEmpty) {
-      _cache = _decode(secureRaw);
-      return;
-    }
-
-    // Fallback: migrate legacy plaintext data from LocalStorage (one-time).
-    final legacy = await _storage.read(_storeKey);
-    if (legacy != null && legacy.isNotEmpty) {
+    final raw = await _storage.read(_storeKey);
+    if (raw != null && raw.isNotEmpty) {
       _cache = Map<String, Map<String, dynamic>>.from(
-        legacy.map((k, v) => MapEntry(k.toString(), Map<String, dynamic>.from(v as Map))),
+        raw.map((k, v) => MapEntry(k.toString(), Map<String, dynamic>.from(v as Map))),
       );
-      await _persist();
-      // Remove the plaintext copy after successful migration.
-      await _storage.delete(_storeKey);
     }
   }
 
@@ -72,17 +50,6 @@ class AuthStore {
   bool hasAuth(String sourceId) => _cache.containsKey(sourceId) && _cache[sourceId]!.isNotEmpty;
 
   Future<void> _persist() async {
-    await _secureStore.write(_storeKey, jsonEncode(_cache));
-  }
-
-  Map<String, Map<String, dynamic>> _decode(String raw) {
-    try {
-      final decoded = jsonDecode(raw) as Map<String, dynamic>;
-      return decoded.map(
-        (k, v) => MapEntry(k, Map<String, dynamic>.from(v as Map)),
-      );
-    } catch (_) {
-      return {};
-    }
+    await _storage.write(_storeKey, _cache);
   }
 }

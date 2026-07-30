@@ -45,7 +45,7 @@ class NewChapter {
 ///   { 'items': [ NewChapter.toJson(), ... ] }
 ///
 /// Backward compatible with the legacy boolean format
-///   { '<sourceId>_<mangaId>': true, ... }
+///   `{ '<sourceId>_<mangaId>': true, ... }`
 /// which is read as marker-only entries (empty chapter details).
 class UpdateStore {
   final LocalStorage _storage;
@@ -115,18 +115,6 @@ class UpdateStore {
     data.add(chapter);
     _cache = data;
     await _save();
-  }
-
-  /// Mark a manga as having new chapters (marker only, no chapter detail).
-  Future<void> markUpdated(String sourceId, String mangaId) async {
-    await addNewChapter(NewChapter(
-      sourceId: sourceId,
-      mangaId: mangaId,
-      mangaTitle: '',
-      coverUrl: '',
-      chapterTitle: '',
-      foundAt: DateTime.now().toIso8601String(),
-    ));
   }
 
   /// Get all new chapters, most recent first.

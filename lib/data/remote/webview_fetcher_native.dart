@@ -471,7 +471,9 @@ class _SourceWebView {
     if (headless != null) {
       try {
         await headless.dispose();
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('[WebViewFetcher] Failed to dispose headless webview: $e');
+      }
     }
   }
 

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show debugPrint;
+
 // Conditional imports for platform-specific file I/O
 import 'local_storage_io.dart' if (dart.library.html) 'local_storage_web.dart'
     as platform;
@@ -15,7 +17,9 @@ class LocalStorage {
       if (content != null) {
         return jsonDecode(content) as Map<String, dynamic>;
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[LocalStorage] Failed to read "$name": $e');
+    }
     return null;
   }
 

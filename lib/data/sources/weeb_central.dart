@@ -12,8 +12,8 @@ import 'package:comic_reader/domain/entities/entities.dart';
 /// (see [usesWebViewFetch]) and through curl-impersonate on web.
 ///
 /// Endpoints (all HTMX fragments):
-/// - Quick search:  POST /search/simple?location=main   (body: text=<kw>)
-/// - Search/browse: GET  /search/data?limit=32&offset=<n>&text=<kw>&...
+/// - Quick search:  `POST /search/simple?location=main`   (body: `text=<kw>`)
+/// - Search/browse: `GET  /search/data?limit=32&offset=<n>&text=<kw>&...`
 /// - Detail:        GET  /series/{ULID}/{slug}
 /// - Chapter list:  GET  /series/{ULID}/full-chapter-list
 /// - Chapter images:GET  /chapters/{ULID}/images?is_prev=False&current_page=1&reading_style=long_strip

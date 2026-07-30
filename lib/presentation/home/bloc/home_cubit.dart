@@ -2,24 +2,24 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/local/update_store.dart';
 import 'package:comic_reader/data/local/category_store.dart';
-import 'package:comic_reader/domain/repositories/manga_repository.dart';
+import 'package:comic_reader/data/local/library_update_service.dart';
 import 'home_state.dart';
 
 class HomeCubit extends Cubit<HomeState> {
   final FavoritesStore _favoritesStore;
   final UpdateStore _updateStore;
   final CategoryStore _categoryStore;
-  final MangaRepository _repository;
+  final LibraryUpdateService _libraryUpdateService;
 
   HomeCubit({
     required FavoritesStore favoritesStore,
     required UpdateStore updateStore,
     required CategoryStore categoryStore,
-    required MangaRepository repository,
+    required LibraryUpdateService libraryUpdateService,
   })  : _favoritesStore = favoritesStore,
         _updateStore = updateStore,
         _categoryStore = categoryStore,
-        _repository = repository,
+        _libraryUpdateService = libraryUpdateService,
         super(const HomeState());
 
   Future<void> loadFavorites() async {
@@ -91,8 +91,18 @@ class HomeCubit extends Cubit<HomeState> {
   }
 
   /// Check all favorites for new chapters.
+  ///
+  /// Delegates to the shared [LibraryUpdateService] singleton (same one used
+  /// by the auto-scan on app start and the Updates tab's pull-to-refresh) so
+  /// there is a single source of truth for "latest chapter" comparisons.
+  /// Previously this method had its own duplicate scan logic that wrote the
+  /// favorite's cached `latestChapter` *before* the real service ran, which
+  /// made the real service think nothing had changed and silently swallowed
+  /// the new-chapter record (see bug: chapter 104->105 not showing up in the
+  /// Updates tab after using this button).
   Future<void> batchUpdate() async {
     if (state.favorites.isEmpty) return;
+    if (_libraryUpdateService.isRunning) return;
 
     emit(state.copyWith(
       status: HomeStatus.updating,
@@ -100,22 +110,19 @@ class HomeCubit extends Cubit<HomeState> {
       updateTotal: state.favorites.length,
     ));
 
-    for (int i = 0; i < state.favorites.length; i++) {
-      final manga = state.favorites[i];
-      emit(state.copyWith(updateProgress: i));
+    void onProgress() {
+      if (isClosed) return;
+      emit(state.copyWith(
+        updateProgress: _libraryUpdateService.progress,
+        updateTotal: _libraryUpdateService.total,
+      ));
+    }
 
-      try {
-        final detail = await _repository.getMangaInfo(manga.sourceId, manga.id);
-        // Compare latest chapter from API with stored value
-        if (detail.latestChapter != null &&
-            detail.latestChapter != manga.latestChapter &&
-            detail.latestChapter!.isNotEmpty) {
-          await _updateStore.markUpdated(manga.sourceId, manga.id);
-          await _favoritesStore.updateLatestChapter(manga.sourceId, manga.id, detail.latestChapter!);
-        }
-      } catch (_) {
-        // Skip failed items silently
-      }
+    _libraryUpdateService.addListener(onProgress);
+    try {
+      await _libraryUpdateService.runUpdate();
+    } finally {
+      _libraryUpdateService.removeListener(onProgress);
     }
 
     final updatedKeys = await _updateStore.getAllUpdated();

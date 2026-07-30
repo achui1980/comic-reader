@@ -23,7 +23,7 @@ import 'package:comic_reader/domain/entities/entities.dart';
 /// Endpoints:
 /// - Discovery (latest): GET /list/latest/all/{page}/
 /// - Discovery (filtered): GET /genre/{genre}/{page}/?f=&o=&sortby=&e=
-/// - Search:             GET /r/l_search/?name=<kw>&page=<n>
+/// - Search:             `GET /r/l_search/?name=<kw>&page=<n>`
 /// - Detail:             GET /read-manga/{slug}/           (chapters embedded)
 /// - Reader page:        GET /read-manga/{slug}/{chapterId}/
 class Mangago extends MangaSource {

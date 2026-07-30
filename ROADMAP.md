@@ -122,9 +122,9 @@
 
 ## P3 · 体验 & 长期
 
-- [ ] **#20 统一 precache 与 byte-cache 路径**
+- [x] **#20 统一 precache 与 byte-cache 路径**
   - `horizontal_reader._precacheAdjacent` 改走 `MangaImage` 同一 `HttpClient` byte-loader / `ChapterCacheService`
-- [ ] **#21 预测性预取**
+- [x] **#21 预测性预取**
   - 垂直 reader 加预取窗口；`reader_bloc` 加后台预取下一章（读当前章时提前拉下一章）
 - [ ] **#22 i18n 基础设施**
   - 加 `flutter_localizations` + arb；`app.dart` 接 `localizationsDelegates`/`supportedLocales`
@@ -132,13 +132,16 @@
 - [ ] **#23 云同步 WebDAV**
   - 扩 `backup_service._storageKeys` 补 categories/auth/download_tasks/reading_timeline
   - 版本迁移 + merge 策略；包 WebDAV/坚果云（复用 export/import string 缝隙）
-- [ ] **#24 拆上帝文件**
+- [x] **#24 拆上帝文件**
   - `manga_image.dart`(730) / `settings_screen.dart`(719) / `manga_repository_impl.dart`(713)
-- [ ] **#25 清理债务**
+  - 已完成（2026-07-29）：拆分为 `manga_image.dart`(313行)+4个新文件、`settings_screen.dart`(55行)+9个section文件、`manga_repository_impl.dart`(130行)+4个新文件（含 getChapter/getChapterStream 共用逻辑去重）
+- [x] **#25 清理债务**
   - 修 3 处空 catch 加日志（`webview_fetcher_native.dart:474` / `local_storage.dart:18` / `backup_service.dart:61`）
   - 移除未用 injectable/build_runner；评估合并两图片库（cached_network_image + extended_image）
-- [ ] **#26 依赖升级扫描**
+  - 已评估（2026-07-29）：`cached_network_image`（封面缩略图，唯一用点 `lib/presentation/common/manga_cover_image.dart`，核心是磁盘缓存+placeholder/imageBuilder/errorWidget 三段式声明）与 `extended_image`（阅读器大图，5个用点，核心是手势缩放 `ExtendedImageMode.gesture` + 本地文件/内存字节渲染 `ExtendedImage.file/.memory`）职责正交，无法合并为同一个库而不产生返工/体验回退。结论：维持现状，不合并。
+- [x] **#26 依赖升级扫描**
   - flutter_bloc 9 / go_router 15 / flutter_lints 5 等，逐个验证不破坏
+  - 已完成（2026-07-29）：flutter_lints 5.x / flutter_bloc 9.x / go_router 15.x
 
 ---
 

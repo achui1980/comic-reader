@@ -17,7 +17,7 @@ import 'package:comic_reader/domain/entities/entities.dart';
 /// manually pasted `cf_clearance` cookie.
 ///
 /// Endpoints:
-/// - Search/discover: GET /search?q=<kw>&page=<n>   (HTTP 200, no CF)
+/// - Search/discover: `GET /search?q=<kw>&page=<n>`   (HTTP 200, no CF)
 /// - Detail:          GET /manga/{slug}              (CF challenge)
 /// - Chapter images:  GET /manga/{slug}/{chapter}    (CF challenge, guessed)
 ///

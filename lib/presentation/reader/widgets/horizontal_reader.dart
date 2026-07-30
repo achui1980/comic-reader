@@ -1,3 +1,6 @@
+import 'dart:async' show unawaited;
+import 'dart:typed_data' show Uint8List;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:extended_image/extended_image.dart';
@@ -5,8 +8,8 @@ import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_bloc.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_event.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_state.dart';
-import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'manga_image.dart';
+import 'manga_image_loader.dart';
 
 /// Horizontal page-turn manga reader.
 /// Tap left/right thirds to navigate pages, tap center to toggle controls.
@@ -121,16 +124,31 @@ class _HorizontalReaderState extends State<HorizontalReader> {
     }
   }
 
-  /// Precache the next 2 images for smoother page turns.
+  /// Precache the next 2 images for smoother page turns. Downloads bytes
+  /// through the same [loadAndCacheImageBytes] path used by [MangaImage]
+  /// itself, so headers/WebView-fetch/ChapterCacheService are all honored
+  /// consistently with the main render path. Fire-and-forget: failures are
+  /// swallowed here because MangaImage will retry the load itself if the
+  /// prefetch didn't warm the cache in time.
   void _precacheAdjacent(int currentPage) {
+    final bloc = context.read<ReaderBloc>();
+    final state = bloc.state;
     for (int i = 1; i <= 2; i++) {
       final nextIdx = currentPage + i;
-      if (nextIdx < widget.images.length) {
-        final image = widget.images[nextIdx];
-        if (image.responseEncoding != ImageResponseEncoding.binary) continue;
-        final url = ImageProxy.url(image.url);
-        precacheImage(ExtendedNetworkImageProvider(url, cache: true), context);
-      }
+      if (nextIdx >= widget.images.length) continue;
+      final image = widget.images[nextIdx];
+      unawaited(
+        loadAndCacheImageBytes(
+          image: image,
+          sourceId: state.sourceId,
+          mangaId: state.mangaId,
+          chapterId: state.chapterId,
+          imageIndex: nextIdx,
+        ).catchError((Object e) {
+          debugPrint('[HorizontalReader] Precache failed for index $nextIdx: $e');
+          return Uint8List(0);
+        }),
+      );
     }
   }
 

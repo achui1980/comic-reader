@@ -46,6 +46,15 @@
 | Mangabz | 综合漫画 | 科学上网 | [打开](https://mangabz.com) |
 | Dongmanmanhua | 综合漫画 | - | [打开](https://www.dongmanmanhua.cn) |
 | Manga18.Club | 综合漫画 | 需 Cloudflare 验证 | [打开](https://manga18.club) |
+| Webtoons | 综合漫画（中文版） | - | [打开](https://www.webtoons.com/zh-hant) |
+| MangaDex | 综合漫画（多语言） | 科学上网 | [打开](https://mangadex.org) |
+| ComicK | 综合漫画 | 科学上网 | [打开](https://comick.dev) |
+| MgRead | 综合漫画 | 科学上网 | [打开](https://mgread.io) |
+| Weeb Central | 综合漫画 | 科学上网 | [打开](https://weebcentral.com) |
+| VyManga | 综合漫画 | 科学上网 | [打开](https://vymanga.net) |
+| Mangago | 综合漫画 | 科学上网 | [打开](https://www.mangago.me) |
+| 韓漫基地 | 韩漫 | - | [打开](https://hmjd9.com) |
+| 摸摸漫画 | 综合漫画 | - | [打开](https://mmero.com) |
 
 ### 阅读体验
 
@@ -187,7 +196,16 @@ lib/
 │       ├── mangabz.dart            # Mangabz
 │       ├── dongmanmanhua.dart      # Dongmanmanhua
 │       ├── manga18_club.dart       # Manga18.Club
-│       └── wu55comic.dart          # 吾五漫画
+│       ├── wu55comic.dart          # 吾五漫画
+│       ├── webtoons.dart           # Webtoons
+│       ├── mangadex.dart           # MangaDex
+│       ├── comick.dart             # ComicK
+│       ├── mgread.dart             # MgRead
+│       ├── weeb_central.dart       # Weeb Central
+│       ├── vymanga.dart            # VyManga
+│       ├── mangago.dart            # Mangago
+│       ├── hmjd9.dart              # 韓漫基地
+│       └── mmero.dart              # 摸摸漫画
 ├── domain/
 │   ├── entities/           # 领域实体
 │   └── repositories/       # 仓库接口
@@ -239,9 +257,15 @@ Web 端由于浏览器跨域限制，需要本地 CORS 代理：
 
 ```bash
 # 发布新版本
-git tag v1.0.4
+git tag v1.2.0
 git push --tags
 ```
+
+---
+
+## 更新日志
+
+完整的版本更新日志由 GitHub Actions 在每次发布 tag 时自动生成（基于两个 tag 之间的 commit），见 [Releases](../../releases) 页面各版本详情。
 
 ---
 
