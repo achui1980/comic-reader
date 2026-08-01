@@ -255,6 +255,11 @@ const server = http.createServer((req, res) => {
       headers['referer'] = 'https://www.webtoons.com/';
     } else if (host.includes('mgread.io')) {
       headers['referer'] = 'https://mgread.io/';
+    } else if (host.includes('5um.net')) {
+      // haokan (好看漫画) image CDNs: manhua.5um.net (chapter), comic.5um.net
+      // and manga.5um.net (covers). All require a Referer header, else they
+      // return an HTML captcha page that fails to decode as an image.
+      headers['referer'] = 'https://www.haokantxt.com/';
     }
   }
 
