@@ -111,12 +111,81 @@ class HaokanManhua extends MangaSource {
   // --- Manga Info ---
   @override
   FetchConfig prepareMangaInfoFetch(String mangaId) {
-    throw UnimplementedError();
+    return FetchConfig(url: '$_baseUrl/comic_$mangaId.html');
   }
 
   @override
   MangaDetail parseMangaInfo(dynamic response, String mangaId) {
-    throw UnimplementedError();
+    final htmlStr = response as String;
+    final document = html_parser.parse(htmlStr);
+
+    // Numeric comic id: needed to build chapter URLs. Fall back to slug.
+    final numericId = _extractNumericId(htmlStr) ?? mangaId;
+
+    // Prefer ld+json for metadata; fall back to DOM.
+    final ld = _parseLdJson(document);
+
+    String title = _stripBrackets((ld?['name'] as String?) ??
+        document.querySelector('.comic-meta-info h1')?.text.trim() ??
+        '');
+
+    final author = (ld?['author'] is Map ? ld!['author']['name'] as String? : null) ?? '';
+
+    final description = (ld?['description'] as String?) ??
+        document.querySelector('.comic-description p')?.text.trim();
+
+    String coverUrl = (ld?['image'] as String?) ??
+        document.querySelector('.comic-cover-large img')?.attributes['src'] ??
+        '';
+
+    String? latestChapter;
+    if (ld?['workExample'] is Map) {
+      latestChapter = ld!['workExample']['bookEdition'] as String?;
+    }
+
+    // Status from the second .comic-tags .tag (连载 / 完结).
+    final statusTags = document.querySelectorAll('.comic-tags .tag');
+    MangaStatus status = MangaStatus.unknown;
+    if (statusTags.length >= 2) {
+      final text = statusTags[1].text.trim();
+      if (text.contains('连载')) {
+        status = MangaStatus.ongoing;
+      } else if (text.contains('完结')) {
+        status = MangaStatus.completed;
+      }
+    }
+
+    final tags = <String>[];
+    final genre = ld?['genre'];
+    if (genre is String && genre.isNotEmpty) tags.add(genre);
+
+    // Chapters embedded in the info page.
+    final chapters = <ChapterItem>[];
+    for (final a in document.querySelectorAll('#chapter-list .chapter-item > a')) {
+      final href = a.attributes['href'] ?? '';
+      final m = RegExp(r'chapter_(\d+)_(\d+)\.html').firstMatch(href);
+      if (m == null) continue;
+      final chapterId = m.group(2)!;
+      chapters.add(ChapterItem(
+        id: chapterId,
+        mangaId: numericId,
+        title: a.text.trim(),
+        href: '$_baseUrl$href',
+      ));
+    }
+
+    return MangaDetail(
+      id: mangaId,
+      sourceId: sourceId,
+      title: title,
+      coverUrl: coverUrl,
+      description: description,
+      author: author,
+      tags: tags,
+      status: status,
+      latestChapter: latestChapter,
+      chapters: chapters,
+    );
   }
 
   // --- Chapter List (embedded in info page) ---
@@ -138,6 +207,26 @@ class HaokanManhua extends MangaSource {
   ChapterResult parseChapter(dynamic response, String mangaId, String chapterId, int page) {
     throw UnimplementedError();
   }
+
+  String? _extractNumericId(String htmlStr) {
+    final byData = RegExp(r'data-id="(\d+)"').firstMatch(htmlStr);
+    if (byData != null) return byData.group(1);
+    final byChapter = RegExp(r'chapter_(\d+)_').firstMatch(htmlStr);
+    return byChapter?.group(1);
+  }
+
+  Map<String, dynamic>? _parseLdJson(Document document) {
+    final el = document.querySelector('script[type="application/ld+json"]');
+    if (el == null) return null;
+    try {
+      final decoded = json.decode(el.text);
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _stripBrackets(String s) => s.replaceAll('《', '').replaceAll('》', '').trim();
 
   /// Resolve the manga URL slug from a detail-page href like /comic_yirenzhixia.html
   String? _extractSlug(String href) {
