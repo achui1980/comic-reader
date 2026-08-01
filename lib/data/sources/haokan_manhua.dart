@@ -192,6 +192,9 @@ class HaokanManhua extends MangaSource {
       status: status,
       latestChapter: latestChapter,
       chapters: chapters,
+      // Cover CDN (comic.5um.net) requires a Referer header, else it
+      // returns an HTML captcha page that fails to decode as an image.
+      headers: const {'Referer': _baseUrl},
     );
   }
 
@@ -314,6 +317,9 @@ class HaokanManhua extends MangaSource {
         coverUrl: cover,
         author: author,
         latestChapter: badge,
+        // Cover CDN (comic.5um.net) requires a Referer header, else it
+        // returns an HTML captcha page that fails to decode as an image.
+        headers: const {'Referer': _baseUrl},
       ));
     }
     return results;

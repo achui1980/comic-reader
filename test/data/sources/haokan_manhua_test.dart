@@ -67,6 +67,9 @@ void main() {
       expect(results.single.title, '一人之下');
       expect(results.single.coverUrl, 'https://comic.5um.net/comic/cover/yirenzhixia.webp');
       expect(results.single.author, '米二');
+      // Cover CDN (comic.5um.net) requires a Referer header, else it returns
+      // an HTML captcha page that fails to decode as an image.
+      expect(results.single.headers, {'Referer': 'https://www.haokantxt.com'});
     });
 
     test('skips cards without a resolvable slug', () {
@@ -101,6 +104,7 @@ void main() {
       expect(results, hasLength(1));
       expect(results.single.id, 'lianai');
       expect(results.single.title, '恋爱');
+      expect(results.single.headers, {'Referer': 'https://www.haokantxt.com'});
     });
   });
 
@@ -146,6 +150,7 @@ void main() {
       expect(detail.chapters.map((c) => c.mangaId), ['13871', '13871']);
       expect(detail.chapters.first.title, '第1话');
       expect(detail.chapters.first.href, 'https://www.haokantxt.com/chapter_13871_4992.html');
+      expect(detail.headers, {'Referer': 'https://www.haokantxt.com'});
     });
 
     test('falls back to DOM when ld+json is absent', () {
