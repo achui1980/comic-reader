@@ -147,19 +147,39 @@ class Hmjd9 extends MangaSource {
         coverEl?.attributes['src'] ??
         '';
 
-    // Description (best-effort)
-    final description = document
-            .querySelector('.hl-content-text')
-            ?.text
-            .trim() ??
-        document.querySelector('.hl-content-wrap')?.text.trim() ??
-        '';
-
-    // Tags (best-effort): category/genre links
+    // Metadata lives in `.hl-full-box ul li` rows, each prefixed by an <em>
+    // label ('作者：', 'TAG：', '進度：', '简介：'). Dispatch by that label.
+    var author = '';
+    var description = '';
+    var status = MangaStatus.unknown;
     final tags = <String>[];
-    for (final el in document.querySelectorAll('.hl-dc-content .hl-tags a')) {
-      final t = el.text.trim();
-      if (t.isNotEmpty) tags.add(t);
+    for (final li in document.querySelectorAll('.hl-full-box ul li')) {
+      final label = li.querySelector('em')?.text.trim() ?? '';
+      final anchors = li.querySelectorAll('a');
+      // Text content of the row with the <em> label stripped off.
+      final emText = li.querySelector('em')?.text ?? '';
+      final bodyText = li.text.replaceFirst(emText, '').trim();
+
+      if (label.contains('作者')) {
+        author = anchors.isNotEmpty
+            ? anchors.map((a) => a.text.trim()).where((t) => t.isNotEmpty).join(' & ')
+            : bodyText;
+      } else if (label.contains('TAG') || label.contains('标签') || label.contains('標籤')) {
+        for (final a in anchors) {
+          final t = a.text.trim();
+          if (t.isNotEmpty) tags.add(t);
+        }
+      } else if (label.contains('進度') || label.contains('进度')) {
+        if (bodyText.contains('完結') ||
+            bodyText.contains('完结') ||
+            bodyText.contains('完成')) {
+          status = MangaStatus.completed;
+        } else if (bodyText.contains('连载') || bodyText.contains('連載')) {
+          status = MangaStatus.ongoing;
+        }
+      } else if (label.contains('简介') || label.contains('簡介')) {
+        description = bodyText;
+      }
     }
 
     // Chapters — embedded in the info page, listed newest-first.
@@ -178,7 +198,9 @@ class Hmjd9 extends MangaSource {
         href: _ensureAbsoluteUrl(href),
       ));
     }
-    // Site lists chapters newest-first; reverse to ascending order.
+    // Site lists chapters newest-first; the first anchor is the latest chapter.
+    final latestChapter = chapters.isNotEmpty ? chapters.first.title : null;
+    // Reverse to ascending order for display.
     final orderedChapters = chapters.reversed.toList();
 
     return MangaDetail(
@@ -187,8 +209,10 @@ class Hmjd9 extends MangaSource {
       title: title,
       coverUrl: _ensureAbsoluteUrl(cover),
       description: description.isEmpty ? null : description,
+      author: author,
       tags: tags,
-      status: MangaStatus.unknown,
+      status: status,
+      latestChapter: latestChapter,
       chapters: orderedChapters,
       headers: const {'Referer': _baseUrl},
     );
@@ -240,8 +264,13 @@ class Hmjd9 extends MangaSource {
       ));
     }
 
-    final title =
-        document.querySelector('h1.hl-dc-title')?.text.trim() ?? '';
+    // The chapter reading page has no `h1.hl-dc-title` (that's the info-page
+    // selector). The chapter title lives in the document <title>, formatted as
+    // `第01話 - 《漫畫名》無遮擋版免費在線閱讀 - 韓漫基地`; take the part before
+    // the first ` - ` separator. Fall back to a generic label if unavailable.
+    final pageTitle = document.querySelector('title')?.text.trim() ?? '';
+    var title = pageTitle.split(' - ').first.trim();
+    if (title.isEmpty) title = '第$page话';
 
     return ChapterResult(
       chapter: Chapter(
@@ -284,16 +313,37 @@ class Hmjd9 extends MangaSource {
           '';
       final coverUrl = cover.startsWith('data:') ? '' : cover;
 
-      final latestChapter =
-          item.querySelector('.hl-item-sub')?.text.trim();
+      // `.hl-item-sub` is order-dependent on the list URL: the "hits" ordering
+      // yields a view count ('阅读：5,404,000') and the "time" ordering yields an
+      // update date ('2026-08-01'). It is NOT a chapter name. Route it to the
+      // matching field so the discovery grid shows popularity, not a bogus
+      // "latest chapter".
+      final sub = item.querySelector('.hl-item-sub')?.text.trim() ?? '';
+      String? popularityText;
+      String? updateTime;
+      String? latestChapter;
+      if (sub.isNotEmpty) {
+        if (sub.contains('阅读') || sub.contains('閱讀')) {
+          popularityText = sub;
+        } else if (RegExp(r'\d{4}-\d{2}-\d{2}').hasMatch(sub)) {
+          updateTime = sub;
+          // The discovery grid only renders chapterCount/popularityText, so
+          // surface the update date there too (prefixed for clarity) — the
+          // default discovery ordering is "time", making this the common case.
+          popularityText = '更新 $sub';
+        } else {
+          latestChapter = sub;
+        }
+      }
 
       results.add(MangaSummary(
         id: mangaId,
         sourceId: sourceId,
         title: title,
         coverUrl: _ensureAbsoluteUrl(coverUrl),
-        latestChapter:
-            (latestChapter != null && latestChapter.isEmpty) ? null : latestChapter,
+        latestChapter: latestChapter,
+        updateTime: updateTime,
+        popularityText: popularityText,
         headers: const {'Referer': _baseUrl},
       ));
     }
