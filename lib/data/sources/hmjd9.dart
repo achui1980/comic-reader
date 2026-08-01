@@ -221,12 +221,16 @@ class Hmjd9 extends MangaSource {
     final document = html_parser.parse(htmlStr);
 
     final images = <ChapterImage>[];
-    // Reader images are lazy-loaded via data-original. The site's image CDN
-    // has rotated subdomains over time (jmpic.xyz -> nnpic.xyz observed), so
-    // match any *pic.xyz host instead of a single hardcoded domain.
-    final imgEls = document.querySelectorAll('img[data-original]');
-    for (final img in imgEls) {
-      final url = img.attributes['data-original'] ?? '';
+    // Reader images are lazy-loaded. The lazy-load attribute has rotated over
+    // time (`data-original` -> `data-src` observed), and the image CDN
+    // subdomain also rotates (jmpic.xyz -> nnpic.xyz observed), so scan every
+    // <img> and pick the first lazy-load/real URL that points at a *pic.xyz
+    // host rather than keying off a single attribute or hardcoded domain.
+    for (final img in document.querySelectorAll('img')) {
+      final url = img.attributes['data-original'] ??
+          img.attributes['data-src'] ??
+          img.attributes['src'] ??
+          '';
       if (url.isEmpty) continue;
       // Only keep CDN image URLs, skip icons/placeholders.
       if (!_isCdnImageUrl(url)) continue;
@@ -234,18 +238,6 @@ class Hmjd9 extends MangaSource {
         url: _ensureAbsoluteUrl(url),
         headers: const {'Referer': _baseUrl},
       ));
-    }
-
-    // Fallback: some pages may use src directly.
-    if (images.isEmpty) {
-      for (final img in document.querySelectorAll('img[src]')) {
-        final url = img.attributes['src'] ?? '';
-        if (url.isEmpty || !_isCdnImageUrl(url)) continue;
-        images.add(ChapterImage(
-          url: _ensureAbsoluteUrl(url),
-          headers: const {'Referer': _baseUrl},
-        ));
-      }
     }
 
     final title =
