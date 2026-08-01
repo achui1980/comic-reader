@@ -129,7 +129,10 @@ class HaokanManhua extends MangaSource {
         document.querySelector('.comic-meta-info h1')?.text.trim() ??
         '');
 
-    final author = (ld?['author'] is Map ? ld!['author']['name'] as String? : null) ?? '';
+    final authorLd = (ld?['author'] is Map && ld!['author']['name'] is String)
+        ? ld['author']['name'] as String
+        : null;
+    final author = authorLd ?? '';
 
     final description = (ld?['description'] as String?) ??
         document.querySelector('.comic-description p')?.text.trim();
@@ -140,7 +143,8 @@ class HaokanManhua extends MangaSource {
 
     String? latestChapter;
     if (ld?['workExample'] is Map) {
-      latestChapter = ld!['workExample']['bookEdition'] as String?;
+      final be = ld!['workExample']['bookEdition'];
+      if (be is String) latestChapter = be;
     }
 
     // Status from the second .comic-tags .tag (连载 / 完结).
@@ -165,7 +169,10 @@ class HaokanManhua extends MangaSource {
       final href = a.attributes['href'] ?? '';
       final m = RegExp(r'chapter_(\d+)_(\d+)\.html').firstMatch(href);
       if (m == null) continue;
-      final chapterId = m.group(2)!;
+      // Composite chapterId: "{numericComicId}_{cid}" so prepareChapterFetch
+      // can build the chapter URL without depending on the mangaId param
+      // (the framework passes the slug, not the numeric id, at runtime).
+      final chapterId = '${m.group(1)!}_${m.group(2)!}';
       chapters.add(ChapterItem(
         id: chapterId,
         mangaId: numericId,
@@ -200,7 +207,10 @@ class HaokanManhua extends MangaSource {
   // --- Chapter Content ---
   @override
   FetchConfig prepareChapterFetch(String mangaId, String chapterId, int page, {dynamic extra}) {
-    return FetchConfig(url: '$_baseUrl/chapter_${mangaId}_$chapterId.html');
+    // chapterId is the composite "{numericComicId}_{cid}"; the chapter URL is
+    // /chapter_{numericComicId}_{cid}.html, i.e. /chapter_{chapterId}.html.
+    // mangaId (the slug) is intentionally unused here.
+    return FetchConfig(url: '$_baseUrl/chapter_$chapterId.html');
   }
 
   @override
@@ -243,7 +253,7 @@ class HaokanManhua extends MangaSource {
 
   @override
   String? getChapterWebUrl(String mangaId, String chapterId) {
-    return '$_baseUrl/chapter_${mangaId}_$chapterId.html';
+    return '$_baseUrl/chapter_$chapterId.html';
   }
 
   String? _extractNumericId(String htmlStr) {

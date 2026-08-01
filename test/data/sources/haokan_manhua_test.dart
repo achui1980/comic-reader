@@ -142,7 +142,7 @@ void main() {
       expect(detail.coverUrl, 'https://comic.5um.net/comic/cover/yirenzhixia.webp');
       expect(detail.status, MangaStatus.ongoing);
       expect(detail.latestChapter, '第100话');
-      expect(detail.chapters.map((c) => c.id), ['4992', '4993']);
+      expect(detail.chapters.map((c) => c.id), ['13871_4992', '13871_4993']);
       expect(detail.chapters.map((c) => c.mangaId), ['13871', '13871']);
       expect(detail.chapters.first.title, '第1话');
       expect(detail.chapters.first.href, 'https://www.haokantxt.com/chapter_13871_4992.html');
@@ -166,7 +166,7 @@ void main() {
       expect(detail.coverUrl, 'https://comic.5um.net/comic/cover/test.webp');
       expect(detail.description, '简介文本');
       expect(detail.status, MangaStatus.completed);
-      expect(detail.chapters.single.id, '5000');
+      expect(detail.chapters.single.id, '13871_5000');
     });
 
     test('falls back to slug for chapter mangaId when numeric id missing', () {
@@ -183,11 +183,11 @@ void main() {
   });
 
   group('HaokanManhua chapter content', () {
-    test('builds chapter request from numeric mangaId and chapterId', () {
-      final config = source.prepareChapterFetch('13871', '4992', 1);
+    test('builds chapter request from composite chapterId (mangaId ignored)', () {
+      final config = source.prepareChapterFetch('13871', '13871_4992', 1);
       expect(config.url, 'https://www.haokantxt.com/chapter_13871_4992.html');
       expect(config.method, HttpMethod.get);
-      expect(source.getChapterWebUrl('13871', '4992'),
+      expect(source.getChapterWebUrl('13871', '13871_4992'),
           'https://www.haokantxt.com/chapter_13871_4992.html');
     });
 
@@ -199,9 +199,9 @@ void main() {
         <img class="comic-image" src="https://manhua.5um.net/colatj/yirenzhixia/1/c.webp" />
       </div>
       ''';
-      final result = source.parseChapter(html, '13871', '4992', 1);
+      final result = source.parseChapter(html, '13871', '13871_4992', 1);
       expect(result.canLoadMore, isFalse);
-      expect(result.chapter.id, '4992');
+      expect(result.chapter.id, '13871_4992');
       expect(result.chapter.mangaId, '13871');
       expect(result.chapter.images.map((i) => i.url), [
         'https://manhua.5um.net/colatj/yirenzhixia/1/a.webp',
@@ -232,6 +232,64 @@ void main() {
       ''';
       final result = source.parseChapter(html, '13871', '4992', 1);
       expect(result.chapter.images, isEmpty);
+    });
+  });
+
+  group('HaokanManhua runtime chapter-URL flow (slug in → numeric URL out)', () {
+    test('composite chapterId + slug mangaId yields correct numeric chapter URL', () {
+      const html = '''
+      <html><body>
+        <a data-id="13871" class="btn--collect"></a>
+        <div class="chapter-list" id="chapter-list">
+          <div class="chapter-item"><a href="/chapter_13871_4992.html">第1话</a></div>
+        </div>
+      </body></html>
+      ''';
+      final detail = source.parseMangaInfo(html, 'yirenzhixia');
+      final chapterItem = detail.chapters.single;
+      // Framework passes MangaDetail.id (a SLUG), not the numeric id, at runtime.
+      final config = source.prepareChapterFetch('yirenzhixia', chapterItem.id, 1);
+      expect(config.url, 'https://www.haokantxt.com/chapter_13871_4992.html');
+      expect(source.getChapterWebUrl('yirenzhixia', chapterItem.id),
+          'https://www.haokantxt.com/chapter_13871_4992.html');
+    });
+  });
+
+  group('HaokanManhua ld+json robustness', () {
+    test('does not throw and falls back to DOM when ld+json author name is non-string', () {
+      const html = '''
+      <html><head>
+      <script type="application/ld+json">
+      {"@type":"Book","name":"《健壮漫画》","author":{"name":123},
+       "workExample":{"bookEdition":456}}
+      </script></head>
+      <body>
+        <a data-id="13871"></a>
+        <div class="comic-meta-info"><h1>健壮漫画</h1></div>
+        <div class="chapter-list" id="chapter-list"></div>
+      </body></html>
+      ''';
+      late final MangaDetail detail;
+      expect(() => detail = source.parseMangaInfo(html, 'jianzhuang'), returnsNormally);
+      // Non-string author name → falls back to DOM (no author element) → empty.
+      expect(detail.author, '');
+      // Non-string bookEdition must not be assigned.
+      expect(detail.latestChapter, isNull);
+    });
+
+    test('does not throw when ld+json author is a List', () {
+      const html = '''
+      <html><head>
+      <script type="application/ld+json">
+      {"@type":"Book","name":"列表作者","author":[{"name":"米二"}]}
+      </script></head>
+      <body>
+        <div class="chapter-list" id="chapter-list"></div>
+      </body></html>
+      ''';
+      late final MangaDetail detail;
+      expect(() => detail = source.parseMangaInfo(html, 'liebiao'), returnsNormally);
+      expect(detail.author, '');
     });
   });
 }
