@@ -74,4 +74,33 @@ void main() {
       expect(source.parseDiscovery(html), isEmpty);
     });
   });
+
+  group('HaokanManhua search', () {
+    test('builds a path-form search request (page in path, keyword encoded)', () {
+      final config = source.prepareSearchFetch('一人之下', 2, const {});
+      expect(config.method, HttpMethod.get);
+      expect(
+        config.url,
+        'https://www.haokantxt.com/search/${Uri.encodeComponent('一人之下')}/2',
+      );
+    });
+
+    test('parses search result cards', () {
+      const html = '''
+      <div class="listbox"><div class="comic-list">
+        <div class="comic-item">
+          <a class="comic-cover" href="/comic_lianai.html">
+            <img src="https://comic.5um.net/comic/cover/lianai.webp" />
+          </a>
+          <h3><a href="/comic_lianai.html">恋爱</a></h3>
+          <p class="comic-author"></p>
+        </div>
+      </div></div>
+      ''';
+      final results = source.parseSearch(html);
+      expect(results, hasLength(1));
+      expect(results.single.id, 'lianai');
+      expect(results.single.title, '恋爱');
+    });
+  });
 }

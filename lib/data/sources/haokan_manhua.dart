@@ -99,12 +99,13 @@ class HaokanManhua extends MangaSource {
   // --- Search ---
   @override
   FetchConfig prepareSearchFetch(String keyword, int page, Map<String, String> filters) {
-    throw UnimplementedError();
+    // Path form is required: query form (?key=) does not support pagination.
+    return FetchConfig(url: '$_baseUrl/search/${Uri.encodeComponent(keyword)}/$page');
   }
 
   @override
   List<MangaSummary> parseSearch(dynamic response) {
-    throw UnimplementedError();
+    return _parseCards(response as String);
   }
 
   // --- Manga Info ---
