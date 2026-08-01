@@ -80,12 +80,20 @@ class HaokanManhua extends MangaSource {
   // --- Discovery ---
   @override
   FetchConfig prepareDiscoveryFetch(int page, Map<String, String> filters) {
-    throw UnimplementedError();
+    final buffer = StringBuffer('$_baseUrl/category');
+    final tags = filters['tags'] ?? '';
+    final finish = filters['finish'] ?? '';
+    final order = filters['order'] ?? '';
+    if (tags.isNotEmpty) buffer.write('/tags/$tags');
+    if (finish.isNotEmpty) buffer.write('/finish/$finish');
+    if (order.isNotEmpty) buffer.write('/order/$order');
+    buffer.write('/page/$page');
+    return FetchConfig(url: buffer.toString());
   }
 
   @override
   List<MangaSummary> parseDiscovery(dynamic response) {
-    throw UnimplementedError();
+    return _parseCards(response as String);
   }
 
   // --- Search ---
@@ -128,5 +136,48 @@ class HaokanManhua extends MangaSource {
   @override
   ChapterResult parseChapter(dynamic response, String mangaId, String chapterId, int page) {
     throw UnimplementedError();
+  }
+
+  /// Resolve the manga URL slug from a detail-page href like /comic_yirenzhixia.html
+  String? _extractSlug(String href) {
+    final match = RegExp(r'comic_(.+?)\.html').firstMatch(href);
+    return match?.group(1);
+  }
+
+  /// Parse `.comic-item` cards (handles the three DOM variants observed on the
+  /// site: div-wrapper with inner a.comic-cover, outer <a class="comic-item">,
+  /// and the search/category variant).
+  List<MangaSummary> _parseCards(String htmlStr) {
+    final document = html_parser.parse(htmlStr);
+    final items = document.querySelectorAll('.comic-item');
+    final results = <MangaSummary>[];
+    for (final item in items) {
+      final href = item.localName == 'a'
+          ? (item.attributes['href'] ?? '')
+          : (item.querySelector('a')?.attributes['href'] ?? '');
+      final slug = _extractSlug(href);
+      if (slug == null) continue;
+
+      final titleEl = item.querySelector('.comic-title') ??
+          item.querySelector('h3 a') ??
+          item.querySelector('h3');
+      final title = titleEl?.text.trim() ?? '';
+
+      final imgEl = item.querySelector('img');
+      final cover = imgEl?.attributes['data-src'] ?? imgEl?.attributes['src'] ?? '';
+
+      final author = item.querySelector('p.comic-author')?.text.trim() ?? '';
+      final badge = item.querySelector('span.update-badge')?.text.trim();
+
+      results.add(MangaSummary(
+        id: slug,
+        sourceId: sourceId,
+        title: title,
+        coverUrl: cover,
+        author: author,
+        latestChapter: badge,
+      ));
+    }
+    return results;
   }
 }
