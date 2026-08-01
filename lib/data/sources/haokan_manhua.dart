@@ -200,12 +200,50 @@ class HaokanManhua extends MangaSource {
   // --- Chapter Content ---
   @override
   FetchConfig prepareChapterFetch(String mangaId, String chapterId, int page, {dynamic extra}) {
-    throw UnimplementedError();
+    return FetchConfig(url: '$_baseUrl/chapter_${mangaId}_$chapterId.html');
   }
 
   @override
   ChapterResult parseChapter(dynamic response, String mangaId, String chapterId, int page) {
-    throw UnimplementedError();
+    final htmlStr = response as String;
+    final document = html_parser.parse(htmlStr);
+
+    final imgEls = document.querySelectorAll('.comic-content img.comic-image');
+    final images = <ChapterImage>[];
+    for (final el in imgEls) {
+      final url = el.attributes['src'] ?? el.attributes['data-src'] ?? '';
+      if (url.isEmpty) continue;
+      images.add(ChapterImage(
+        url: url,
+        headers: const {'Referer': _baseUrl},
+      ));
+    }
+
+    // Paywall guard: zero images + a paywall box that is NOT hidden.
+    if (images.isEmpty) {
+      final buyBox = document.querySelector('.buy-box');
+      if (buyBox != null) {
+        final style = buyBox.attributes['style'] ?? '';
+        if (!style.contains('display:none') && !style.contains('display: none')) {
+          throw Exception('该章节需要付费');
+        }
+      }
+    }
+
+    return ChapterResult(
+      chapter: Chapter(
+        id: chapterId,
+        mangaId: mangaId,
+        title: '',
+        images: images,
+      ),
+      canLoadMore: false,
+    );
+  }
+
+  @override
+  String? getChapterWebUrl(String mangaId, String chapterId) {
+    return '$_baseUrl/chapter_${mangaId}_$chapterId.html';
   }
 
   String? _extractNumericId(String htmlStr) {

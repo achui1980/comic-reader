@@ -181,4 +181,57 @@ void main() {
       expect(detail.chapters, isEmpty);
     });
   });
+
+  group('HaokanManhua chapter content', () {
+    test('builds chapter request from numeric mangaId and chapterId', () {
+      final config = source.prepareChapterFetch('13871', '4992', 1);
+      expect(config.url, 'https://www.haokantxt.com/chapter_13871_4992.html');
+      expect(config.method, HttpMethod.get);
+      expect(source.getChapterWebUrl('13871', '4992'),
+          'https://www.haokantxt.com/chapter_13871_4992.html');
+    });
+
+    test('parses images and injects Referer header on each', () {
+      const html = '''
+      <div class="comic-content">
+        <img class="comic-image" src="https://manhua.5um.net/colatj/yirenzhixia/1/a.webp" />
+        <img class="comic-image" data-src="https://manhua.5um.net/colatj/yirenzhixia/1/b.webp" />
+        <img class="comic-image" src="https://manhua.5um.net/colatj/yirenzhixia/1/c.webp" />
+      </div>
+      ''';
+      final result = source.parseChapter(html, '13871', '4992', 1);
+      expect(result.canLoadMore, isFalse);
+      expect(result.chapter.id, '4992');
+      expect(result.chapter.mangaId, '13871');
+      expect(result.chapter.images.map((i) => i.url), [
+        'https://manhua.5um.net/colatj/yirenzhixia/1/a.webp',
+        'https://manhua.5um.net/colatj/yirenzhixia/1/b.webp',
+        'https://manhua.5um.net/colatj/yirenzhixia/1/c.webp',
+      ]);
+      expect(
+        result.chapter.images.map((i) => i.headers?['Referer']),
+        everyElement('https://www.haokantxt.com'),
+      );
+    });
+
+    test('throws when zero images and a visible paywall box is present', () {
+      const html = '''
+      <div class="comic-content"></div>
+      <div class="hide buy-box"><p class="buy-title">当前章节为付费章节</p></div>
+      ''';
+      expect(
+        () => source.parseChapter(html, '13871', '4992', 1),
+        throwsA(isA<Exception>()),
+      );
+    });
+
+    test('returns empty images (no throw) on malformed page with hidden paywall', () {
+      const html = '''
+      <div class="comic-content"></div>
+      <div class="hide buy-box" style="display:none;"></div>
+      ''';
+      final result = source.parseChapter(html, '13871', '4992', 1);
+      expect(result.chapter.images, isEmpty);
+    });
+  });
 }
