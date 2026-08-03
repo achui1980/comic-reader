@@ -23,7 +23,7 @@ class PluginSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         buildSettingsSectionHeader('插件管理'),
-        ...state.plugins.map((plugin) {
+        ...state.visiblePlugins.map((plugin) {
           final enabled = !state.disabledSources.contains(plugin.id);
           return ListTile(
             title: Row(

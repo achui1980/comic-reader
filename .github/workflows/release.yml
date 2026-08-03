@@ -43,15 +43,18 @@ jobs:
       - name: Get version
         id: version
         run: |
+          # 优先级: 手动输入的版本号 > push 的 tag 名 > pubspec.yaml
           if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION="${{ github.event.inputs.version }}"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
           else
             VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
           fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build macOS
-        run: flutter build macos --release
+        run: flutter build macos --release --build-name=${{ steps.version.outputs.version }}
 
       - name: Ad-hoc re-sign app bundle
         run: |
@@ -123,15 +126,18 @@ jobs:
         id: version
         shell: bash
         run: |
+          # 优先级: 手动输入的版本号 > push 的 tag 名 > pubspec.yaml
           if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION="${{ github.event.inputs.version }}"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
           else
             VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
           fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build Windows
-        run: flutter build windows --release
+        run: flutter build windows --release --build-name=${{ steps.version.outputs.version }}
 
       - name: Package Windows zip
         shell: pwsh
@@ -164,15 +170,18 @@ jobs:
       - name: Get version
         id: version
         run: |
+          # 优先级: 手动输入的版本号 > push 的 tag 名 > pubspec.yaml
           if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            VERSION="${{ github.event.inputs.version }}"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
           else
             VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
-            echo "version=$VERSION" >> $GITHUB_OUTPUT
           fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build APK
-        run: flutter build apk --release
+        run: flutter build apk --release --build-name=${{ steps.version.outputs.version }}
 
       - name: Rename APK
         run: |

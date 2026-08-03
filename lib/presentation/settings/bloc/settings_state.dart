@@ -24,6 +24,13 @@ class SettingsState extends Equatable {
   String get proxyAddress => settings.proxyAddress;
   bool get adultUnlocked => settings.adultUnlocked;
 
+  /// Plugins to display in the plugin management UI. When adult content is
+  /// locked, adult-flagged sources are hidden entirely instead of merely
+  /// being filtered out of search/discovery results.
+  List<PluginInfo> get visiblePlugins => adultUnlocked
+      ? plugins
+      : plugins.where((p) => !p.isAdult).toList();
+
   SettingsState copyWith({
     AppSettings? settings,
     List<PluginInfo>? plugins,

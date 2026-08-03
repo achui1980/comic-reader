@@ -69,6 +69,7 @@ dependencies:
   gal: ^2.3.0
   # Keep screen awake while reading (mobile only, no-op elsewhere)
   wakelock_plus: ^1.2.8
+  package_info_plus: ^9.0.1
 
 dev_dependencies:
   flutter_test:
