@@ -70,6 +70,7 @@ dependencies:
   # Keep screen awake while reading (mobile only, no-op elsewhere)
   wakelock_plus: ^1.2.8
   package_info_plus: ^9.0.1
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:

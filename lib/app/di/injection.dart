@@ -46,6 +46,7 @@ import 'package:comic_reader/core/activation/activation_service.dart';
 import 'package:comic_reader/core/ai/ai_config.dart';
 import 'package:comic_reader/core/ai/ai_client.dart';
 import 'package:comic_reader/core/ai/ai_service.dart';
+import 'package:comic_reader/core/update/app_update_service.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/local/category_store.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
@@ -192,6 +193,14 @@ void configureDependencies() {
       favoritesStore: getIt<FavoritesStore>(),
       updateStore: getIt<UpdateStore>(),
       repository: getIt<MangaRepository>(),
+    ),
+  );
+
+  // App self-update checker (checks GitHub Releases for a newer version)
+  getIt.registerLazySingleton<AppUpdateService>(
+    () => AppUpdateService(
+      httpClient: getIt<HttpClient>(),
+      localStorage: getIt<LocalStorage>(),
     ),
   );
 }

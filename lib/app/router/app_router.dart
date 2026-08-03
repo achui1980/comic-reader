@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 import 'package:comic_reader/presentation/home/home_screen.dart';
 import 'package:comic_reader/presentation/discovery/discovery_screen.dart';
@@ -13,7 +14,13 @@ import 'routes.dart';
 
 /// App router configuration using GoRouter with responsive shell layout.
 class AppRouter {
+  /// Global navigator key used to obtain a [BuildContext] outside the
+  /// widget tree (e.g. for the startup app-update dialog in `main.dart`).
+  static final GlobalKey<NavigatorState> navigatorKey =
+      GlobalKey<NavigatorState>();
+
   static final GoRouter router = GoRouter(
+    navigatorKey: navigatorKey,
     initialLocation: AppRoutes.home,
     routes: [
       // Shell route for main navigation tabs

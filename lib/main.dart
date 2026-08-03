@@ -13,6 +13,9 @@ import 'package:comic_reader/data/local/library_update_service.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/data/sources/pica_comic.dart';
 import 'package:comic_reader/presentation/common/pica_login_dialog.dart';
+import 'package:comic_reader/app/router/app_router.dart';
+import 'package:comic_reader/core/update/app_update_service.dart';
+import 'package:comic_reader/presentation/common/app_update_dialog.dart';
 
 /// Bypass SSL certificate verification for sites with problematic certs
 /// (e.g., manhuagui.com behind Cloudflare)
@@ -109,4 +112,17 @@ void main() async {
   GetIt.instance<LibraryUpdateService>().runUpdate();
 
   runApp(const ComicReaderApp());
+
+  // Fire-and-forget: silently check for a newer app release on GitHub.
+  // Only shows a dialog if an update is actually found; all errors are
+  // swallowed so this never affects app startup.
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    try {
+      final info = await GetIt.instance<AppUpdateService>().checkForUpdate();
+      final ctx = AppRouter.navigatorKey.currentContext;
+      if (info != null && ctx != null && ctx.mounted) {
+        showAppUpdateDialog(ctx, info, GetIt.instance<AppUpdateService>());
+      }
+    } catch (_) {}
+  });
 }
