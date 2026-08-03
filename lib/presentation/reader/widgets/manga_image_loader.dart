@@ -49,6 +49,18 @@ Future<Uint8List> loadAndCacheImageBytes({
       if (bytes.isEmpty) {
         throw const FormatException('Decoded image is empty');
       }
+      // Some upstream JPEGs are stored truncated: the byte count matches
+      // Content-Length (so _verifyResponseIntegrity passes) but the file is
+      // missing its EOI marker. A lenient browser <img> still paints the
+      // partial rows, but Flutter/Skia renders the missing bottom as a black
+      // band. Treat these as a load failure so the retry + error placeholder
+      // kick in instead of showing a misleading half-black image.
+      if (!isJpegBytesComplete(bytes)) {
+        throw const FormatException(
+          'Image is a truncated JPEG (missing EOI marker); source file is '
+          'corrupt',
+        );
+      }
       final canCache = sourceId != null &&
           mangaId != null &&
           chapterId != null &&
