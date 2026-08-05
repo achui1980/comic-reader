@@ -19,6 +19,7 @@ class MangaSummary extends Equatable {
   final Map<String, String>? headers;
   final int? chapterCount;
   final String? popularityText;
+  final String? description;
 
   const MangaSummary({
     required this.id,
@@ -32,7 +33,38 @@ class MangaSummary extends Equatable {
     this.headers,
     this.chapterCount,
     this.popularityText,
+    this.description,
   });
+
+  MangaSummary copyWith({
+    String? id,
+    String? sourceId,
+    String? title,
+    String? coverUrl,
+    String? author,
+    List<String>? altTitles,
+    String? latestChapter,
+    String? updateTime,
+    Map<String, String>? headers,
+    int? chapterCount,
+    String? popularityText,
+    String? description,
+  }) {
+    return MangaSummary(
+      id: id ?? this.id,
+      sourceId: sourceId ?? this.sourceId,
+      title: title ?? this.title,
+      coverUrl: coverUrl ?? this.coverUrl,
+      author: author ?? this.author,
+      altTitles: altTitles ?? this.altTitles,
+      latestChapter: latestChapter ?? this.latestChapter,
+      updateTime: updateTime ?? this.updateTime,
+      headers: headers ?? this.headers,
+      chapterCount: chapterCount ?? this.chapterCount,
+      popularityText: popularityText ?? this.popularityText,
+      description: description ?? this.description,
+    );
+  }
 
   @override
   List<Object?> get props => [
@@ -46,6 +78,7 @@ class MangaSummary extends Equatable {
         updateTime,
         chapterCount,
         popularityText,
+        description,
       ];
 }
 
