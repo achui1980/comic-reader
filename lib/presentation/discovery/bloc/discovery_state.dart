@@ -1,4 +1,5 @@
 import 'package:equatable/equatable.dart';
+import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 
 enum DiscoveryStatus { initial, loading, loaded, error, loadingMore }
@@ -12,6 +13,7 @@ class DiscoveryState extends Equatable {
   final String sourceId;
   final Map<String, String> filters;
   final List<FilterOption> filterOptions;
+  final DiscoveryViewMode viewMode;
 
   const DiscoveryState({
     this.status = DiscoveryStatus.initial,
@@ -22,6 +24,7 @@ class DiscoveryState extends Equatable {
     this.sourceId = '',
     this.filters = const {},
     this.filterOptions = const [],
+    this.viewMode = DiscoveryViewMode.grid,
   });
 
   DiscoveryState copyWith({
@@ -33,6 +36,7 @@ class DiscoveryState extends Equatable {
     String? sourceId,
     Map<String, String>? filters,
     List<FilterOption>? filterOptions,
+    DiscoveryViewMode? viewMode,
   }) {
     return DiscoveryState(
       status: status ?? this.status,
@@ -43,9 +47,11 @@ class DiscoveryState extends Equatable {
       sourceId: sourceId ?? this.sourceId,
       filters: filters ?? this.filters,
       filterOptions: filterOptions ?? this.filterOptions,
+      viewMode: viewMode ?? this.viewMode,
     );
   }
 
   @override
-  List<Object?> get props => [status, manga, currentPage, hasMore, errorMessage, sourceId, filters, filterOptions];
+  List<Object?> get props =>
+      [status, manga, currentPage, hasMore, errorMessage, sourceId, filters, filterOptions, viewMode];
 }
