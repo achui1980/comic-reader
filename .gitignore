@@ -46,3 +46,4 @@ app.*.map.json
 
 graphify-out/
 .opencode/
+.superpowers/
