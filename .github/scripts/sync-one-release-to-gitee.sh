@@ -44,7 +44,7 @@ body=$(echo "$release_json" | jq -r '.body // ""')
 prerelease=$(echo "$release_json" | jq -r '.prerelease')
 
 echo "--- [$tag] Checking for existing Gitee release ---"
-http_status=$(curl -s -o /tmp/gitee_release.json -w "%{http_code}" \
+http_status=$(curl -s --connect-timeout 10 --max-time 60 -o /tmp/gitee_release.json -w "%{http_code}" \
   "${GITEE_API}/releases/tags/${tag}?access_token=${GITEE_TOKEN}")
 
 if [ "$http_status" = "404" ]; then
@@ -57,7 +57,7 @@ if [ "$http_status" = "404" ]; then
     --argjson prerelease "$prerelease" \
     '{access_token: $access_token, tag_name: $tag_name, name: $name, body: $body, prerelease: $prerelease}')
 
-  create_status=$(curl -s -o /tmp/gitee_release.json -w "%{http_code}" \
+  create_status=$(curl -s --connect-timeout 10 --max-time 60 -o /tmp/gitee_release.json -w "%{http_code}" \
     -X POST -H "Content-Type: application/json" \
     -d "$payload" \
     "${GITEE_API}/releases")
@@ -84,7 +84,16 @@ fi
 echo "[$tag] Gitee release id: $release_id"
 
 echo "--- [$tag] Syncing attachments ---"
-existing_files=$(curl -s "${GITEE_API}/releases/${release_id}/attach_files?access_token=${GITEE_TOKEN}" | jq -r '.[].name')
+attach_files_status=$(curl -s --connect-timeout 10 --max-time 60 -o /tmp/gitee_attach_files.json -w "%{http_code}" \
+  "${GITEE_API}/releases/${release_id}/attach_files?access_token=${GITEE_TOKEN}")
+
+if [ "$attach_files_status" != "200" ]; then
+  echo "ERROR: [$tag] failed to list existing Gitee attach files (HTTP $attach_files_status)" >&2
+  cat /tmp/gitee_attach_files.json >&2
+  exit 1
+fi
+
+existing_files=$(jq -r '.[].name' /tmp/gitee_attach_files.json)
 
 asset_count=$(echo "$release_json" | jq '.assets | length')
 i=0
@@ -97,13 +106,13 @@ while [ "$i" -lt "$asset_count" ]; do
   else
     echo "[$tag] Downloading $asset_name from GitHub..."
     tmp_file="/tmp/gitee_asset_${i}"
-    curl -sL -o "$tmp_file" "$asset_url" || {
+    curl -fsSL --connect-timeout 10 --max-time 60 -o "$tmp_file" "$asset_url" || {
       echo "ERROR: [$tag] failed to download $asset_name" >&2
       exit 1
     }
 
     echo "[$tag] Uploading $asset_name to Gitee..."
-    upload_status=$(curl -s -o /tmp/gitee_upload.json -w "%{http_code}" \
+    upload_status=$(curl -s --connect-timeout 10 --max-time 60 -o /tmp/gitee_upload.json -w "%{http_code}" \
       -X POST \
       -F "access_token=${GITEE_TOKEN}" \
       -F "file=@${tmp_file};filename=${asset_name}" \
