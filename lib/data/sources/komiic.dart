@@ -149,7 +149,7 @@ class Komiic extends MangaSource {
       operationName = 'comicByCategories';
       query = '''query comicByCategories(\$categoryId: [ID!]!, \$pagination: Pagination!) {
   comics: comicByCategories(categoryId: \$categoryId, pagination: \$pagination) {
-    id title status imageUrl
+    id title status imageUrl description
     authors { id name }
     categories { id name }
   }
@@ -162,7 +162,7 @@ class Komiic extends MangaSource {
       operationName = 'recentUpdate';
       query = '''query recentUpdate(\$pagination: Pagination!) {
   comics: recentUpdate(pagination: \$pagination) {
-    id title status imageUrl
+    id title status imageUrl description
     authors { id name }
     categories { id name }
   }
@@ -172,7 +172,7 @@ class Komiic extends MangaSource {
       operationName = 'hotComics';
       query = '''query hotComics(\$pagination: Pagination!) {
   comics: hotComics(pagination: \$pagination) {
-    id title status imageUrl
+    id title status imageUrl description
     authors { id name }
     categories { id name }
   }
@@ -221,6 +221,7 @@ class Komiic extends MangaSource {
         title: comic['title'] as String? ?? '',
         coverUrl: comic['imageUrl'] as String? ?? '',
         author: authors,
+        description: comic['description'] as String?,
       );
     }).toList();
   }
