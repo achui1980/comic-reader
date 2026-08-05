@@ -442,6 +442,7 @@ class PicaComic extends MangaSource {
       chapterCount: epsCount is num ? epsCount.toInt() : null,
       popularityText:
           likesCount is num && likesCount > 0 ? '❤ ${likesCount.toInt()}' : null,
+      description: comic['description'] as String?,
     );
   }
 
