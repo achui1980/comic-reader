@@ -429,8 +429,10 @@ class PicaComic extends MangaSource {
     final coverUrl = _buildImageUrl(thumb);
     final finished = comic['finished'] as bool? ?? false;
     // BookSimpleInfo(列表项)带 epsCount(分话数)/likesCount(点赞数)。
+    // 注意：leaderboard 接口(comics/leaderboard)的列表项没有 likesCount 字段，
+    // 只有 totalLikes，因此需要 fallback，否则排行榜来源的漫画热度会全部丢失。
     final epsCount = comic['epsCount'];
-    final likesCount = comic['likesCount'];
+    final likesCount = comic['likesCount'] ?? comic['totalLikes'];
 
     return MangaSummary(
       id: mangaId,
