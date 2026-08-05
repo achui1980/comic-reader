@@ -493,6 +493,7 @@ class MangaDexSource extends MangaSource {
           author: _pickAuthor(relationships),
           latestChapter: attrs['lastChapter'] as String?,
           headers: defaultHeaders,
+          description: _pickDescription(attrs['description']),
         ),
       );
     }
