@@ -5,8 +5,9 @@ import 'package:get_it/get_it.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
+import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/core/utils/responsive.dart';
-import 'package:comic_reader/presentation/common/manga_cover_image.dart';
+import 'package:comic_reader/presentation/common/manga_card.dart';
 import 'package:comic_reader/presentation/common/pica_login_dialog.dart';
 import 'package:comic_reader/app/router/routes.dart';
 import 'package:comic_reader/presentation/common/cloudflare_dialog.dart';
@@ -22,6 +23,7 @@ class DiscoveryScreen extends StatelessWidget {
       create: (_) => DiscoveryCubit(
         repository: GetIt.instance<MangaRepository>(),
         registry: GetIt.instance<SourceRegistry>(),
+        settingsStore: GetIt.instance<SettingsStore>(),
       )..init(),
       child: const _DiscoveryView(),
     );
@@ -37,6 +39,17 @@ class _DiscoveryView extends StatelessWidget {
       appBar: AppBar(
         title: const Text('发现'),
         actions: [
+          BlocBuilder<DiscoveryCubit, DiscoveryState>(
+            buildWhen: (previous, current) => previous.viewMode != current.viewMode,
+            builder: (context, state) {
+              final isGrid = state.viewMode == DiscoveryViewMode.grid;
+              return IconButton(
+                icon: Icon(isGrid ? Icons.view_list : Icons.grid_view),
+                tooltip: isGrid ? '切换到列表' : '切换到网格',
+                onPressed: () => context.read<DiscoveryCubit>().toggleViewMode(),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.search),
             onPressed: () => context.push(AppRoutes.search),
@@ -48,7 +61,7 @@ class _DiscoveryView extends StatelessWidget {
         child: Column(
           children: [
             _buildFilterBar(context),
-            Expanded(child: _buildGrid(context)),
+            Expanded(child: _buildContent(context)),
           ],
         ),
       ),
@@ -156,7 +169,7 @@ class _DiscoveryView extends StatelessWidget {
     );
   }
 
-  Widget _buildGrid(BuildContext context) {
+  Widget _buildContent(BuildContext context) {
     return BlocBuilder<DiscoveryCubit, DiscoveryState>(
       builder: (context, state) {
         if (state.status == DiscoveryStatus.loading && state.manga.isEmpty) {
@@ -209,6 +222,7 @@ class _DiscoveryView extends StatelessWidget {
         final columns = Responsive.gridColumns(context);
         // Keep aspect ratio similar to original maxCrossAxisExtent: 180, ratio: 0.55
         const childAspectRatio = 0.55;
+        final isGrid = state.viewMode == DiscoveryViewMode.grid;
 
         return RefreshIndicator(
           onRefresh: () => context.read<DiscoveryCubit>().refresh(),
@@ -220,22 +234,41 @@ class _DiscoveryView extends StatelessWidget {
               }
               return false;
             },
-            child: GridView.builder(
-              padding: const EdgeInsets.all(8),
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: columns,
-                childAspectRatio: childAspectRatio,
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
-              ),
-              itemCount: state.manga.length + (state.hasMore ? 1 : 0),
-              itemBuilder: (context, index) {
-                if (index >= state.manga.length) {
-                  return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-                }
-                return _MangaCard(manga: state.manga[index]);
-              },
-            ),
+            child: isGrid
+                ? GridView.builder(
+                    padding: const EdgeInsets.all(8),
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: columns,
+                      childAspectRatio: childAspectRatio,
+                      crossAxisSpacing: 8,
+                      mainAxisSpacing: 8,
+                    ),
+                    itemCount: state.manga.length + (state.hasMore ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      if (index >= state.manga.length) {
+                        return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+                      }
+                      return MangaGridCard(manga: state.manga[index]);
+                    },
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    itemCount: state.manga.length + (state.hasMore ? 1 : 0),
+                    separatorBuilder: (context, index) => Divider(
+                      height: 1,
+                      indent: 96 + 12 + 12,
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                    ),
+                    itemBuilder: (context, index) {
+                      if (index >= state.manga.length) {
+                        return const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                        );
+                      }
+                      return MangaListItem(manga: state.manga[index]);
+                    },
+                  ),
           ),
         );
       },
@@ -243,57 +276,3 @@ class _DiscoveryView extends StatelessWidget {
   }
 }
 
-class _MangaCard extends StatelessWidget {
-  final MangaSummary manga;
-  const _MangaCard({required this.manga});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => context.push(AppRoutes.detailPath(manga.sourceId, manga.id)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: MangaCoverImage(
-                imageUrl: manga.coverUrl,
-                headers: manga.headers,
-                sourceId: manga.sourceId,
-                fit: BoxFit.cover,
-              ),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            manga.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 12),
-          ),
-          if (_metaText != null)
-            Text(
-              _metaText!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 10, color: Colors.grey),
-            ),
-        ],
-      ),
-    );
-  }
-
-  /// 章节数 + 热度拼成的展示文本;两者均缺失时返回 null(该行不显示)。
-  /// 目前只有少数源(comick/pica_comic 等)会填充这两个字段。
-  String? get _metaText {
-    final parts = <String>[];
-    if (manga.chapterCount != null) {
-      parts.add('${manga.chapterCount}章');
-    }
-    if (manga.popularityText != null && manga.popularityText!.isNotEmpty) {
-      parts.add(manga.popularityText!);
-    }
-    return parts.isEmpty ? null : parts.join(' · ');
-  }
-}
