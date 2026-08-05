@@ -498,6 +498,7 @@ class ComicKSource extends MangaSource {
           latestChapter: _stringify(item['last_chapter']),
           headers: defaultHeaders,
           popularityText: _buildPopularityText(item),
+          description: item['desc'] as String?,
         ),
       );
     }
