@@ -10,6 +10,9 @@ enum ReadingDirection { ltr, rtl }
 /// Image scale/fit mode in the reader.
 enum ScaleType { fitScreen, fitWidth, fitHeight, original }
 
+/// Discovery screen layout mode.
+enum DiscoveryViewMode { grid, list }
+
 /// User-configurable settings data class.
 class AppSettings {
   final AppThemeMode themeMode;
@@ -30,6 +33,7 @@ class AppSettings {
   final bool volumeKeyTurn; // volume keys turn pages (Android only)
   final bool tapZonesInvert; // invert left/right tap zones
   final bool showTapZones; // show tap-zone overlay hint
+  final DiscoveryViewMode discoveryViewMode; // grid or list layout
 
   const AppSettings({
     this.themeMode = AppThemeMode.system,
@@ -49,6 +53,7 @@ class AppSettings {
     this.volumeKeyTurn = false,
     this.tapZonesInvert = false,
     this.showTapZones = false,
+    this.discoveryViewMode = DiscoveryViewMode.grid,
   });
 
   AppSettings copyWith({
@@ -69,6 +74,7 @@ class AppSettings {
     bool? volumeKeyTurn,
     bool? tapZonesInvert,
     bool? showTapZones,
+    DiscoveryViewMode? discoveryViewMode,
   }) {
     return AppSettings(
       themeMode: themeMode ?? this.themeMode,
@@ -88,6 +94,7 @@ class AppSettings {
       volumeKeyTurn: volumeKeyTurn ?? this.volumeKeyTurn,
       tapZonesInvert: tapZonesInvert ?? this.tapZonesInvert,
       showTapZones: showTapZones ?? this.showTapZones,
+      discoveryViewMode: discoveryViewMode ?? this.discoveryViewMode,
     );
   }
 
@@ -109,6 +116,7 @@ class AppSettings {
         'volumeKeyTurn': volumeKeyTurn,
         'tapZonesInvert': tapZonesInvert,
         'showTapZones': showTapZones,
+        'discoveryViewMode': discoveryViewMode.index,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -134,6 +142,8 @@ class AppSettings {
       volumeKeyTurn: json['volumeKeyTurn'] as bool? ?? false,
       tapZonesInvert: json['tapZonesInvert'] as bool? ?? false,
       showTapZones: json['showTapZones'] as bool? ?? false,
+      discoveryViewMode:
+          DiscoveryViewMode.values[json['discoveryViewMode'] as int? ?? 0],
     );
   }
 }
