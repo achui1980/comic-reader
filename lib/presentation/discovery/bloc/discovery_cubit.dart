@@ -1,4 +1,5 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'discovery_state.dart';
@@ -6,23 +7,41 @@ import 'discovery_state.dart';
 class DiscoveryCubit extends Cubit<DiscoveryState> {
   final MangaRepository _repository;
   final SourceRegistry _registry;
+  final SettingsStore _settingsStore;
 
   DiscoveryCubit({
     required MangaRepository repository,
     required SourceRegistry registry,
+    required SettingsStore settingsStore,
   })  : _repository = repository,
         _registry = registry,
+        _settingsStore = settingsStore,
         super(const DiscoveryState());
 
-  void init() {
+  Future<void> init() async {
+    final settings = await _settingsStore.load();
     final source = _registry.defaultSource;
     if (source == null) return;
     emit(state.copyWith(
       sourceId: source.id,
       filterOptions: source.discoveryFilters,
       filters: {for (final f in source.discoveryFilters) f.name: f.defaultValue},
+      viewMode: settings.discoveryViewMode,
     ));
     loadDiscovery();
+  }
+
+  void toggleViewMode() {
+    final newMode = state.viewMode == DiscoveryViewMode.grid
+        ? DiscoveryViewMode.list
+        : DiscoveryViewMode.grid;
+    emit(state.copyWith(viewMode: newMode));
+    _persistViewMode(newMode);
+  }
+
+  Future<void> _persistViewMode(DiscoveryViewMode mode) async {
+    final settings = await _settingsStore.load();
+    await _settingsStore.save(settings.copyWith(discoveryViewMode: mode));
   }
 
   void changeSource(String sourceId) {
