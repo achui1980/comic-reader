@@ -39,20 +39,25 @@ jobs:
 
       - name: Determine tags to sync
         id: determine_tags
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: |
+          set -euo pipefail
           if [ "${{ github.event_name }}" = "release" ]; then
-            tag="${{ github.event.release.tag_name }}"
-            echo "tags=$tag" >> "$GITHUB_OUTPUT"
+            echo "tags=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           else
             tags=$(gh api "repos/${GH_OWNER}/${GH_REPO}/releases" --paginate --jq '.[].tag_name' | tr '\n' ' ')
             echo "tags=$tags" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Sync each tag to Gitee
+        env:
+          TAGS: ${{ steps.determine_tags.outputs.tags }}
         run: |
+          set -euo pipefail
           chmod +x .github/scripts/sync-one-release-to-gitee.sh
           failed=""
-          for tag in ${{ steps.determine_tags.outputs.tags }}; do
+          for tag in $TAGS; do
             echo "=== Syncing tag: $tag ==="
             if ! .github/scripts/sync-one-release-to-gitee.sh "$tag"; then
               echo "!!! Failed to sync tag: $tag"
