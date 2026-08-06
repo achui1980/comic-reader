@@ -46,6 +46,7 @@ fi
 name=$(echo "$release_json" | jq -r '.name // ""')
 body=$(echo "$release_json" | jq -r '.body // ""')
 prerelease=$(echo "$release_json" | jq -r '.prerelease')
+target_commitish=$(echo "$release_json" | jq -r '.target_commitish // "main"')
 
 echo "--- [$tag] Checking for existing Gitee release ---"
 # NOTE: Gitee's GET /releases/tags/{tag} endpoint does NOT behave like
@@ -90,8 +91,9 @@ else
     --arg tag_name "$tag" \
     --arg name "$name" \
     --arg body "$body" \
+    --arg target_commitish "$target_commitish" \
     --argjson prerelease "$prerelease" \
-    '{access_token: $access_token, tag_name: $tag_name, name: $name, body: $body, prerelease: $prerelease}')
+    '{access_token: $access_token, tag_name: $tag_name, name: $name, body: $body, target_commitish: $target_commitish, prerelease: $prerelease}')
 
   create_status=$(curl -s --connect-timeout 10 --max-time 60 -o /tmp/gitee_release.json -w "%{http_code}" \
     -X POST -H "Content-Type: application/json" \
