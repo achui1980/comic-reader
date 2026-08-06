@@ -11,10 +11,10 @@
 #
 # Usage: sync-one-release-to-gitee.sh <tag>
 
-# NOTE: intentionally no `-e` — a 404 from the "does this release already
-# exist" check below is an expected outcome, not an error, so failures are
-# checked explicitly via HTTP status codes throughout instead of relying on
-# errexit.
+# NOTE: intentionally no `-e` — failures from curl/jq calls throughout this
+# script are checked explicitly via captured HTTP status codes and variable
+# tests instead of relying on errexit (several of those "failure" outcomes,
+# like "release not found yet", are expected control flow, not errors).
 set -uo pipefail
 
 tag="${1:-}"
@@ -48,10 +48,42 @@ body=$(echo "$release_json" | jq -r '.body // ""')
 prerelease=$(echo "$release_json" | jq -r '.prerelease')
 
 echo "--- [$tag] Checking for existing Gitee release ---"
-http_status=$(curl -s --connect-timeout 10 --max-time 60 -o /tmp/gitee_release.json -w "%{http_code}" \
-  "${GITEE_API}/releases/tags/${tag}?access_token=${GITEE_TOKEN}")
+# NOTE: Gitee's GET /releases/tags/{tag} endpoint does NOT behave like
+# GitHub's — it returns HTTP 200 with a literal JSON `null` body both when
+# the release exists and when it doesn't (confirmed empirically), so its
+# HTTP status/body cannot be used to detect existence. Instead we page
+# through GET /releases (the list endpoint, which behaves correctly) and
+# match tag_name locally.
+release_id=""
+page=1
+max_pages=50
+while [ "$page" -le "$max_pages" ]; do
+  list_status=$(curl -s --connect-timeout 10 --max-time 60 -o /tmp/gitee_releases_page.json -w "%{http_code}" \
+    "${GITEE_API}/releases?access_token=${GITEE_TOKEN}&page=${page}&per_page=100")
 
-if [ "$http_status" = "404" ]; then
+  if [ "$list_status" != "200" ]; then
+    echo "ERROR: [$tag] failed to list Gitee releases (HTTP $list_status)" >&2
+    cat /tmp/gitee_releases_page.json >&2
+    exit 1
+  fi
+
+  page_count=$(jq 'length' /tmp/gitee_releases_page.json)
+  if [ "$page_count" -eq 0 ]; then
+    break
+  fi
+
+  match_id=$(jq -r --arg tag "$tag" '.[] | select(.tag_name == $tag) | .id' /tmp/gitee_releases_page.json | head -n 1)
+  if [ -n "$match_id" ]; then
+    release_id="$match_id"
+    break
+  fi
+
+  page=$((page + 1))
+done
+
+if [ -n "$release_id" ]; then
+  echo "[$tag] Gitee release already exists."
+else
   echo "--- [$tag] Creating Gitee release ---"
   payload=$(jq -n \
     --arg access_token "$GITEE_TOKEN" \
@@ -71,19 +103,13 @@ if [ "$http_status" = "404" ]; then
     cat /tmp/gitee_release.json >&2
     exit 1
   fi
-elif [ "$http_status" != "200" ]; then
-  echo "ERROR: [$tag] unexpected HTTP $http_status checking Gitee release" >&2
-  cat /tmp/gitee_release.json >&2
-  exit 1
-else
-  echo "[$tag] Gitee release already exists."
-fi
 
-release_id=$(jq -r '.id' /tmp/gitee_release.json)
-if [ -z "$release_id" ] || [ "$release_id" = "null" ]; then
-  echo "ERROR: [$tag] could not determine Gitee release id" >&2
-  cat /tmp/gitee_release.json >&2
-  exit 1
+  release_id=$(jq -r '.id' /tmp/gitee_release.json)
+  if [ -z "$release_id" ] || [ "$release_id" = "null" ]; then
+    echo "ERROR: [$tag] could not determine Gitee release id after create" >&2
+    cat /tmp/gitee_release.json >&2
+    exit 1
+  fi
 fi
 echo "[$tag] Gitee release id: $release_id"
 
