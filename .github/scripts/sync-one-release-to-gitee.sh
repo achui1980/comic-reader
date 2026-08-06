@@ -146,8 +146,14 @@ while [ "$i" -lt "$asset_count" ]; do
     }
 
     echo "[$tag] Uploading $asset_name to Gitee..."
+    # -H "Expect:" disables curl's automatic "Expect: 100-continue" header,
+    # which some servers/WAFs (Gitee is fronted by one) mishandle for large
+    # multipart uploads — without this, curl can get stuck waiting for a
+    # "100 Continue" that never (properly) arrives and the request never
+    # completes, surfacing as a bogus "HTTP 100" with no response body.
     upload_status=$(curl -s --connect-timeout 10 --max-time 600 -o /tmp/gitee_upload.json -w "%{http_code}" \
       -X POST \
+      -H "Expect:" \
       -F "access_token=${GITEE_TOKEN}" \
       -F "file=@${tmp_file};filename=${asset_name}" \
       "${GITEE_API}/releases/${release_id}/attach_files")
