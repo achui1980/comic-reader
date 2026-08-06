@@ -5,13 +5,19 @@
 #   2. push tag (v*)
 #   3. 手动触发: Actions -> Sync to Gitee -> Run workflow
 #
-# 使用 git clone --mirror + git push --mirror 将 GitHub 仓库完整镜像到 Gitee,
-# 分支和 tag 会与 GitHub 保持完全一致(Gitee 上本地没有的分支/tag 会被删除)。
+# 使用 git clone --mirror 拉取 GitHub 仓库,再只显式推送 refs/heads/* 和
+# refs/tags/*(并 --prune 删除 Gitee 上源端已不存在的分支/tag),让分支和 tag
+# 与 GitHub 保持完全一致。
 #
-# 注意:不用 actions/checkout,因为它只会把触发分支变成本地 refs/heads/*,
+# 注意 1:不用 actions/checkout,因为它只会把触发分支变成本地 refs/heads/*,
 # 其它分支只是 refs/remotes/origin/* 追踪引用。git push --mirror 会把这些追踪引用
 # 当成 hidden ref 推给 Gitee 被拒绝,同时误删 Gitee 上真实存在的其它分支。
 # 直接对 GitHub 做 git clone --mirror 才能拿到与源仓库完全对应的 refs/heads/*、refs/tags/*。
+#
+# 注意 2:不能直接对镜像仓库整体 git push --mirror。GitHub 会在 ref 通告里附带
+# refs/pull/N/head 等只读引用(只要仓库有过 PR 就会被 --mirror clone 一并拉下来),
+# 而 Gitee 会把这些非 heads/tags 的引用当成 hidden ref 拒绝推送并导致整个 push 失败。
+# 因此改为只显式推送 refs/heads/* 和 refs/tags/*,从根本上避免碰到任何这类隐藏引用。
 #
 # 前置条件(需要手动在 GitHub 仓库 Settings -> Secrets and variables -> Actions 中添加):
 #   - GITEE_USERNAME: Gitee 用户名
@@ -44,4 +50,5 @@ jobs:
           GITEE_USERNAME: ${{ secrets.GITEE_USERNAME }}
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
-          git push --mirror "https://${GITEE_USERNAME}:${GITEE_TOKEN}@gitee.com/achui/comic-reader.git"
+          git push --prune "https://${GITEE_USERNAME}:${GITEE_TOKEN}@gitee.com/achui/comic-reader.git" \
+            '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'
