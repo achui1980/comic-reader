@@ -11,6 +11,10 @@
 #
 # Usage: sync-one-release-to-gitee.sh <tag>
 
+# NOTE: intentionally no `-e` — a 404 from the "does this release already
+# exist" check below is an expected outcome, not an error, so failures are
+# checked explicitly via HTTP status codes throughout instead of relying on
+# errexit.
 set -uo pipefail
 
 tag="${1:-}"
@@ -106,13 +110,15 @@ while [ "$i" -lt "$asset_count" ]; do
   else
     echo "[$tag] Downloading $asset_name from GitHub..."
     tmp_file="/tmp/gitee_asset_${i}"
-    curl -fsSL --connect-timeout 10 --max-time 60 -o "$tmp_file" "$asset_url" || {
+    # Release assets can be large binaries (e.g. Android APKs); use a longer
+    # transfer timeout than the small metadata API calls above/below.
+    curl -fsSL --connect-timeout 10 --max-time 600 -o "$tmp_file" "$asset_url" || {
       echo "ERROR: [$tag] failed to download $asset_name" >&2
       exit 1
     }
 
     echo "[$tag] Uploading $asset_name to Gitee..."
-    upload_status=$(curl -s --connect-timeout 10 --max-time 60 -o /tmp/gitee_upload.json -w "%{http_code}" \
+    upload_status=$(curl -s --connect-timeout 10 --max-time 600 -o /tmp/gitee_upload.json -w "%{http_code}" \
       -X POST \
       -F "access_token=${GITEE_TOKEN}" \
       -F "file=@${tmp_file};filename=${asset_name}" \
