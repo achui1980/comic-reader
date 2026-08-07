@@ -10,21 +10,26 @@ const {
 
 const MODELS = path.join(__dirname, 'models');
 const DETECTOR_PATH = path.join(MODELS, 'comictextdetector.onnx');
-const OCR_PATH = path.join(MODELS, 'manga-ocr', 'model.onnx');
+const OCR_ENCODER_PATH = path.join(MODELS, 'manga-ocr', 'encoder_model.onnx');
+const OCR_DECODER_PATH = path.join(MODELS, 'manga-ocr', 'decoder_model.onnx');
 const VOCAB_PATH = path.join(MODELS, 'manga-ocr', 'vocab.txt');
 
 let detector = null;
-let ocr = null;
+let ocrEncoder = null;
+let ocrDecoder = null;
 let vocab = [];
 
 async function loadModels() {
   detector = await ort.InferenceSession.create(DETECTOR_PATH, {
     executionProviders: ['cpu'], graphOptimizationLevel: 'all', intraOpNumThreads: 4,
   });
-  ocr = await ort.InferenceSession.create(OCR_PATH, {
+  ocrEncoder = await ort.InferenceSession.create(OCR_ENCODER_PATH, {
     executionProviders: ['cpu'], graphOptimizationLevel: 'all', intraOpNumThreads: 4,
   });
-  vocab = fs.readFileSync(VOCAB_PATH, 'utf8').split('\n');
+  ocrDecoder = await ort.InferenceSession.create(OCR_DECODER_PATH, {
+    executionProviders: ['cpu'], graphOptimizationLevel: 'all', intraOpNumThreads: 4,
+  });
+  vocab = fs.readFileSync(VOCAB_PATH, 'utf8').split('\n').map((l) => l.replace(/\r/g, ''));
 }
 
 // sharp raw RGB -> CHW float32，可选归一化 (v/255-mean)/std。
@@ -42,12 +47,12 @@ async function toChwTensor(buffer, size, normalize) {
 }
 
 async function extractRegions(imageBuffer) {
-  if (!detector || !ocr) throw new Error('模型未加载');
-  // 1. detector
+  if (!detector || !ocrEncoder || !ocrDecoder) throw new Error('模型未加载');
+  // 1. detector: 三个输出 blk/seg/det，只取分割图 seg [1,1,1024,1024]。
   const detInput = await toChwTensor(imageBuffer, 1024, false);
   const detTensor = new ort.Tensor('float32', detInput, [1, 3, 1024, 1024]);
   const detOut = await detector.run({ [detector.inputNames[0]]: detTensor });
-  const segMap = Array.from(detOut[detector.outputNames[0]].data);
+  const segMap = Array.from(detOut.seg.data);
   const boxes = postprocessBoxes(segMap, 1024, 1024, 0.3);
 
   const meta = await sharp(imageBuffer).metadata();
@@ -67,17 +72,25 @@ async function extractRegions(imageBuffer) {
   return regions;
 }
 
+// manga-ocr 是 VisionEncoderDecoder 双文件模型：
+// 先 encoder(pixel_values -> last_hidden_state[1,197,768])，
+// 再 decoder 贪婪循环(input_ids + encoder_hidden_states -> logits[1,seq,6144])。
 async function runOcr(cropBuffer) {
   const imgTensorData = await toChwTensor(cropBuffer, 224, true);
-  const imgTensor = new ort.Tensor('float32', imgTensorData, [1, 3, 224, 224]);
+  const pixelValues = new ort.Tensor('float32', imgTensorData, [1, 3, 224, 224]);
+  const encOut = await ocrEncoder.run({ [ocrEncoder.inputNames[0]]: pixelValues });
+  const hidden = encOut.last_hidden_state;
+
   const tokens = [START];
-  const imgName = ocr.inputNames[0], tokName = ocr.inputNames[1];
-  const logitsName = ocr.outputNames[0];
   for (let step = 0; step < MAX_STEPS; step++) {
-    const tokTensor = new ort.Tensor('int64',
+    const idsTensor = new ort.Tensor('int64',
       BigInt64Array.from(tokens.map((t) => BigInt(t))), [1, tokens.length]);
-    const out = await ocr.run({ [imgName]: imgTensor, [tokName]: tokTensor });
-    const logits = out[logitsName].data;
+    const out = await ocrDecoder.run({
+      input_ids: idsTensor,
+      encoder_hidden_states: hidden,
+    });
+    const logits = out.logits.data;
+    // logits 形状 [1, seq, 6144]，取最后一行 vocab logits。
     const lastRow = Array.from(logits.slice(logits.length - VOCAB));
     const next = argmaxRow(lastRow);
     if (next === EOS) break;

@@ -55,36 +55,40 @@ class NativePocExtractor {
   final OnnxRuntime runtime;
 
   OrtSession? _detector;
-  OrtSession? _ocr;
+  OrtSession? _ocrEncoder;
+  OrtSession? _ocrDecoder;
   List<String> _vocab = const [];
 
   static const _detectorAsset = 'assets/models/comictextdetector.onnx';
-  static const _ocrAsset = 'assets/models/manga-ocr/model.onnx';
+  static const _ocrEncoderAsset = 'assets/models/manga-ocr/encoder_model.onnx';
+  static const _ocrDecoderAsset = 'assets/models/manga-ocr/decoder_model.onnx';
   static const _vocabAsset = 'assets/models/manga-ocr/vocab.txt';
 
   Future<void> loadModels() async {
     _detector = await runtime.createSessionFromAsset(_detectorAsset);
-    _ocr = await runtime.createSessionFromAsset(_ocrAsset);
+    _ocrEncoder = await runtime.createSessionFromAsset(_ocrEncoderAsset);
+    _ocrDecoder = await runtime.createSessionFromAsset(_ocrDecoderAsset);
     final vocabRaw = await rootBundle.loadString(_vocabAsset);
-    _vocab = vocabRaw.split('\n');
+    _vocab = vocabRaw.split('\n').map((l) => l.replaceAll('\r', '')).toList();
   }
 
   Future<List<PocTextRegion>> extract(Uint8List imageBytes) async {
     final detector = _detector;
-    final ocr = _ocr;
-    if (detector == null || ocr == null) {
+    final encoder = _ocrEncoder;
+    final decoder = _ocrDecoder;
+    if (detector == null || encoder == null || decoder == null) {
       throw StateError('模型未加载，请先调用 loadModels()');
     }
     final decoded = img.decodeImage(imageBytes);
     if (decoded == null) throw StateError('图片解码失败');
 
-    // 1. detector: resize 到 1024，跑分割，后处理出 box
+    // 1. detector: resize 到 1024，跑分割，后处理出 box。
+    //    detector 有三个输出 blk/seg/det，只取分割图 seg [1,1,1024,1024]。
     final detResized = img.copyResize(decoded, width: 1024, height: 1024);
     final detInput = _imageToChwFloat32(detResized, 1024, 1024);
     final detTensor = await OrtValue.fromList(detInput, [1, 3, 1024, 1024]);
     final detOut = await detector.run({detector.inputNames.first: detTensor});
-    final segName = detector.outputNames.first;
-    final segMap = (await detOut[segName]!.asList()).cast<double>();
+    final segMap = (await detOut['seg']!.asList()).cast<double>();
     final boxes = postprocessDetectorBoxes(segMap, 1024, 1024, 0.3);
 
     // 2. 逐 box 裁剪 -> resize 224 -> manga-ocr 贪婪解码
@@ -101,25 +105,34 @@ class NativePocExtractor {
           img.copyResize(crop, width: kOcrInputSize, height: kOcrInputSize);
       final rgb = _extractRgb(ocrResized);
       final ocrTensor = imageToOcrTensor(rgb, kOcrInputSize, kOcrInputSize);
-      final text = await _runOcrGreedy(ocr, ocrTensor);
+      final text = await _runOcrGreedy(encoder, decoder, ocrTensor);
       regions.add(PocTextRegion(box: [ox, oy, ow, oh], text: text));
     }
     return regions;
   }
 
-  Future<String> _runOcrGreedy(OrtSession ocr, Float32List imageTensor) async {
-    final imgName = ocr.inputNames[0];
-    final tokName = ocr.inputNames[1];
-    final logitsName = ocr.outputNames.first;
-    final tokens = <int>[kOcrStartToken];
-    final imgVal =
+  /// manga-ocr 是 VisionEncoderDecoder 双文件模型：
+  /// 先 encoder(pixel_values -> last_hidden_state[1,197,768])，
+  /// 再 decoder 贪婪循环(input_ids + encoder_hidden_states -> logits[1,seq,6144])。
+  Future<String> _runOcrGreedy(
+      OrtSession encoder, OrtSession decoder, Float32List imageTensor) async {
+    // encoder 只跑一次，hidden 复用于每一步 decoder。
+    final pixelValues =
         await OrtValue.fromList(imageTensor, [1, 3, kOcrInputSize, kOcrInputSize]);
+    final encOut =
+        await encoder.run({encoder.inputNames.first: pixelValues});
+    final hidden = encOut['last_hidden_state']!;
+
+    final tokens = <int>[kOcrStartToken];
     for (var step = 0; step < kOcrMaxSteps; step++) {
-      final tokVal = await OrtValue.fromList(
-          Int64List.fromList(tokens.map((e) => e).toList()), [1, tokens.length]);
-      final out = await ocr.run({imgName: imgVal, tokName: tokVal});
-      final logits = (await out[logitsName]!.asList()).cast<double>();
-      // 取最后一步(最后一行)的 logits
+      final idsVal = await OrtValue.fromList(
+          Int64List.fromList(tokens), [1, tokens.length]);
+      final out = await decoder.run({
+        'input_ids': idsVal,
+        'encoder_hidden_states': hidden,
+      });
+      final logits = (await out['logits']!.asList()).cast<double>();
+      // logits 形状 [1, seq, 6144]，取最后一步(最后一行)的 vocab logits。
       final lastRow =
           logits.sublist(logits.length - kOcrVocabSize, logits.length);
       final next = argmaxLastRow(lastRow, kOcrVocabSize);
