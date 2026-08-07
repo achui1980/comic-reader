@@ -12,6 +12,29 @@ class PocTextRegion {
   const PocTextRegion({required this.box, required this.text});
 }
 
+/// 解析 Manga-Bubble-YOLO 的输出 output0[1,300,6]（扁平后每行
+/// x1,y1,x2,y2,conf,cls，坐标相对 1280 输入空间，免 NMS）。
+/// conf>=threshold 才保留，xyxy 角点坐标按 scale 映射回原图并转 xywh。
+/// 返回 [[ox,oy,ow,oh]...]。
+List<List<int>> parseYoloDetections(
+    List<double> output, double threshold, double scaleX, double scaleY) {
+  final boxes = <List<int>>[];
+  final rows = output.length ~/ 6;
+  for (var i = 0; i < rows; i++) {
+    final base = i * 6;
+    final conf = output[base + 4];
+    if (conf < threshold) continue;
+    final x1 = output[base], y1 = output[base + 1];
+    final x2 = output[base + 2], y2 = output[base + 3];
+    final ox = (x1 * scaleX).round();
+    final oy = (y1 * scaleY).round();
+    final ow = ((x2 - x1) * scaleX).round();
+    final oh = ((y2 - y1) * scaleY).round();
+    boxes.add([ox, oy, ow, oh]);
+  }
+  return boxes;
+}
+
 /// 把 detector 分割图阈值化后，用简单连通块外接矩形提取 box 列表。
 /// segMap: 长度 mapW*mapH 的置信度；thresh: 阈值。
 /// 简化版：把所有 >thresh 的像素视为前景，做一次 4-邻接洪泛聚类，
@@ -59,7 +82,7 @@ class NativePocExtractor {
   OrtSession? _ocrDecoder;
   List<String> _vocab = const [];
 
-  static const _detectorAsset = 'assets/models/comictextdetector.onnx';
+  static const _detectorAsset = 'assets/models/comic-bubble-yolo.onnx';
   static const _ocrEncoderAsset = 'assets/models/manga-ocr/encoder_model.onnx';
   static const _ocrDecoderAsset = 'assets/models/manga-ocr/decoder_model.onnx';
   static const _vocabAsset = 'assets/models/manga-ocr/vocab.txt';
@@ -82,24 +105,25 @@ class NativePocExtractor {
     final decoded = img.decodeImage(imageBytes);
     if (decoded == null) throw StateError('图片解码失败');
 
-    // 1. detector: resize 到 1024，跑分割，后处理出 box。
-    //    detector 有三个输出 blk/seg/det，只取分割图 seg [1,1,1024,1024]。
-    final detResized = img.copyResize(decoded, width: 1024, height: 1024);
-    final detInput = _imageToChwFloat32(detResized, 1024, 1024);
-    final detTensor = await OrtValue.fromList(detInput, [1, 3, 1024, 1024]);
+    // 1. detector: Manga-Bubble-YOLO，resize 到 1280，跑气泡检测。
+    //    输出 output0[1,300,6]，每行 [x1,y1,x2,y2,conf,cls]（xyxy，相对 1280，免 NMS）。
+    final detResized = img.copyResize(decoded, width: 1280, height: 1280);
+    final detInput = _imageToChwFloat32(detResized, 1280, 1280);
+    final detTensor = await OrtValue.fromList(detInput, [1, 3, 1280, 1280]);
     final detOut = await detector.run({detector.inputNames.first: detTensor});
-    final segMap = (await detOut['seg']!.asList()).cast<double>();
-    final boxes = postprocessDetectorBoxes(segMap, 1024, 1024, 0.3);
+    final yoloOut = (await detOut['output0']!.asList()).cast<double>();
+    final scaleX = decoded.width / 1280.0;
+    final scaleY = decoded.height / 1280.0;
+    // parseYoloDetections 已把坐标映射回原图并转成 xywh。
+    final boxes = parseYoloDetections(yoloOut, 0.3, scaleX, scaleY);
 
     // 2. 逐 box 裁剪 -> resize 224 -> manga-ocr 贪婪解码
     final regions = <PocTextRegion>[];
-    final scaleX = decoded.width / 1024.0;
-    final scaleY = decoded.height / 1024.0;
     for (final b in boxes) {
-      final ox = (b[0] * scaleX).round();
-      final oy = (b[1] * scaleY).round();
-      final ow = (b[2] * scaleX).round().clamp(1, decoded.width - ox);
-      final oh = (b[3] * scaleY).round().clamp(1, decoded.height - oy);
+      final ox = b[0].clamp(0, decoded.width - 1);
+      final oy = b[1].clamp(0, decoded.height - 1);
+      final ow = b[2].clamp(1, decoded.width - ox);
+      final oh = b[3].clamp(1, decoded.height - oy);
       final crop = img.copyCrop(decoded, x: ox, y: oy, width: ow, height: oh);
       final ocrResized =
           img.copyResize(crop, width: kOcrInputSize, height: kOcrInputSize);
