@@ -1,0 +1,3 @@
+# 模型权重体积过大，不入库，用 tools/download_models.sh 下载
+*.onnx
+*.bin
