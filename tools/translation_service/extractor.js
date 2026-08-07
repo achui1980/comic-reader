@@ -57,8 +57,8 @@ async function extractRegions(imageBuffer) {
   const regions = [];
   for (const b of boxes) {
     const ox = Math.round(b[0] * scaleX), oy = Math.round(b[1] * scaleY);
-    const ow = Math.max(1, Math.round(b[2] * scaleX));
-    const oh = Math.max(1, Math.round(b[3] * scaleY));
+    const ow = Math.max(1, Math.min(Math.round(b[2] * scaleX), meta.width - ox));
+    const oh = Math.max(1, Math.min(Math.round(b[3] * scaleY), meta.height - oy));
     const cropBuf = await sharp(imageBuffer)
       .extract({ left: ox, top: oy, width: ow, height: oh }).toBuffer();
     const text = await runOcr(cropBuf);
