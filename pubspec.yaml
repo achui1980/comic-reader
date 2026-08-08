@@ -95,7 +95,6 @@ flutter:
 
   assets:
     - assets/fonts/
-    - assets/models/
 
   fonts:
     - family: NotoSansSC
