@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:comic_reader/data/translation/poc/ocr_preprocess.dart';
+import 'package:comic_reader/data/translation/ocr_preprocess.dart';
 
 void main() {
   test('kOcrInputSize 为 224', () {
