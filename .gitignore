@@ -47,3 +47,10 @@ app.*.map.json
 graphify-out/
 .opencode/
 .superpowers/
+
+# Local ONNX model weights (downloaded at runtime, never committed — see
+# tools/download_models.sh and lib/data/translation/translation_model_manager.dart)
+assets/models/**/*.onnx
+assets/models/*.onnx
+assets/models/**/*.bin
+assets/models/*.bin
