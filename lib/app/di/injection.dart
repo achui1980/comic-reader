@@ -1,5 +1,6 @@
 import 'package:get_it/get_it.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 import 'package:comic_reader/data/remote/http_client.dart';
 import 'package:comic_reader/data/remote/source_interceptor.dart';
 import 'package:comic_reader/data/remote/cors_proxy_interceptor.dart';
@@ -59,6 +60,10 @@ import 'package:comic_reader/data/local/work_group_store.dart';
 import 'package:comic_reader/data/local/library_update_service.dart';
 import 'package:comic_reader/data/local/backup_service.dart';
 import 'package:comic_reader/data/local/download_manager.dart';
+import 'package:comic_reader/data/translation/manga_text_extractor.dart';
+import 'package:comic_reader/data/translation/translation_cache_store.dart';
+import 'package:comic_reader/data/translation/translation_model_manager.dart';
+import 'package:comic_reader/data/translation/translation_pipeline.dart';
 
 final getIt = GetIt.instance;
 
@@ -131,6 +136,30 @@ void configureDependencies() {
     () => AiService(
       client: getIt<AiClient>(),
       configStore: getIt<AiConfigStore>(),
+    ),
+  );
+
+  // Manga translation pipeline (on-device YOLO+OCR detection, BYOK
+  // translation via the AiClient registered above).
+  getIt.registerLazySingleton<TranslationModelManager>(
+    () => TranslationModelManager(),
+  );
+  getIt.registerLazySingleton<MangaTextExtractor>(
+    () => NativeMangaTextExtractor(
+      runtime: OnnxRuntime(),
+      modelManager: getIt<TranslationModelManager>(),
+    ),
+  );
+  getIt.registerLazySingleton<TranslationCacheStore>(
+    () => TranslationCacheStore(),
+  );
+  getIt.registerLazySingleton<TranslationPipeline>(
+    () => TranslationPipeline(
+      extractor: getIt<MangaTextExtractor>(),
+      aiClient: getIt<AiClient>(),
+      configStore: getIt<AiConfigStore>(),
+      cacheStore: getIt<TranslationCacheStore>(),
+      modelManager: getIt<TranslationModelManager>(),
     ),
   );
 
