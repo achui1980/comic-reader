@@ -100,6 +100,7 @@ class TranslationPipeline {
     }
 
     await modelManager.ensureReady();
+    await extractor.loadModels();
     final regions = await extractor.extract(imageBytes);
 
     final translatedRegions =

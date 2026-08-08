@@ -39,6 +39,9 @@ class NativeMangaTextExtractor implements MangaTextExtractor {
 
   @override
   Future<void> loadModels() async {
+    if (_detector != null && _ocrEncoder != null && _ocrDecoder != null) {
+      return;
+    }
     final detectorPath = await modelManager.pathFor('comic-bubble-yolo.onnx');
     final encoderPath =
         await modelManager.pathFor('manga-ocr/encoder_model.onnx');

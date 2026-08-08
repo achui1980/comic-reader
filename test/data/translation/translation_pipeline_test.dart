@@ -62,6 +62,7 @@ void main() {
     when(() => configStore.isLoaded).thenReturn(true);
     when(() => configStore.current).thenReturn(usableConfig);
     when(() => modelManager.ensureReady()).thenAnswer((_) async {});
+    when(() => extractor.loadModels()).thenAnswer((_) async {});
     when(() => cacheStore.save(any())).thenAnswer((_) async {});
   });
 
@@ -171,5 +172,16 @@ void main() {
       throwsA(isA<AiClientException>()),
     );
     verifyNever(() => cacheStore.save(any()));
+  });
+
+  test('calls extractor.loadModels() before extract()', () async {
+    when(() => cacheStore.get(any(), any(), any(), any()))
+        .thenAnswer((_) async => null);
+    when(() => extractor.loadModels()).thenAnswer((_) async {});
+    when(() => extractor.extract(any())).thenAnswer((_) async => const []);
+
+    await pipeline.translatePage('s', 'm', 'c', 0, Uint8List(0));
+
+    verify(() => extractor.loadModels()).called(1);
   });
 }
