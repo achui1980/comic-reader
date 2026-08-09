@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../app/router/routes.dart';
 import 'bloc/settings_cubit.dart';
 import 'bloc/settings_state.dart';
 import 'sections/about_section.dart';
@@ -46,6 +48,12 @@ class _SettingsView extends StatelessWidget {
               PluginSection(state: state),
               const DataManagementSection(),
               const AboutSection(),
+              if (kDebugMode)
+                ListTile(
+                  leading: const Icon(Icons.translate),
+                  title: const Text('翻译管道调试页（临时）'),
+                  onTap: () => context.push(AppRoutes.pocTranslation),
+                ),
             ],
           );
         },

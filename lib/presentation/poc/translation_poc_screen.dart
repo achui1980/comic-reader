@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../data/translation/models/page_translation.dart';
+import '../../data/translation/translation_cache_store.dart';
 import '../../data/translation/translation_model_manager.dart';
 import '../../data/translation/translation_pipeline.dart';
 
@@ -30,6 +31,25 @@ class _TranslationPocScreenState extends State<TranslationPocScreen> {
       setState(() => _status = '模型已就绪');
     } catch (e) {
       setState(() => _status = '下载失败: $e');
+    } finally {
+      setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _clearCache() async {
+    setState(() {
+      _busy = true;
+      _status = '清空缓存中...';
+    });
+    try {
+      final store = GetIt.instance<TranslationCacheStore>();
+      await store.clearChapter('debug_source', 'debug_manga', 'debug_chapter');
+      setState(() {
+        _result = null;
+        _status = '缓存已清空，可重新翻译';
+      });
+    } catch (e) {
+      setState(() => _status = '清空缓存失败: $e');
     } finally {
       setState(() => _busy = false);
     }
@@ -90,6 +110,10 @@ class _TranslationPocScreenState extends State<TranslationPocScreen> {
                 ElevatedButton(
                   onPressed: _busy ? null : _pickAndTranslate,
                   child: const Text('选图并翻译'),
+                ),
+                OutlinedButton(
+                  onPressed: _busy ? null : _clearCache,
+                  child: const Text('清空缓存'),
                 ),
               ],
             ),
