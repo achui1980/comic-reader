@@ -22,7 +22,7 @@ class AppRouter {
 
   static final GoRouter router = GoRouter(
     navigatorKey: navigatorKey,
-    initialLocation: AppRoutes.home,
+    initialLocation: AppRoutes.pocTranslation,
     routes: [
       // Shell route for main navigation tabs
       StatefulShellRoute.indexedStack(

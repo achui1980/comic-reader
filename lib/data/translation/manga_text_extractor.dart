@@ -74,11 +74,31 @@ class NativeMangaTextExtractor implements MangaTextExtractor {
     final detInput = _imageToChwFloat32(detResized, 1280, 1280);
     final detTensor = await OrtValue.fromList(detInput, [1, 3, 1280, 1280]);
     final detOut = await detector.run({detector.inputNames.first: detTensor});
-    final yoloOut = (await detOut['output0']!.asList()).cast<double>();
+    // DEBUG: print detector output keys/shapes on first call to diagnose 0-region issue.
+    // ignore: avoid_print
+    print(
+        '[translate-debug] decoded=${decoded.width}x${decoded.height} '
+        'detector.inputNames=${detector.inputNames} '
+        'detector.outputNames=${detector.outputNames}');
+    final outKey =
+        detOut.containsKey('output0') ? 'output0' : detector.outputNames.first;
+    final yoloOut = (await detOut[outKey]!.asList()).cast<double>();
+    final maxConf = () {
+      var m = 0.0;
+      for (var i = 4; i < yoloOut.length; i += 6) {
+        if (yoloOut[i] > m) m = yoloOut[i];
+      }
+      return m;
+    }();
+    // ignore: avoid_print
+    print('[translate-debug] outKey=$outKey yoloOut.length=${yoloOut.length} '
+        'rows=${yoloOut.length ~/ 6} maxConf=$maxConf');
     final scaleX = decoded.width / 1280.0;
     final scaleY = decoded.height / 1280.0;
     // parseYoloDetections 已把坐标映射回原图并转成 xywh。
     final boxes = parseYoloDetections(yoloOut, 0.3, scaleX, scaleY);
+    // ignore: avoid_print
+    print('[translate-debug] boxes.length=${boxes.length}');
 
     // 2. 逐 box 裁剪 -> resize 224 -> manga-ocr 贪婪解码
     final regions = <TextRegion>[];
