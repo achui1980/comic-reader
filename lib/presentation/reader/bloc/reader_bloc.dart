@@ -574,8 +574,17 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
         ),
       );
     } finally {
-      _translatingPage = null;
-      unawaited(_drainTranslationQueue());
+      // Only touch the shared queue state if this task's chapter epoch is
+      // still the live one. If the user has navigated to a different
+      // chapter while this task was in flight, `_translatingPage` may
+      // already legitimately belong to a newer task started for the new
+      // chapter — clearing it here (or draining the queue, which is the new
+      // chapter's own responsibility) would clobber that state and cause
+      // the new chapter's page to be enqueued/translated a second time.
+      if (epoch == _translationEpoch) {
+        _translatingPage = null;
+        unawaited(_drainTranslationQueue());
+      }
     }
   }
 

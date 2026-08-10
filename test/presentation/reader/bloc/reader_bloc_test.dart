@@ -293,6 +293,8 @@ void main() {
     }
 
     late Completer<PageTranslation> pageZeroCompleter;
+    late Completer<PageTranslation> c1Completer;
+    late Completer<PageTranslation> c2Completer;
 
     blocTest<ReaderBloc, ReaderState>(
       'enabling translation immediately queues the current page',
@@ -458,6 +460,114 @@ void main() {
         expect(bloc.state.translationEnabled, isFalse);
         expect(bloc.state.pageTranslations, isEmpty);
       },
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      "a stale chapter's translation task finishing after the user has "
+      're-enabled translation on the new chapter does not clobber the new '
+      "chapter's in-flight marker and cause a duplicate translatePage call",
+      build: () {
+        c1Completer = Completer<PageTranslation>();
+        c2Completer = Completer<PageTranslation>();
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).thenAnswer((_) => c1Completer.future);
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c2',
+              0,
+              any(),
+            )).thenAnswer((_) => c2Completer.future);
+        when(() => repository.getChapterStream('copy', 'manga', 'c2', 1))
+            .thenAnswer((_) => Stream.value(
+                  const ChapterResult(
+                    chapter: Chapter(
+                      id: 'c2',
+                      mangaId: 'manga',
+                      title: 'Ch 2',
+                      images: [ChapterImage(url: 'b')],
+                    ),
+                  ),
+                ));
+        addTearDown(() {
+          if (!c1Completer.isCompleted) {
+            c1Completer.complete(samplePageTranslation);
+          }
+          if (!c2Completer.isCompleted) {
+            c2Completer.complete(samplePageTranslation);
+          }
+        });
+        return buildBlocWithTranslation();
+      },
+      seed: seedState,
+      act: (bloc) async {
+        // Enable translation on chapter c1: page 0 starts translating and
+        // blocks on c1Completer (never resolves during this step).
+        bloc.add(const TranslateChapterToggled(enabled: true));
+        await Future.delayed(const Duration(milliseconds: 10));
+
+        // Navigate to chapter c2 while c1's page 0 translation is still
+        // in-flight (this bumps _translationEpoch and resets
+        // _translatingPage/translationEnabled/pageTranslations per the
+        // first fix).
+        bloc.add(const LoadChapter(
+          sourceId: 'copy',
+          mangaId: 'manga',
+          chapterId: 'c2',
+        ));
+        await Future.delayed(const Duration(milliseconds: 20));
+        expect(bloc.state.chapterId, 'c2');
+
+        // Re-enable translation on the new chapter: c2's page 0 starts
+        // translating and blocks on a SEPARATE completer, setting
+        // _translatingPage = 0 again under the new epoch.
+        bloc.add(const TranslateChapterToggled(enabled: true));
+        await Future.delayed(const Duration(milliseconds: 10));
+
+        // Now let the stale c1 task resolve. Without the finally-block
+        // epoch guard, this wrongly clears _translatingPage (which now
+        // legitimately belongs to c2's in-flight task) to null, even
+        // though c2's page 0 translation is still genuinely in-flight.
+        c1Completer.complete(samplePageTranslation);
+        await Future.delayed(const Duration(milliseconds: 20));
+
+        // A later event that would normally be a no-op while page 0 is
+        // in-flight (e.g. the user toggling translation again) now sees
+        // `_translatingPage == null` instead of `0` if the stale finally
+        // block clobbered it, so `_enqueueTranslate`'s
+        // `pageIndex == _translatingPage` guard no longer recognizes c2's
+        // page 0 as already in-flight, and it gets queued/translated a
+        // second time.
+        bloc.add(const TranslateChapterToggled(enabled: true));
+        await Future.delayed(const Duration(milliseconds: 20));
+
+        // c2's page 0 translatePage call must still have been made exactly
+        // once at this point, even after the stale c1 task's finally block
+        // has run and this follow-up event has fired.
+        verify(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c2',
+              0,
+              any(),
+            )).called(1);
+        verify(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).called(1);
+
+        c2Completer.complete(samplePageTranslation);
+        await Future.delayed(const Duration(milliseconds: 10));
+      },
+      wait: const Duration(milliseconds: 10),
     );
   });
 }
