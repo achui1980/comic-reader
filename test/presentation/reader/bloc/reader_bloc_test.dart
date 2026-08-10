@@ -752,5 +752,44 @@ void main() {
         );
       },
     );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'TranslatePageRetried re-translates a page that previously errored',
+      build: () {
+        var attempt = 0;
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).thenAnswer((_) {
+          attempt++;
+          if (attempt == 1) throw Exception('boom');
+          return Future.value(samplePageTranslation);
+        });
+        return buildBlocWithTranslation();
+      },
+      seed: seedState,
+      act: (bloc) async {
+        bloc.add(const TranslateChapterToggled(enabled: true)); // -> error
+        await Future.delayed(const Duration(milliseconds: 20));
+        bloc.add(const TranslatePageRetried(pageIndex: 0)); // forced retry
+      },
+      wait: const Duration(milliseconds: 20),
+      verify: (bloc) {
+        expect(
+          bloc.state.pageTranslations[0]?.status,
+          PageTranslationStatus.done,
+        );
+        verify(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).called(2);
+      },
+    );
   });
 }
