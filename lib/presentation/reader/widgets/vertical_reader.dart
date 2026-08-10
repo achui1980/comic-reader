@@ -19,11 +19,7 @@ class VerticalReader extends StatefulWidget {
   final List<ChapterImage> images;
   final int initialPage;
 
-  const VerticalReader({
-    super.key,
-    required this.images,
-    this.initialPage = 0,
-  });
+  const VerticalReader({super.key, required this.images, this.initialPage = 0});
 
   @override
   State<VerticalReader> createState() => _VerticalReaderState();
@@ -35,6 +31,10 @@ class _VerticalReaderState extends State<VerticalReader> {
   /// Tracks which page indices have already been prefetched this session,
   /// to avoid re-issuing the same download on every scroll tick.
   final Set<int> _prefetchedIndices = {};
+
+  /// Tracks the last page index dispatched via [PageChanged]/translation
+  /// requests, to avoid re-issuing the same events on every scroll tick.
+  int? _lastKnownPage;
 
   @override
   void initState() {
@@ -59,9 +59,15 @@ class _VerticalReaderState extends State<VerticalReader> {
       final estimatedPage = (scrollOffset / estimatedImageHeight).floor();
       final page = estimatedPage.clamp(0, widget.images.length - 1);
       final bloc = context.read<ReaderBloc>();
-      bloc.add(PageChanged(page));
+      final pageChanged = page != _lastKnownPage;
+      if (pageChanged) {
+        bloc.add(PageChanged(page));
+        _lastKnownPage = page;
+      }
       _prefetchWindow(page);
-      if (bloc.state.translationEnabled) {
+      // Request translation for the page currently scrolled into view; `page`
+      // is a scroll-offset heuristic, so this only re-fires when it changes.
+      if (pageChanged && bloc.state.translationEnabled) {
         bloc.add(TranslatePageRequested(pageIndex: page));
       }
 
@@ -99,13 +105,19 @@ class _VerticalReaderState extends State<VerticalReader> {
     }
   }
 
-  void _showTranslationError(BuildContext context, int pageIndex, String? errorMessage) {
-    ScaffoldMessenger.of(context).showSnackBar(
+  void _showTranslationError(
+    BuildContext itemContext,
+    int pageIndex,
+    String? errorMessage,
+  ) {
+    ScaffoldMessenger.of(itemContext).showSnackBar(
       SnackBar(
         content: Text(errorMessage ?? '翻译失败'),
         action: SnackBarAction(
           label: '重试',
-          onPressed: () => context.read<ReaderBloc>().add(TranslatePageRetried(pageIndex: pageIndex)),
+          onPressed: () => itemContext.read<ReaderBloc>().add(
+            TranslatePageRetried(pageIndex: pageIndex),
+          ),
         ),
       ),
     );
@@ -166,12 +178,11 @@ class _VerticalReaderState extends State<VerticalReader> {
                 if (index >= widget.images.length) {
                   return const Padding(
                     padding: EdgeInsets.all(32.0),
-                    child: Center(
-                      child: CircularProgressIndicator(),
-                    ),
+                    child: Center(child: CircularProgressIndicator()),
                   );
                 }
-                final info = state.pageTranslations[index] ?? PageTranslationInfo.idle;
+                final info =
+                    state.pageTranslations[index] ?? PageTranslationInfo.idle;
                 return SizedBox(
                   width: double.infinity,
                   child: Stack(
@@ -199,13 +210,21 @@ class _VerticalReaderState extends State<VerticalReader> {
                           ),
                         ),
                       if (info.status == PageTranslationStatus.loading)
-                        const Positioned(top: 8, right: 8, child: TranslationBadge.loading()),
+                        const Positioned(
+                          top: 8,
+                          right: 8,
+                          child: TranslationBadge.loading(),
+                        ),
                       if (info.status == PageTranslationStatus.error)
                         Positioned(
                           top: 8,
                           right: 8,
                           child: TranslationBadge.error(
-                            onTap: () => _showTranslationError(context, index, info.errorMessage),
+                            onTap: () => _showTranslationError(
+                              context,
+                              index,
+                              info.errorMessage,
+                            ),
                           ),
                         ),
                     ],
