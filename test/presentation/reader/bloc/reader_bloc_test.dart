@@ -695,5 +695,62 @@ void main() {
             )).called(1);
       },
     );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'marks a page as error when translatePage throws, and still processes '
+      'the next queued page',
+      build: () {
+        pageZeroCompleter = Completer<PageTranslation>();
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).thenAnswer((_) => pageZeroCompleter.future);
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              1,
+              any(),
+            )).thenAnswer((_) async => samplePageTranslation);
+        return buildBlocWithTranslation();
+      },
+      seed: () => seedState(
+        images: const [ChapterImage(url: 'a'), ChapterImage(url: 'b')],
+      ),
+      act: (bloc) async {
+        bloc.add(const TranslateChapterToggled(enabled: true)); // starts page 0, blocked
+        await Future.delayed(const Duration(milliseconds: 10));
+        bloc.add(const TranslatePageRequested(pageIndex: 1)); // queued, waits for page 0
+        await Future.delayed(const Duration(milliseconds: 10));
+        verifyNever(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              1,
+              any(),
+            ));
+        expect(bloc.state.pageTranslations.containsKey(1), isFalse);
+        pageZeroCompleter.completeError(Exception('boom')); // page 0 fails -> queue advances
+        await Future.delayed(const Duration(milliseconds: 20));
+      },
+      wait: const Duration(milliseconds: 10),
+      verify: (bloc) {
+        expect(
+          bloc.state.pageTranslations[0]?.status,
+          PageTranslationStatus.error,
+        );
+        expect(
+          bloc.state.pageTranslations[0]?.errorMessage,
+          contains('boom'),
+        );
+        expect(
+          bloc.state.pageTranslations[1]?.status,
+          PageTranslationStatus.done,
+        );
+      },
+    );
   });
 }
