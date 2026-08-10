@@ -295,6 +295,7 @@ void main() {
     late Completer<PageTranslation> pageZeroCompleter;
     late Completer<PageTranslation> c1Completer;
     late Completer<PageTranslation> c2Completer;
+    late Completer<PageTranslation> firstCompleter;
 
     blocTest<ReaderBloc, ReaderState>(
       'enabling translation immediately queues the current page',
@@ -618,6 +619,78 @@ void main() {
               'manga',
               'c1',
               0,
+              any(),
+            )).called(1);
+      },
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'processes queued pages strictly one at a time, resuming once the '
+      'current page finishes',
+      build: () {
+        firstCompleter = Completer<PageTranslation>();
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).thenAnswer((_) => firstCompleter.future);
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              1,
+              any(),
+            )).thenAnswer((_) async => samplePageTranslation);
+        addTearDown(() {
+          if (!firstCompleter.isCompleted) {
+            firstCompleter.complete(samplePageTranslation);
+          }
+        });
+        return buildBlocWithTranslation();
+      },
+      seed: () => seedState(
+        images: const [ChapterImage(url: 'a'), ChapterImage(url: 'b')],
+      ),
+      act: (bloc) async {
+        bloc.add(const TranslateChapterToggled(enabled: true)); // starts page 0, blocked
+        await Future.delayed(const Duration(milliseconds: 10));
+        bloc.add(const TranslatePageRequested(pageIndex: 1)); // queued, waits for page 0
+        await Future.delayed(const Duration(milliseconds: 10));
+        verify(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).called(1);
+        verifyNever(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              1,
+              any(),
+            ));
+        expect(bloc.state.pageTranslations.containsKey(1), isFalse);
+        firstCompleter.complete(samplePageTranslation); // page 0 finishes -> queue advances
+        await Future.delayed(const Duration(milliseconds: 20));
+      },
+      wait: const Duration(milliseconds: 10),
+      verify: (bloc) {
+        expect(
+          bloc.state.pageTranslations[0]?.status,
+          PageTranslationStatus.done,
+        );
+        expect(
+          bloc.state.pageTranslations[1]?.status,
+          PageTranslationStatus.done,
+        );
+        verify(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              1,
               any(),
             )).called(1);
       },
