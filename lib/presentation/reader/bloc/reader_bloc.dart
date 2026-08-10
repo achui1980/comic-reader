@@ -7,6 +7,13 @@ import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'package:comic_reader/data/local/settings_store.dart' as settings;
+import 'dart:collection' show Queue;
+import 'dart:typed_data' show Uint8List;
+import 'dart:ui' show Size;
+
+import 'package:get_it/get_it.dart';
+import 'package:image/image.dart' as img;
+import 'package:comic_reader/data/translation/translation_pipeline.dart';
 import '../widgets/manga_image_loader.dart';
 import 'reader_event.dart';
 import 'reader_state.dart';
@@ -25,13 +32,39 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
   /// nears the end of the same chapter.
   final Set<String> _prefetchedChapterIds = {};
 
+  final TranslationPipeline _translationPipeline;
+
+  /// Injectable for testing; defaults to the real network+cache loader.
+  final Future<Uint8List> Function({
+    required ChapterImage image,
+    String? sourceId,
+    String? mangaId,
+    String? chapterId,
+    int? imageIndex,
+  }) _loadImageBytes;
+
+  /// Page index currently being translated, or null if the queue is idle.
+  int? _translatingPage;
+  final Queue<int> _translationQueue = Queue<int>();
+
   ReaderBloc({
     required MangaRepository repository,
     required ReadingHistoryStore readingHistoryStore,
     required settings.SettingsStore settingsStore,
+    TranslationPipeline? translationPipeline,
+    Future<Uint8List> Function({
+      required ChapterImage image,
+      String? sourceId,
+      String? mangaId,
+      String? chapterId,
+      int? imageIndex,
+    }) loadImageBytes = loadAndCacheImageBytes,
   })  : _repository = repository,
         _historyStore = readingHistoryStore,
         _settingsStore = settingsStore,
+        _translationPipeline =
+            translationPipeline ?? GetIt.instance<TranslationPipeline>(),
+        _loadImageBytes = loadImageBytes,
         super(const ReaderState()) {
     on<LoadChapter>(_onLoadChapter);
     on<PageChanged>(_onPageChanged);
@@ -49,6 +82,9 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
     on<AutoPageTick>(_onAutoPageTick);
     on<RefreshChapter>(_onRefreshChapter);
     on<ImagesUpdated>(_onImagesUpdated);
+    on<TranslateChapterToggled>(_onTranslateChapterToggled);
+    on<TranslatePageRequested>(_onTranslatePageRequested);
+    on<TranslatePageRetried>(_onTranslatePageRetried);
     _applySettings();
   }
 
@@ -420,6 +456,103 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
         state.sourceId, state.mangaId, state.chapterId, event.page,
       );
     }
+  }
+
+  Future<void> _onTranslateChapterToggled(
+      TranslateChapterToggled event, Emitter<ReaderState> emit) async {
+    emit(state.copyWith(translationEnabled: event.enabled));
+    if (event.enabled) {
+      _enqueueTranslate(state.currentPage);
+    } else {
+      // Drop anything not yet started; let an in-flight translation finish
+      // normally (its result still lands via _updatePageStatus).
+      _translationQueue.clear();
+    }
+  }
+
+  Future<void> _onTranslatePageRequested(
+      TranslatePageRequested event, Emitter<ReaderState> emit) async {
+    if (!state.translationEnabled) return;
+    final info =
+        state.pageTranslations[event.pageIndex] ?? PageTranslationInfo.idle;
+    if (info.status != PageTranslationStatus.idle) return;
+    _enqueueTranslate(event.pageIndex);
+  }
+
+  Future<void> _onTranslatePageRetried(
+      TranslatePageRetried event, Emitter<ReaderState> emit) async {
+    // Unconditional: bypasses the idle-only guard so a page stuck in
+    // `error` can be retried.
+    _enqueueTranslate(event.pageIndex);
+  }
+
+  void _enqueueTranslate(int pageIndex) {
+    if (pageIndex < 0 || pageIndex >= state.images.length) return;
+    if (_translationQueue.contains(pageIndex)) return;
+    _translationQueue.add(pageIndex);
+    unawaited(_drainTranslationQueue());
+  }
+
+  Future<void> _drainTranslationQueue() async {
+    if (_translatingPage != null || _translationQueue.isEmpty) return;
+    final pageIndex = _translationQueue.removeFirst();
+    _translatingPage = pageIndex;
+    _updatePageStatus(
+      pageIndex,
+      const PageTranslationInfo(status: PageTranslationStatus.loading),
+    );
+    try {
+      final image = state.images[pageIndex];
+      final bytes = await _loadImageBytes(
+        image: image,
+        sourceId: state.sourceId,
+        mangaId: state.mangaId,
+        chapterId: state.chapterId,
+        imageIndex: pageIndex,
+      );
+      final decoded = img.decodeImage(bytes);
+      final imageSize = decoded != null
+          ? Size(decoded.width.toDouble(), decoded.height.toDouble())
+          : null;
+      final result = await _translationPipeline.translatePage(
+        state.sourceId,
+        state.mangaId,
+        state.chapterId,
+        pageIndex,
+        bytes,
+      );
+      _updatePageStatus(
+        pageIndex,
+        PageTranslationInfo(
+          status: PageTranslationStatus.done,
+          translation: result,
+          imageSize: imageSize,
+        ),
+      );
+    } catch (e) {
+      _updatePageStatus(
+        pageIndex,
+        PageTranslationInfo(
+          status: PageTranslationStatus.error,
+          errorMessage: e.toString(),
+        ),
+      );
+    } finally {
+      _translatingPage = null;
+      unawaited(_drainTranslationQueue());
+    }
+  }
+
+  /// Emits directly via the bloc-level `emit` (rather than a handler's
+  /// scoped [Emitter]) because this is invoked from a detached async chain
+  /// ([_drainTranslationQueue] is fire-and-forget, mirroring the existing
+  /// [_applySettings] pattern below).
+  void _updatePageStatus(int pageIndex, PageTranslationInfo info) {
+    if (isClosed) return;
+    // ignore: invalid_use_of_visible_for_testing_member
+    emit(state.copyWith(
+      pageTranslations: {...state.pageTranslations, pageIndex: info},
+    ));
   }
 
   @override
