@@ -569,5 +569,58 @@ void main() {
       },
       wait: const Duration(milliseconds: 10),
     );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'ignores TranslatePageRequested when translation is disabled',
+      build: buildBlocWithTranslation,
+      seed: seedState,
+      act: (bloc) => bloc.add(const TranslatePageRequested(pageIndex: 0)),
+      wait: const Duration(milliseconds: 10),
+      verify: (_) {
+        verifyNever(
+          () => translationPipeline.translatePage(
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+          ),
+        );
+      },
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'does not re-translate a page that already finished',
+      build: () {
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).thenAnswer((_) async => samplePageTranslation);
+        return buildBlocWithTranslation();
+      },
+      seed: seedState,
+      act: (bloc) async {
+        bloc.add(const TranslateChapterToggled(enabled: true));
+        await Future.delayed(const Duration(milliseconds: 20));
+        bloc.add(const TranslatePageRequested(pageIndex: 0)); // no-op: already done
+      },
+      wait: const Duration(milliseconds: 20),
+      verify: (bloc) {
+        expect(
+          bloc.state.pageTranslations[0]?.status,
+          PageTranslationStatus.done,
+        );
+        verify(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).called(1);
+      },
+    );
   });
 }
