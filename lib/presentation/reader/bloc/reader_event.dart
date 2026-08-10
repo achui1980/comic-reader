@@ -161,8 +161,9 @@ class TranslateChapterToggled extends ReaderEvent {
 }
 
 /// Dispatched (e.g. from scroll callbacks) when a page becomes visible and
-/// may need translating. Idempotent: ignored if translation is disabled or
-/// the page is already idle/loading/done/error.
+/// may need translating. Idempotent: only queues the page when translation
+/// is enabled and the page's current status is `idle`; ignored if
+/// translation is disabled or the page is already loading/done/error.
 class TranslatePageRequested extends ReaderEvent {
   final int pageIndex;
   const TranslatePageRequested({required this.pageIndex});
