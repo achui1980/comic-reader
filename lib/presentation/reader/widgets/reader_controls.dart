@@ -25,6 +25,7 @@ class ReaderControls extends StatelessWidget {
               sourceId: state.sourceId,
               mangaId: state.mangaId,
               chapterId: state.chapterId,
+              translationEnabled: state.translationEnabled,
             ),
             const Spacer(),
             // Bottom bar
@@ -47,7 +48,14 @@ class _TopBar extends StatelessWidget {
   final String sourceId;
   final String mangaId;
   final String chapterId;
-  const _TopBar({required this.title, required this.sourceId, required this.mangaId, required this.chapterId});
+  final bool translationEnabled;
+  const _TopBar({
+    required this.title,
+    required this.sourceId,
+    required this.mangaId,
+    required this.chapterId,
+    required this.translationEnabled,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -83,6 +91,16 @@ class _TopBar extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
+          ),
+          IconButton(
+            icon: Icon(
+              translationEnabled ? Icons.translate : Icons.translate_outlined,
+              color: translationEnabled ? Colors.lightBlueAccent : Colors.white,
+            ),
+            tooltip: translationEnabled ? '关闭翻译' : '翻译本章',
+            onPressed: () => context
+                .read<ReaderBloc>()
+                .add(TranslateChapterToggled(enabled: !translationEnabled)),
           ),
           // Open in built-in browser button
           IconButton(
