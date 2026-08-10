@@ -292,6 +292,8 @@ void main() {
       );
     }
 
+    late Completer<PageTranslation> pageZeroCompleter;
+
     blocTest<ReaderBloc, ReaderState>(
       'enabling translation immediately queues the current page',
       build: () {
@@ -354,6 +356,107 @@ void main() {
           PageTranslationStatus.loading,
         );
         expect(bloc.state.pageTranslations.containsKey(1), isFalse);
+      },
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'toggling translation on twice while page 0 is still in-flight does '
+      'not enqueue/translate it a second time',
+      build: () {
+        pageZeroCompleter = Completer<PageTranslation>();
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).thenAnswer((_) => pageZeroCompleter.future);
+        return buildBlocWithTranslation();
+      },
+      seed: seedState,
+      act: (bloc) async {
+        // First toggle: page 0 starts translating and blocks on the
+        // completer (never resolves during this act()).
+        bloc.add(const TranslateChapterToggled(enabled: true));
+        await Future.delayed(const Duration(milliseconds: 10));
+        // Second toggle arrives while page 0 is still in-flight
+        // (_translatingPage == 0). Without the `_translatingPage` check in
+        // _enqueueTranslate, this would re-add page 0 to the queue and
+        // cause a second (duplicate) translatePage call once the first
+        // in-flight call finishes.
+        bloc.add(const TranslateChapterToggled(enabled: true));
+        await Future.delayed(const Duration(milliseconds: 10));
+        pageZeroCompleter.complete(samplePageTranslation);
+      },
+      wait: const Duration(milliseconds: 30),
+      verify: (bloc) {
+        verify(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).called(1);
+        expect(
+          bloc.state.pageTranslations[0]?.status,
+          PageTranslationStatus.done,
+        );
+      },
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'navigating to a new chapter while a translation is in-flight '
+      'discards the stale result instead of writing it into the new '
+      "chapter's state",
+      build: () {
+        pageZeroCompleter = Completer<PageTranslation>();
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).thenAnswer((_) => pageZeroCompleter.future);
+        when(() => repository.getChapterStream('copy', 'manga', 'c2', 1))
+            .thenAnswer((_) => Stream.value(
+                  const ChapterResult(
+                    chapter: Chapter(
+                      id: 'c2',
+                      mangaId: 'manga',
+                      title: 'Ch 2',
+                      images: [ChapterImage(url: 'b')],
+                    ),
+                  ),
+                ));
+        return buildBlocWithTranslation();
+      },
+      seed: seedState,
+      act: (bloc) async {
+        // Enable translation on chapter c1: page 0 starts translating and
+        // blocks on the completer.
+        bloc.add(const TranslateChapterToggled(enabled: true));
+        await Future.delayed(const Duration(milliseconds: 10));
+
+        // Navigate to chapter c2 while c1's page 0 translation is still
+        // in-flight (this bumps _translationEpoch and resets
+        // translationEnabled/pageTranslations per the fix).
+        bloc.add(const LoadChapter(
+          sourceId: 'copy',
+          mangaId: 'manga',
+          chapterId: 'c2',
+        ));
+        await Future.delayed(const Duration(milliseconds: 20));
+        expect(bloc.state.chapterId, 'c2');
+
+        // Now let the stale c1 translation resolve. Without the epoch
+        // guard, this would write into c2's pageTranslations map.
+        pageZeroCompleter.complete(samplePageTranslation);
+      },
+      wait: const Duration(milliseconds: 30),
+      verify: (bloc) {
+        expect(bloc.state.chapterId, 'c2');
+        expect(bloc.state.translationEnabled, isFalse);
+        expect(bloc.state.pageTranslations, isEmpty);
       },
     );
   });

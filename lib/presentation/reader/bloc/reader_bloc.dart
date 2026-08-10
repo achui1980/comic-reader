@@ -8,7 +8,6 @@ import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'package:comic_reader/data/local/settings_store.dart' as settings;
 import 'dart:collection' show Queue;
-import 'dart:typed_data' show Uint8List;
 import 'dart:ui' show Size;
 
 import 'package:get_it/get_it.dart';
@@ -46,6 +45,14 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
   /// Page index currently being translated, or null if the queue is idle.
   int? _translatingPage;
   final Queue<int> _translationQueue = Queue<int>();
+
+  /// Bumped every time a new chapter's content starts loading. Captured by
+  /// [_drainTranslationQueue] before it awaits anything, and checked by
+  /// [_updatePageStatus] before writing a result into `state.pageTranslations`
+  /// — this discards translation results that resolve after the user has
+  /// already navigated away from the chapter that kicked them off, instead
+  /// of writing a stale (wrong-chapter) result into the current state.
+  int _translationEpoch = 0;
 
   ReaderBloc({
     required MangaRepository repository,
@@ -143,6 +150,17 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
     await _chapterStreamSubscription?.cancel();
     _chapterStreamSubscription = null;
 
+    // A new chapter load is starting (this is the single entry point for
+    // LoadChapter/RefreshChapter/LoadNextChapter/LoadPreviousChapter, which
+    // all funnel through `add(LoadChapter(...))`): anything queued/in-flight
+    // for the previous chapter is now stale, and translation state must
+    // never carry over across chapters (see _drainTranslationQueue /
+    // _updatePageStatus for how the epoch bump is enforced on the async
+    // side).
+    _translationEpoch++;
+    _translationQueue.clear();
+    _translatingPage = null;
+
     emit(state.copyWith(
       status: ReaderStatus.loading,
       sourceId: event.sourceId,
@@ -154,6 +172,8 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
       showControls: false,
       isProgressiveLoading: false,
       currentPage: event.initialPage,
+      translationEnabled: false,
+      pageTranslations: const {},
     ));
 
     try {
@@ -488,7 +508,9 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
 
   void _enqueueTranslate(int pageIndex) {
     if (pageIndex < 0 || pageIndex >= state.images.length) return;
-    if (_translationQueue.contains(pageIndex)) return;
+    if (pageIndex == _translatingPage || _translationQueue.contains(pageIndex)) {
+      return;
+    }
     _translationQueue.add(pageIndex);
     unawaited(_drainTranslationQueue());
   }
@@ -497,7 +519,18 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
     if (_translatingPage != null || _translationQueue.isEmpty) return;
     final pageIndex = _translationQueue.removeFirst();
     _translatingPage = pageIndex;
+    // Captured once, before any `await`: if the user navigates to a
+    // different chapter while this translation is in flight, `state` will
+    // have already moved on to the new chapter's sourceId/mangaId/chapterId
+    // by the time we get past the awaits below. Using the captured locals
+    // (instead of re-reading `state.xxx`) ensures the pipeline is always
+    // called with the ids of the chapter the image actually belongs to.
+    final epoch = _translationEpoch;
+    final sourceId = state.sourceId;
+    final mangaId = state.mangaId;
+    final chapterId = state.chapterId;
     _updatePageStatus(
+      epoch,
       pageIndex,
       const PageTranslationInfo(status: PageTranslationStatus.loading),
     );
@@ -505,9 +538,9 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
       final image = state.images[pageIndex];
       final bytes = await _loadImageBytes(
         image: image,
-        sourceId: state.sourceId,
-        mangaId: state.mangaId,
-        chapterId: state.chapterId,
+        sourceId: sourceId,
+        mangaId: mangaId,
+        chapterId: chapterId,
         imageIndex: pageIndex,
       );
       final decoded = img.decodeImage(bytes);
@@ -515,13 +548,14 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
           ? Size(decoded.width.toDouble(), decoded.height.toDouble())
           : null;
       final result = await _translationPipeline.translatePage(
-        state.sourceId,
-        state.mangaId,
-        state.chapterId,
+        sourceId,
+        mangaId,
+        chapterId,
         pageIndex,
         bytes,
       );
       _updatePageStatus(
+        epoch,
         pageIndex,
         PageTranslationInfo(
           status: PageTranslationStatus.done,
@@ -529,8 +563,10 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
           imageSize: imageSize,
         ),
       );
-    } catch (e) {
+    } catch (e, stack) {
+      _log.warning('Translation failed for page $pageIndex: $e', e, stack);
       _updatePageStatus(
+        epoch,
         pageIndex,
         PageTranslationInfo(
           status: PageTranslationStatus.error,
@@ -547,8 +583,15 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
   /// scoped [Emitter]) because this is invoked from a detached async chain
   /// ([_drainTranslationQueue] is fire-and-forget, mirroring the existing
   /// [_applySettings] pattern below).
-  void _updatePageStatus(int pageIndex, PageTranslationInfo info) {
+  ///
+  /// [epoch] is the `_translationEpoch` value captured by
+  /// [_drainTranslationQueue] when this translation was kicked off. If the
+  /// user has since navigated to a different chapter, `_translationEpoch`
+  /// will have moved on and this result is discarded (not emitted) instead
+  /// of being written into the new chapter's `pageTranslations`.
+  void _updatePageStatus(int epoch, int pageIndex, PageTranslationInfo info) {
     if (isClosed) return;
+    if (epoch != _translationEpoch) return;
     // ignore: invalid_use_of_visible_for_testing_member
     emit(state.copyWith(
       pageTranslations: {...state.pageTranslations, pageIndex: info},
