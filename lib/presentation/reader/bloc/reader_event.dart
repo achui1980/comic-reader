@@ -149,3 +149,35 @@ class ImagesUpdated extends ReaderEvent {
   @override
   List<Object?> get props => [images, isComplete, chapterTitle, errorMessage];
 }
+
+/// User toggled the reader's translation switch on/off. When enabled, the
+/// currently visible page is immediately queued for translation.
+class TranslateChapterToggled extends ReaderEvent {
+  final bool enabled;
+  const TranslateChapterToggled({required this.enabled});
+
+  @override
+  List<Object?> get props => [enabled];
+}
+
+/// Dispatched (e.g. from scroll callbacks) when a page becomes visible and
+/// may need translating. Idempotent: ignored if translation is disabled or
+/// the page is already idle/loading/done/error.
+class TranslatePageRequested extends ReaderEvent {
+  final int pageIndex;
+  const TranslatePageRequested({required this.pageIndex});
+
+  @override
+  List<Object?> get props => [pageIndex];
+}
+
+/// User tapped the error badge's retry action. Unlike
+/// [TranslatePageRequested], this unconditionally re-queues the page even if
+/// it's currently in an `error` state.
+class TranslatePageRetried extends ReaderEvent {
+  final int pageIndex;
+  const TranslatePageRetried({required this.pageIndex});
+
+  @override
+  List<Object?> get props => [pageIndex];
+}
