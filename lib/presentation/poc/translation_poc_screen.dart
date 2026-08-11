@@ -1,4 +1,6 @@
 import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:get_it/get_it.dart';
 import 'package:image_picker/image_picker.dart';
@@ -6,6 +8,7 @@ import '../../data/translation/models/page_translation.dart';
 import '../../data/translation/translation_cache_store.dart';
 import '../../data/translation/translation_model_manager.dart';
 import '../../data/translation/translation_pipeline.dart';
+import 'translation_overlay_painter.dart';
 
 class TranslationPocScreen extends StatefulWidget {
   const TranslationPocScreen({super.key});
@@ -17,6 +20,8 @@ class _TranslationPocScreenState extends State<TranslationPocScreen> {
   bool _busy = false;
   String _status = '点击"下载模型"（首次使用），然后选图并翻译';
   PageTranslation? _result;
+  ui.Image? _sourceImage;
+  bool _showComposed = false;
 
   Future<void> _downloadModels() async {
     setState(() {
@@ -72,6 +77,8 @@ class _TranslationPocScreenState extends State<TranslationPocScreen> {
       }
       setState(() => _status = '识别 + 翻译中...');
       final bytes = await picked.readAsBytes();
+      final codec = await ui.instantiateImageCodec(bytes);
+      final frame = await codec.getNextFrame();
       final pipeline = GetIt.instance<TranslationPipeline>();
       final result = await pipeline.translatePage(
         'debug_source',
@@ -82,6 +89,7 @@ class _TranslationPocScreenState extends State<TranslationPocScreen> {
       );
       setState(() {
         _result = result;
+        _sourceImage = frame.image;
         _status = '完成，共 ${result.regions.length} 区域';
       });
     } catch (e) {
@@ -115,6 +123,11 @@ class _TranslationPocScreenState extends State<TranslationPocScreen> {
                   onPressed: _busy ? null : _clearCache,
                   child: const Text('清空缓存'),
                 ),
+                if (_sourceImage != null)
+                  OutlinedButton(
+                    onPressed: () => setState(() => _showComposed = !_showComposed),
+                    child: Text(_showComposed ? '查看文字列表' : '查看合成图预览'),
+                  ),
               ],
             ),
           ),
@@ -124,18 +137,32 @@ class _TranslationPocScreenState extends State<TranslationPocScreen> {
           ),
           const Divider(),
           Expanded(
-            child: ListView.builder(
-              itemCount: regions.length,
-              itemBuilder: (_, i) {
-                final r = regions[i];
-                return ListTile(
-                  dense: true,
-                  isThreeLine: true,
-                  title: Text(r.translatedText ?? '(未翻译)'),
-                  subtitle: Text('原文: ${r.originalText}\nbox=${r.box}'),
-                );
-              },
-            ),
+            child: _showComposed && _sourceImage != null
+                ? InteractiveViewer(
+                    child: Center(
+                      child: AspectRatio(
+                        aspectRatio: _sourceImage!.width / _sourceImage!.height,
+                        child: CustomPaint(
+                          painter: TranslationOverlayPainter(
+                            image: _sourceImage!,
+                            regions: regions,
+                          ),
+                        ),
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    itemCount: regions.length,
+                    itemBuilder: (_, i) {
+                      final r = regions[i];
+                      return ListTile(
+                        dense: true,
+                        isThreeLine: true,
+                        title: Text(r.translatedText ?? '(未翻译)'),
+                        subtitle: Text('原文: ${r.originalText}\nbox=${r.box}'),
+                      );
+                    },
+                  ),
           ),
         ],
       ),
