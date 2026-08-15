@@ -10,6 +10,7 @@
 .history
 .svn/
 .swiftpm/
+**/xcshareddata/swiftpm/
 migrate_working_dir/
 
 # IntelliJ related
@@ -47,3 +48,13 @@ app.*.map.json
 graphify-out/
 .opencode/
 .superpowers/
+
+# Local ONNX model weights (downloaded at runtime, never committed — see
+# tools/download_models.sh and lib/data/translation/translation_model_manager.dart)
+assets/models/**/*.onnx
+assets/models/*.onnx
+assets/models/**/*.bin
+assets/models/*.bin
+assets/models/manga-ocr/*.json
+assets/models/manga-ocr/*.txt
+**/translation_service/**
