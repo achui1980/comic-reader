@@ -102,69 +102,85 @@ class _TranslationPocScreenState extends State<TranslationPocScreen> {
   @override
   Widget build(BuildContext context) {
     final regions = _result?.regions ?? const [];
-    return Scaffold(
-      appBar: AppBar(title: const Text('翻译管道调试页')),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: Wrap(
-              spacing: 12,
-              children: [
-                ElevatedButton(
-                  onPressed: _busy ? null : _downloadModels,
-                  child: const Text('下载模型'),
-                ),
-                ElevatedButton(
-                  onPressed: _busy ? null : _pickAndTranslate,
-                  child: const Text('选图并翻译'),
-                ),
-                OutlinedButton(
-                  onPressed: _busy ? null : _clearCache,
-                  child: const Text('清空缓存'),
-                ),
-                if (_sourceImage != null)
-                  OutlinedButton(
-                    onPressed: () => setState(() => _showComposed = !_showComposed),
-                    child: Text(_showComposed ? '查看文字列表' : '查看合成图预览'),
+    return PopScope(
+      // 忙碌中禁止退出：downloadAll 没有互斥锁，从这里退出去再从「漫画翻译」
+      // 设置页点下载，会有两个 downloadAll 并发写同一个 .part 文件。
+      canPop: !_busy,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _busy) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('处理中，请等待完成')),
+          );
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(title: const Text('翻译管道调试页')),
+        body: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Wrap(
+                spacing: 12,
+                children: [
+                  ElevatedButton(
+                    onPressed: _busy ? null : _downloadModels,
+                    child: const Text('下载模型'),
                   ),
-              ],
+                  ElevatedButton(
+                    onPressed: _busy ? null : _pickAndTranslate,
+                    child: const Text('选图并翻译'),
+                  ),
+                  OutlinedButton(
+                    onPressed: _busy ? null : _clearCache,
+                    child: const Text('清空缓存'),
+                  ),
+                  if (_sourceImage != null)
+                    OutlinedButton(
+                      onPressed: () =>
+                          setState(() => _showComposed = !_showComposed),
+                      child:
+                          Text(_showComposed ? '查看文字列表' : '查看合成图预览'),
+                    ),
+                ],
+              ),
             ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Text(_status),
-          ),
-          const Divider(),
-          Expanded(
-            child: _showComposed && _sourceImage != null
-                ? InteractiveViewer(
-                    child: Center(
-                      child: AspectRatio(
-                        aspectRatio: _sourceImage!.width / _sourceImage!.height,
-                        child: CustomPaint(
-                          painter: TranslationOverlayPainter(
-                            image: _sourceImage!,
-                            regions: regions,
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(_status),
+            ),
+            const Divider(),
+            Expanded(
+              child: _showComposed && _sourceImage != null
+                  ? InteractiveViewer(
+                      child: Center(
+                        child: AspectRatio(
+                          aspectRatio:
+                              _sourceImage!.width / _sourceImage!.height,
+                          child: CustomPaint(
+                            painter: TranslationOverlayPainter(
+                              image: _sourceImage!,
+                              regions: regions,
+                            ),
                           ),
                         ),
                       ),
+                    )
+                  : ListView.builder(
+                      itemCount: regions.length,
+                      itemBuilder: (_, i) {
+                        final r = regions[i];
+                        return ListTile(
+                          dense: true,
+                          isThreeLine: true,
+                          title: Text(r.translatedText ?? '(未翻译)'),
+                          subtitle:
+                              Text('原文: ${r.originalText}\nbox=${r.box}'),
+                        );
+                      },
                     ),
-                  )
-                : ListView.builder(
-                    itemCount: regions.length,
-                    itemBuilder: (_, i) {
-                      final r = regions[i];
-                      return ListTile(
-                        dense: true,
-                        isThreeLine: true,
-                        title: Text(r.translatedText ?? '(未翻译)'),
-                        subtitle: Text('原文: ${r.originalText}\nbox=${r.box}'),
-                      );
-                    },
-                  ),
-          ),
-        ],
+            ),
+          ],
+        ),
       ),
     );
   }
