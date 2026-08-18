@@ -150,10 +150,15 @@ class TranslationModelManager {
     if (missing.isNotEmpty) throw ModelNotReadyException(missing);
   }
 
-  /// Downloads every model file that is missing or has the wrong size,
-  /// streaming to disk. [onProgress] reports `(relativePath, receivedBytes,
-  /// totalBytes)` for each file as it downloads (and once immediately, with
-  /// received==total, for files that are already present).
+  /// 下载缺失/字节数不符的模型文件，流式写入 `<name>.part` 后改名转正。
+  ///
+  /// 断点续传：`.part` 在失败时**保留**，下次调用带 `Range: bytes=N-` 从中断处
+  /// 继续；服务器忽略 Range（返回 200 而非 206）时退化为从头重下。
+  /// [onProgress] 报告 `(relativePath, receivedBytes, totalBytes)`，已就绪的
+  /// 文件会立刻回调一次 received == total。
+  ///
+  /// 无互斥锁：调用方必须保证同一时刻只有一个 [downloadAll] 在跑（UI 侧用
+  /// `PopScope(canPop: false)` + 禁用按钮实现）。
   Future<void> downloadAll({
     void Function(String file, int received, int total)? onProgress,
   }) async {
@@ -165,17 +170,43 @@ class TranslationModelManager {
         continue;
       }
       await file.parent.create(recursive: true);
+
+      final part = io.File('$path.part');
+      final existing = await part.exists() ? await part.length() : 0;
+      final decision = decideResume(
+        existingBytes: existing,
+        totalBytes: spec.sizeBytes,
+      );
+      if (decision.action == ResumeAction.skip) {
+        await part.rename(path);
+        onProgress?.call(spec.relativePath, spec.sizeBytes, spec.sizeBytes);
+        continue;
+      }
+      if (decision.action == ResumeAction.restart && existing > 0) {
+        await part.delete();
+      }
+
+      var received = decision.startOffset;
       final client = io.HttpClient();
       try {
         final request = await client.getUrl(Uri.parse(spec.url));
+        if (received > 0) {
+          request.headers.set(io.HttpHeaders.rangeHeader, 'bytes=$received-');
+        }
         final response = await request.close();
-        if (response.statusCode != 200) {
+        final code = response.statusCode;
+        if (code != 200 && code != 206) {
           throw StateError(
               '下载失败 ${spec.relativePath}: HTTP ${response.statusCode}');
         }
-        final sink = file.openWrite();
-        var received = 0;
+        // 服务器忽略了 Range：只能丢掉已有前缀从头写。
+        if (code == 200 && received > 0) received = 0;
+
+        final sink = part.openWrite(
+          mode: received > 0 ? io.FileMode.append : io.FileMode.write,
+        );
         try {
+          onProgress?.call(spec.relativePath, received, spec.sizeBytes);
           await for (final chunk in response) {
             sink.add(chunk);
             received += chunk.length;
@@ -184,12 +215,18 @@ class TranslationModelManager {
         } finally {
           await sink.close();
         }
-      } catch (e) {
-        if (await file.exists()) await file.delete();
-        rethrow;
       } finally {
         client.close(force: true);
       }
+
+      // 失败时不删 `.part`（留给下次续传），只有长度达标才转正。
+      final downloaded = await part.length();
+      if (downloaded != spec.sizeBytes) {
+        throw StateError(
+            '下载不完整 ${spec.relativePath}: $downloaded/${spec.sizeBytes}');
+      }
+      await part.rename(path);
+      onProgress?.call(spec.relativePath, spec.sizeBytes, spec.sizeBytes);
     }
   }
 }
