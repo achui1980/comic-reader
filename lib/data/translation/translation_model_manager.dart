@@ -64,6 +64,41 @@ class ModelNotReadyException implements Exception {
   String toString() => 'ModelNotReadyException: missing ${missing.join(", ")}';
 }
 
+/// 断点续传的三种走向。
+enum ResumeAction {
+  /// `.part` 已经是完整文件，直接改名转正。
+  skip,
+
+  /// `.part` 是有效前缀，带 `Range: bytes=<offset>-` 续下。
+  resume,
+
+  /// 没有 `.part`，或 `.part` 比目标还长（脏数据），从 0 重下。
+  restart,
+}
+
+/// 续传决策结果。[startOffset] 只在 [ResumeAction.resume] 时有意义。
+class ResumeDecision {
+  const ResumeDecision(this.action, this.startOffset);
+  final ResumeAction action;
+  final int startOffset;
+}
+
+/// 纯函数：根据本地 `.part` 已有字节数 [existingBytes] 与目标总字节数
+/// [totalBytes] 决定如何继续下载。抽成纯函数是为了可单测——[downloadAll]
+/// 内部用的是裸 `HttpClient`，无法注入 mock。
+ResumeDecision decideResume({
+  required int existingBytes,
+  required int totalBytes,
+}) {
+  if (existingBytes == totalBytes) {
+    return const ResumeDecision(ResumeAction.skip, 0);
+  }
+  if (existingBytes <= 0 || existingBytes > totalBytes) {
+    return const ResumeDecision(ResumeAction.restart, 0);
+  }
+  return ResumeDecision(ResumeAction.resume, existingBytes);
+}
+
 /// Downloads and verifies the ONNX model files used for on-device manga
 /// translation, storing them under the app's documents directory (not
 /// bundled as assets — they total ~460MB).

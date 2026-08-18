@@ -101,4 +101,30 @@ void main() {
       expect(await manager.isReady(), isFalse);
     });
   });
+
+  group('decideResume', () {
+    test('skips when the partial file already has every byte', () {
+      final d = decideResume(existingBytes: 100, totalBytes: 100);
+      expect(d.action, ResumeAction.skip);
+      expect(d.startOffset, 0);
+    });
+
+    test('resumes from the existing byte count when partially downloaded', () {
+      final d = decideResume(existingBytes: 40, totalBytes: 100);
+      expect(d.action, ResumeAction.resume);
+      expect(d.startOffset, 40);
+    });
+
+    test('restarts when the partial file is longer than expected', () {
+      final d = decideResume(existingBytes: 140, totalBytes: 100);
+      expect(d.action, ResumeAction.restart);
+      expect(d.startOffset, 0);
+    });
+
+    test('restarts when nothing has been downloaded yet', () {
+      final d = decideResume(existingBytes: 0, totalBytes: 100);
+      expect(d.action, ResumeAction.restart);
+      expect(d.startOffset, 0);
+    });
+  });
 }
