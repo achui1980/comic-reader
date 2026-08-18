@@ -127,4 +127,95 @@ void main() {
       expect(d.startOffset, 0);
     });
   });
+
+  group('isResumeContentRangeAcceptable', () {
+    test('accepts a well-formed header whose start and total both match', () {
+      expect(
+        isResumeContentRangeAcceptable(
+          'bytes 400-1023/1024',
+          expectedStart: 400,
+          expectedTotal: 1024,
+        ),
+        isTrue,
+      );
+    });
+
+    test('rejects a header whose start does not match the requested offset',
+        () {
+      expect(
+        isResumeContentRangeAcceptable(
+          'bytes 512-1023/1024',
+          expectedStart: 400,
+          expectedTotal: 1024,
+        ),
+        isFalse,
+      );
+    });
+
+    test('rejects a header whose total differs from the expected size', () {
+      expect(
+        isResumeContentRangeAcceptable(
+          'bytes 400-2047/2048',
+          expectedStart: 400,
+          expectedTotal: 1024,
+        ),
+        isFalse,
+      );
+    });
+
+    test('rejects a missing header', () {
+      expect(
+        isResumeContentRangeAcceptable(
+          null,
+          expectedStart: 400,
+          expectedTotal: 1024,
+        ),
+        isFalse,
+      );
+    });
+
+    test('rejects an unsatisfied-range header with an unknown start', () {
+      expect(
+        isResumeContentRangeAcceptable(
+          'bytes */1024',
+          expectedStart: 400,
+          expectedTotal: 1024,
+        ),
+        isFalse,
+      );
+    });
+
+    test('rejects a header with an unknown total length', () {
+      expect(
+        isResumeContentRangeAcceptable(
+          'bytes 400-1023/*',
+          expectedStart: 400,
+          expectedTotal: 1024,
+        ),
+        isFalse,
+      );
+    });
+
+    test('rejects garbage', () {
+      expect(
+        isResumeContentRangeAcceptable(
+          'garbage',
+          expectedStart: 400,
+          expectedTotal: 1024,
+        ),
+        isFalse,
+      );
+    });
+
+    test('rejects an empty header', () {
+      expect(
+        isResumeContentRangeAcceptable(
+          '',
+          expectedStart: 400,
+          expectedTotal: 1024,
+        ),
+        isFalse,
+      );
+    });
+  });
 }

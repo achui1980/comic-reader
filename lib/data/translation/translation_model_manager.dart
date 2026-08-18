@@ -99,6 +99,34 @@ ResumeDecision decideResume({
   return ResumeDecision(ResumeAction.resume, existingBytes);
 }
 
+/// 纯函数：判断 206 响应的 `Content-Range` 头能否被安全地当成「接着 `.part`
+/// 往后写」来使用。合法头形如 `bytes 400-1023/1024`。
+///
+/// 头缺失、格式不合法（如 `bytes */1024`）、起点不等于 [expectedStart]、或
+/// 总长不等于 [expectedTotal] 时返回 false —— 此时 `[0..N)` 与 `[N..)` 可能
+/// 来自服务端/CDN 上两个不同 revision，拼出的长度若恰好等于期望值就会通过
+/// [TranslationModelManager.downloadAll] 末尾的长度校验被误转正，而本功能
+/// 不提供删除模型的入口，用户无从自救。抽成纯函数是为了可单测——
+/// [TranslationModelManager.downloadAll] 内部用的是裸 `HttpClient`，无法注入
+/// mock。
+bool isResumeContentRangeAcceptable(
+  String? header, {
+  required int expectedStart,
+  required int expectedTotal,
+}) {
+  if (header == null) return false;
+  final match =
+      RegExp(r'^\s*bytes\s+(\d+)\s*-\s*(\d+)\s*/\s*(\d+)\s*$').firstMatch(header);
+  if (match == null) return false;
+  final start = int.tryParse(match.group(1)!);
+  final end = int.tryParse(match.group(2)!);
+  final total = int.tryParse(match.group(3)!);
+  // `\d+` 已保证是数字，tryParse 只会在超出 int64 时返回 null。
+  if (start == null || end == null || total == null) return false;
+  if (end < start) return false;
+  return start == expectedStart && total == expectedTotal;
+}
+
 /// Downloads and verifies the ONNX model files used for on-device manga
 /// translation, storing them under the app's documents directory (not
 /// bundled as assets — they total ~460MB).
@@ -201,6 +229,18 @@ class TranslationModelManager {
         }
         // 服务器忽略了 Range：只能丢掉已有前缀从头写。
         if (code == 200 && received > 0) received = 0;
+        // 206 但 Content-Range 与本次续传请求不符（服务端对象已变更 / CDN 命中
+        // 了另一个 revision）：续写会把两个版本的字节拼在一起，长度恰好达标时
+        // 会被误转正。等同 restart —— received 归零后下面用 FileMode.write
+        // （自带 truncate）丢弃 `.part` 从头写。
+        if (code == 206 &&
+            !isResumeContentRangeAcceptable(
+              response.headers.value(io.HttpHeaders.contentRangeHeader),
+              expectedStart: received,
+              expectedTotal: spec.sizeBytes,
+            )) {
+          received = 0;
+        }
 
         final sink = part.openWrite(
           mode: received > 0 ? io.FileMode.append : io.FileMode.write,
