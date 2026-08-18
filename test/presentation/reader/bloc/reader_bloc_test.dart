@@ -280,6 +280,19 @@ void main() {
   });
 
   group('Translation', () {
+    // The manga-translation feature toggle (AppSettings.mangaTranslationEnabled)
+    // gates TranslateChapterToggled, so every test in this group runs with the
+    // toggle on unless it explicitly re-stubs settingsStore.load().
+    setUp(() {
+      when(() => settingsStore.load()).thenAnswer(
+        (_) async => const settings.AppSettings(
+          layoutMode: settings.LayoutMode.horizontal,
+          readingDirection: settings.ReadingDirection.ltr,
+          mangaTranslationEnabled: true,
+        ),
+      );
+    });
+
     const chapterOne = ChapterItem(id: 'c1', mangaId: 'manga', title: 'Ch 1');
 
     ReaderState seedState({List<ChapterImage>? images}) {
@@ -789,6 +802,52 @@ void main() {
               0,
               any(),
             )).called(2);
+      },
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'mirrors AppSettings.mangaTranslationEnabled into translationFeatureEnabled',
+      setUp: () {
+        when(() => settingsStore.load()).thenAnswer(
+          (_) async => const settings.AppSettings(
+            layoutMode: settings.LayoutMode.vertical,
+            mangaTranslationEnabled: true,
+          ),
+        );
+      },
+      build: buildBlocWithTranslation,
+      wait: const Duration(milliseconds: 10),
+      verify: (bloc) {
+        expect(bloc.state.translationFeatureEnabled, isTrue);
+      },
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'ignores TranslateChapterToggled while the feature toggle is off',
+      setUp: () {
+        when(() => settingsStore.load()).thenAnswer(
+          (_) async => const settings.AppSettings(
+            layoutMode: settings.LayoutMode.horizontal,
+            readingDirection: settings.ReadingDirection.ltr,
+          ),
+        );
+      },
+      build: buildBlocWithTranslation,
+      // Seeded with one image so the guard is what stops the translation, not
+      // the empty-images bail-out inside _enqueueTranslate.
+      seed: seedState,
+      wait: const Duration(milliseconds: 10),
+      act: (bloc) => bloc.add(const TranslateChapterToggled(enabled: true)),
+      verify: (bloc) {
+        expect(bloc.state.translationFeatureEnabled, isFalse);
+        expect(bloc.state.translationEnabled, isFalse);
+        verifyNever(() => translationPipeline.translatePage(
+              any(),
+              any(),
+              any(),
+              any(),
+              any(),
+            ));
       },
     );
   });

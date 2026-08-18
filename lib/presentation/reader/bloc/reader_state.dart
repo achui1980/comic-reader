@@ -91,6 +91,9 @@ class ReaderState extends Equatable {
   final bool showTapZones;
 
   // --- Manga translation overlay (vertical reader only) ---
+  /// 漫画翻译功能总开关（AppSettings.mangaTranslationEnabled 的镜像）。
+  /// 由 ReaderBloc 构造时读一次，决定顶栏是否渲染翻译按钮。
+  final bool translationFeatureEnabled;
   /// Whether the user has toggled on translation for the current session.
   /// Not persisted; resets to false every time the reader is opened.
   final bool translationEnabled;
@@ -125,6 +128,7 @@ class ReaderState extends Equatable {
     this.showPageNumber = true,
     this.tapZonesInvert = false,
     this.showTapZones = false,
+    this.translationFeatureEnabled = false,
     this.translationEnabled = false,
     this.pageTranslations = const {},
   });
@@ -157,6 +161,7 @@ class ReaderState extends Equatable {
     bool? showPageNumber,
     bool? tapZonesInvert,
     bool? showTapZones,
+    bool? translationFeatureEnabled,
     bool? translationEnabled,
     Map<int, PageTranslationInfo>? pageTranslations,
   }) {
@@ -188,6 +193,8 @@ class ReaderState extends Equatable {
       showPageNumber: showPageNumber ?? this.showPageNumber,
       tapZonesInvert: tapZonesInvert ?? this.tapZonesInvert,
       showTapZones: showTapZones ?? this.showTapZones,
+      translationFeatureEnabled:
+          translationFeatureEnabled ?? this.translationFeatureEnabled,
       translationEnabled: translationEnabled ?? this.translationEnabled,
       pageTranslations: pageTranslations ?? this.pageTranslations,
     );
@@ -248,6 +255,7 @@ class ReaderState extends Equatable {
         showPageNumber,
         tapZonesInvert,
         showTapZones,
+        translationFeatureEnabled,
         translationEnabled,
         pageTranslations,
       ];

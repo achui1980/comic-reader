@@ -113,6 +113,7 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
       showPageNumber: s.showPageNumber,
       tapZonesInvert: s.tapZonesInvert,
       showTapZones: s.showTapZones,
+      translationFeatureEnabled: s.mangaTranslationEnabled,
     ));
 
     if (s.autoPageTurn) {
@@ -480,6 +481,8 @@ class ReaderBloc extends Bloc<ReaderEvent, ReaderState> {
 
   Future<void> _onTranslateChapterToggled(
       TranslateChapterToggled event, Emitter<ReaderState> emit) async {
+    // 总开关关闭时忽略事件（按钮本就不该渲染，这是纵深防御）。
+    if (!state.translationFeatureEnabled) return;
     emit(state.copyWith(translationEnabled: event.enabled));
     if (event.enabled) {
       _enqueueTranslate(state.currentPage);
