@@ -102,6 +102,10 @@ void main() {
 
     expect(await store.get('s', 'm', 'c', 0), isNull);
     expect(await store.get('s2', 'm2', 'c2', 3), isNull);
+    expect(
+      Directory('${tempDir.path}/translation_cache').existsSync(),
+      isFalse,
+    );
   });
 
   test('clearAll is a no-op when the cache directory does not exist',

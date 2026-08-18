@@ -230,7 +230,7 @@ HuggingFace 走 CloudFront，Range 支持良好。
 
 ### 4.3 清空翻译缓存
 
-`TranslationCacheStore` 新增 `clearAll()`：`kIsWeb` 直接 return；目录不存在时静默返回；`Directory.delete(recursive: true)` 包 try/catch，失败弹 SnackBar。
+`TranslationCacheStore` 新增 `clearAll()`：`kIsWeb` 直接 return；目录不存在时静默返回；`Directory.delete(recursive: true)` **不在 store 层捕获异常**，异常直接向上抛；由调用方（设置页）用 try/catch 包住 `clearAll()` 调用，失败时弹 SnackBar。store 里 catch 掉的话 UI 永远拿不到失败信号，SnackBar 就弹不出来。
 
 删除前走 `section_widgets.dart` 已有的确认对话框，文案说明「已翻译的页面需要重新调用 AI 翻译」。此操作**不清模型**。
 
