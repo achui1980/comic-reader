@@ -27,11 +27,37 @@ class _TranslationSettingsScreenState extends State<TranslationSettingsScreen> {
 
   /// null = 检测中
   bool? _modelsReady;
+
+  /// isReady() 抛异常时的错误文本（与下载失败区分开）。
   String? _modelsError;
+
+  /// 上一次 downloadAll 失败（决定按钮显示「重试下载」）。
+  bool _downloadFailed = false;
   bool _downloading = false;
-  int _received = 0;
-  int _total = 0;
+
+  /// relativePath -> 该文件已收字节数。downloadAll 的 onProgress 是**逐文件**
+  /// 进度，这里按文件累计以合成总进度；已完成/续传的文件会立刻回调
+  /// received == total，因此不需要关心文件顺序。
+  final Map<String, int> _receivedByFile = {};
+
+  /// 全部模型文件字节数之和（从常量求和，避免硬编码）。
+  static final int _totalBytes =
+      kTranslationModelFiles.fold<int>(0, (sum, f) => sum + f.sizeBytes);
+
   bool _aiUsable = false;
+
+  /// 总下载进度 0.0~1.0，无法计算（总大小为 0）时为 null。
+  /// received 可能超过 total（服务器多发字节），必须夹紧，否则
+  /// LinearProgressIndicator 会断言失败、百分比会显示 101%。
+  double? get _progress {
+    if (_totalBytes <= 0) return null;
+    final received =
+        _receivedByFile.values.fold<int>(0, (sum, v) => sum + v);
+    return (received / _totalBytes).clamp(0.0, 1.0);
+  }
+
+  /// 由 [_progress] 派生，因此天然被夹在 0~100。
+  int get _percent => ((_progress ?? 0) * 100).floor();
 
   @override
   void initState() {
@@ -44,6 +70,7 @@ class _TranslationSettingsScreenState extends State<TranslationSettingsScreen> {
     setState(() {
       _modelsReady = null;
       _modelsError = null;
+      _downloadFailed = false;
     });
     try {
       final ready = await _models.isReady();
@@ -59,29 +86,35 @@ class _TranslationSettingsScreenState extends State<TranslationSettingsScreen> {
   }
 
   Future<void> _refreshAiStatus() async {
-    final config = await _aiStore.load();
-    if (!mounted) return;
-    setState(() => _aiUsable = config.isUsable);
+    // load() 会做 JSON 解析 + SecureStore 读取，两者都可能抛；这里由
+    // initState fire-and-forget 调用，不能让异常逃逸成未捕获异步异常。
+    try {
+      final config = await _aiStore.load();
+      if (!mounted) return;
+      setState(() => _aiUsable = config.isUsable);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _aiUsable = false);
+    }
   }
 
   Future<void> _download() async {
     setState(() {
       _downloading = true;
-      _received = 0;
-      _total = 0;
+      _downloadFailed = false;
+      _receivedByFile.clear();
     });
     try {
       await _models.downloadAll(onProgress: (file, received, total) {
         if (!mounted) return;
-        setState(() {
-          _received = received;
-          _total = total;
-        });
+        setState(() => _receivedByFile[file] = received);
       });
       if (!mounted) return;
       setState(() {
         _downloading = false;
         _modelsReady = true;
+        // 之前 isReady() 检测失败过的话，此刻结论已被下载成功推翻。
+        _modelsError = null;
       });
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('模型下载完成')));
@@ -90,6 +123,9 @@ class _TranslationSettingsScreenState extends State<TranslationSettingsScreen> {
       setState(() {
         _downloading = false;
         _modelsReady = false;
+        // 下载失败后不再声称「无法检测」：状态确定为「未下载」+「重试下载」。
+        _modelsError = null;
+        _downloadFailed = true;
       });
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('下载失败：$e')));
@@ -101,33 +137,22 @@ class _TranslationSettingsScreenState extends State<TranslationSettingsScreen> {
       context,
       title: '清空翻译缓存',
       content: '删除所有已缓存的翻译结果。已翻译过的页面下次阅读时需要重新调用 AI 翻译。',
-      onConfirm: () async {
-        try {
-          await _cache.clearAll();
-        } catch (e) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context)
-              .showSnackBar(SnackBar(content: Text('清空失败：$e')));
-        }
-      },
+      // 不在这里 catch：helper 只在成功时提示「完成」，失败时由它提示
+      // 「清空翻译缓存 失败：$e」，避免一次失败弹出两条相反的 SnackBar。
+      onConfirm: _cache.clearAll,
     );
   }
 
   String get _modelStatusText {
-    if (_downloading) {
-      final pct = _total > 0 ? (_received * 100 / _total).floor() : 0;
-      return '下载中 $pct%';
-    }
-    if (_modelsError != null) return '无法检测（$_modelsError）';
+    if (_downloading) return '下载中 $_percent%';
     if (_modelsReady == null) return '检测中…';
-    return _modelsReady! ? '已就绪' : '未下载（约 460MB）';
+    if (_modelsReady!) return '已就绪';
+    if (_modelsError != null) return '无法检测（$_modelsError）';
+    return '未下载（约 460MB）';
   }
 
   Widget? _modelTrailing() {
-    if (_downloading) {
-      final pct = _total > 0 ? (_received * 100 / _total).floor() : 0;
-      return Text('$pct%');
-    }
+    if (_downloading) return Text('$_percent%');
     if (_modelsReady == true) {
       return const Icon(Icons.check_circle, color: Colors.green);
     }
@@ -138,9 +163,10 @@ class _TranslationSettingsScreenState extends State<TranslationSettingsScreen> {
         child: CircularProgressIndicator(strokeWidth: 2),
       );
     }
+    final retry = _modelsError != null || _downloadFailed;
     return TextButton(
       onPressed: _download,
-      child: Text(_modelsError == null ? '下载' : '重试下载'),
+      child: Text(retry ? '重试下载' : '下载'),
     );
   }
 
@@ -185,13 +211,7 @@ class _TranslationSettingsScreenState extends State<TranslationSettingsScreen> {
                   if (_downloading)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: LinearProgressIndicator(
-                        // received 可能超过 total（服务器多发字节），必须夹紧，
-                        // 否则 LinearProgressIndicator 会断言失败。
-                        value: _total > 0
-                            ? (_received / _total).clamp(0.0, 1.0)
-                            : null,
-                      ),
+                      child: LinearProgressIndicator(value: _progress),
                     ),
                   buildSettingsSectionHeader('AI 服务'),
                   ListTile(

@@ -18,6 +18,11 @@ Widget buildSettingsSectionHeader(String title) {
 
 /// Generic confirm/cancel dialog used by data-management actions (was
 /// `_SettingsView._showConfirmDialog`).
+///
+/// 「$title 完成」只在 [onConfirm] 正常返回时提示；抛异常时改提示
+/// 「$title 失败：$e」并**吞掉**异常（`onPressed` 是 fire-and-forget 的
+/// 异步回调，向上抛只会变成未捕获异步异常）。因此调用方不要自己再 catch
+/// 后静默返回 —— 那会让失败被误报成成功。
 void showSettingsConfirmDialog(
   BuildContext context, {
   required String title,
@@ -37,7 +42,16 @@ void showSettingsConfirmDialog(
         FilledButton(
           onPressed: () async {
             Navigator.pop(ctx);
-            await onConfirm();
+            try {
+              await onConfirm();
+            } catch (e) {
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('$title 失败：$e')),
+                );
+              }
+              return;
+            }
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('$title 完成')),
