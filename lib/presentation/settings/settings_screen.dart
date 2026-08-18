@@ -15,6 +15,7 @@ import 'sections/proxy_section.dart';
 import 'sections/reader_enhancements_section.dart';
 import 'sections/reading_section.dart';
 import 'sections/theme_section.dart';
+import 'sections/translation_section.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -45,6 +46,9 @@ class _SettingsView extends StatelessWidget {
               if (kIsWeb) const WebProxySection() else ProxySection(state: state),
               AdultContentSection(state: state),
               const AiSection(),
+              // Web 端翻译跑不起来（TranslationCacheStore 全 no-op、
+              // NativeMangaTextExtractor 依赖 dart:io），整段隐藏。
+              if (!kIsWeb) TranslationSection(state: state),
               PluginSection(state: state),
               const DataManagementSection(),
               const AboutSection(),
