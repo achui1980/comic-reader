@@ -78,4 +78,14 @@ class TranslationCacheStore {
       await dir.delete(recursive: true);
     }
   }
+
+  /// 删除整个翻译缓存目录。Web 上是 no-op（本类在 web 全程 no-op）。
+  Future<void> clearAll() async {
+    if (kIsWeb) return;
+    final base = await _cachePath;
+    final dir = Directory(base);
+    if (await dir.exists()) {
+      await dir.delete(recursive: true);
+    }
+  }
 }

@@ -79,4 +79,34 @@ void main() {
     await File('${dir.path}/9.json').writeAsString('not json');
     expect(await store.get('src', 'manga', 'ch1', 9), isNull);
   });
+
+  test('clearAll removes every cached page', () async {
+    await store.save(const PageTranslation(
+      sourceId: 's',
+      mangaId: 'm',
+      chapterId: 'c',
+      pageIndex: 0,
+      regions: [],
+      translatedAt: 1,
+    ));
+    await store.save(const PageTranslation(
+      sourceId: 's2',
+      mangaId: 'm2',
+      chapterId: 'c2',
+      pageIndex: 3,
+      regions: [],
+      translatedAt: 1,
+    ));
+
+    await store.clearAll();
+
+    expect(await store.get('s', 'm', 'c', 0), isNull);
+    expect(await store.get('s2', 'm2', 'c2', 3), isNull);
+  });
+
+  test('clearAll is a no-op when the cache directory does not exist',
+      () async {
+    await store.clearAll();
+    await expectLater(store.clearAll(), completes);
+  });
 }
