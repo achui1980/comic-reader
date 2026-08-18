@@ -217,5 +217,16 @@ void main() {
         isFalse,
       );
     });
+
+    test('rejects a self-inconsistent range whose end precedes its start', () {
+      expect(
+        isResumeContentRangeAcceptable(
+          'bytes 400-399/1024',
+          expectedStart: 400,
+          expectedTotal: 1024,
+        ),
+        isFalse,
+      );
+    });
   });
 }

@@ -181,7 +181,8 @@ class TranslationModelManager {
   /// 下载缺失/字节数不符的模型文件，流式写入 `<name>.part` 后改名转正。
   ///
   /// 断点续传：`.part` 在失败时**保留**，下次调用带 `Range: bytes=N-` 从中断处
-  /// 继续；服务器忽略 Range（返回 200 而非 206）时退化为从头重下。
+  /// 继续；服务器忽略 Range（返回 200 而非 206）时退化为从头重下。唯一的例外是
+  /// 206 的 `Content-Range` 与请求不符——此时 `.part` 已不可信，会被删除并抛错。
   /// [onProgress] 报告 `(relativePath, receivedBytes, totalBytes)`，已就绪的
   /// 文件会立刻回调一次 received == total。
   ///
@@ -230,16 +231,27 @@ class TranslationModelManager {
         // 服务器忽略了 Range：只能丢掉已有前缀从头写。
         if (code == 200 && received > 0) received = 0;
         // 206 但 Content-Range 与本次续传请求不符（服务端对象已变更 / CDN 命中
-        // 了另一个 revision）：续写会把两个版本的字节拼在一起，长度恰好达标时
-        // 会被误转正。等同 restart —— received 归零后下面用 FileMode.write
-        // （自带 truncate）丢弃 `.part` 从头写。
-        if (code == 206 &&
-            !isResumeContentRangeAcceptable(
-              response.headers.value(io.HttpHeaders.contentRangeHeader),
-              expectedStart: received,
-              expectedTotal: spec.sizeBytes,
-            )) {
-          received = 0;
+        // 了另一个 revision）：这个响应体是**某个偏移之后的片段**，两种写法都不
+        // 安全 —— 续写会把两个 revision 的字节拼在一起；把它当完整对象写到偏移
+        // 0（FileMode.write）则让文件头部装着对象尾部，且下次调用会把这段错位
+        // 数据当可信前缀继续续传，拼到长度恰好达标后被 rename 误转正，而本功能
+        // 不提供删除模型的入口。所以这个响应体一个字节都不能落盘：删掉脏
+        // `.part` 并中止本轮，下次 `downloadAll` 时 `.part` 不存在，
+        // decideResume 返回 restart，从干净的零状态重下。
+        if (code == 206) {
+          final contentRange =
+              response.headers.value(io.HttpHeaders.contentRangeHeader);
+          if (!isResumeContentRangeAcceptable(
+            contentRange,
+            expectedStart: received,
+            expectedTotal: spec.sizeBytes,
+          )) {
+            if (await part.exists()) await part.delete();
+            throw StateError(
+                '续传范围不符 ${spec.relativePath}: 期望起点 $received、'
+                '总长 ${spec.sizeBytes}，服务器返回 Content-Range '
+                '"$contentRange"；已丢弃 .part，请重新下载');
+          }
         }
 
         final sink = part.openWrite(
