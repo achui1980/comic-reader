@@ -40,6 +40,12 @@ class _TranslationSettingsScreenState extends State<TranslationSettingsScreen> {
   /// received == total，因此不需要关心文件顺序。
   final Map<String, int> _receivedByFile = {};
 
+  /// 进度 setState 节流用的水位。`downloadAll` 的 onProgress 是**逐 HTTP
+  /// chunk** 回调的，460MB / 8~64KB chunk ≈ 7k~58k 次整页 rebuild，低端机上
+  /// 会表现为下载卡死。-1 / 纪元 0 保证每轮下载的第一个回调必定刷新。
+  int _lastPercent = -1;
+  DateTime _lastTick = DateTime.fromMillisecondsSinceEpoch(0);
+
   /// 全部模型文件字节数之和（从常量求和，避免硬编码）。
   static final int _totalBytes =
       kTranslationModelFiles.fold<int>(0, (sum, f) => sum + f.sizeBytes);
@@ -103,11 +109,26 @@ class _TranslationSettingsScreenState extends State<TranslationSettingsScreen> {
       _downloading = true;
       _downloadFailed = false;
       _receivedByFile.clear();
+      _lastPercent = -1;
+      _lastTick = DateTime.fromMillisecondsSinceEpoch(0);
     });
     try {
       await _models.downloadAll(onProgress: (file, received, total) {
         if (!mounted) return;
-        setState(() => _receivedByFile[file] = received);
+        // 先更新累计 map（_percent 由它派生），再决定要不要 rebuild。
+        _receivedByFile[file] = received;
+        final now = DateTime.now();
+        // 某个文件收满时无条件刷新，否则被节流掉的最后一帧会让进度条永远
+        // 停在 99%。received 可能超过 total（服务器多发字节），故用 >=。
+        final isFileDone = received >= total;
+        if (!isFileDone &&
+            _percent == _lastPercent &&
+            now.difference(_lastTick).inMilliseconds < 200) {
+          return;
+        }
+        _lastPercent = _percent;
+        _lastTick = now;
+        setState(() {});
       });
       if (!mounted) return;
       setState(() {
