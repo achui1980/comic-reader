@@ -25,6 +25,7 @@ class ReaderControls extends StatelessWidget {
               sourceId: state.sourceId,
               mangaId: state.mangaId,
               chapterId: state.chapterId,
+              translationFeatureEnabled: state.translationFeatureEnabled,
               translationEnabled: state.translationEnabled,
               layoutMode: state.layoutMode,
             ),
@@ -49,6 +50,7 @@ class _TopBar extends StatelessWidget {
   final String sourceId;
   final String mangaId;
   final String chapterId;
+  final bool translationFeatureEnabled;
   final bool translationEnabled;
   final LayoutMode layoutMode;
   const _TopBar({
@@ -56,6 +58,7 @@ class _TopBar extends StatelessWidget {
     required this.sourceId,
     required this.mangaId,
     required this.chapterId,
+    required this.translationFeatureEnabled,
     required this.translationEnabled,
     required this.layoutMode,
   });
@@ -95,10 +98,12 @@ class _TopBar extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          // Translation toggle: manga translation overlay is vertical-reader
+          // Translation toggle: hidden unless the global feature toggle
+          // (settings → 漫画翻译) is on, since the feature needs a ~460MB
+          // model download and a user-supplied AI key. Also vertical-reader
           // only (see reader_state.dart LayoutMode doc), so hide the button
           // entirely in horizontal mode to avoid wasted translation calls.
-          if (layoutMode == LayoutMode.vertical)
+          if (translationFeatureEnabled && layoutMode == LayoutMode.vertical)
             IconButton(
               icon: Icon(
                 translationEnabled ? Icons.translate : Icons.translate_outlined,
