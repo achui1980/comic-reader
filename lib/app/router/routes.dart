@@ -9,6 +9,7 @@ class AppRoutes {
   static const reader = '/reader/:sourceId/:mangaId/:chapterId';
   static const settings = '/settings';
   static const webview = '/webview/:sourceId';
+  static const pocTranslation = '/poc/translation';
 
   /// Build detail path with parameters.
   ///

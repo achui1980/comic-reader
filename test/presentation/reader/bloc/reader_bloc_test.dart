@@ -1,12 +1,19 @@
+import 'dart:async';
+import 'dart:convert' show base64Decode;
+import 'dart:typed_data';
+
 import 'package:bloc_test/bloc_test.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'package:comic_reader/data/local/settings_store.dart' as settings;
+import 'package:comic_reader/data/translation/models/page_translation.dart';
+import 'package:comic_reader/data/translation/translation_pipeline.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_bloc.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_event.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_state.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:get_it/get_it.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockMangaRepository extends Mock implements MangaRepository {}
@@ -15,15 +22,41 @@ class _MockReadingHistoryStore extends Mock implements ReadingHistoryStore {}
 
 class _MockSettingsStore extends Mock implements settings.SettingsStore {}
 
+class _MockTranslationPipeline extends Mock implements TranslationPipeline {}
+
 void main() {
   late _MockMangaRepository repository;
   late _MockReadingHistoryStore readingHistoryStore;
   late _MockSettingsStore settingsStore;
+  late _MockTranslationPipeline translationPipeline;
+
+  setUpAll(() {
+    registerFallbackValue(Uint8List(0));
+    registerFallbackValue(const HistoryEntry(
+      sourceId: '',
+      mangaId: '',
+      mangaTitle: '',
+      coverUrl: '',
+      chapterId: '',
+      chapterTitle: '',
+      page: 0,
+      timestamp: '',
+    ));
+  });
 
   setUp(() {
     repository = _MockMangaRepository();
     readingHistoryStore = _MockReadingHistoryStore();
     settingsStore = _MockSettingsStore();
+    translationPipeline = _MockTranslationPipeline();
+
+    // ReaderBloc falls back to GetIt.instance<TranslationPipeline>() when no
+    // translationPipeline is passed explicitly (see buildBloc() below), so
+    // register the mock for every test regardless of which builder is used.
+    if (GetIt.instance.isRegistered<TranslationPipeline>()) {
+      GetIt.instance.unregister<TranslationPipeline>();
+    }
+    GetIt.instance.registerSingleton<TranslationPipeline>(translationPipeline);
 
     when(() => settingsStore.load()).thenAnswer(
       (_) async => const settings.AppSettings(
@@ -37,12 +70,55 @@ void main() {
     when(
       () => readingHistoryStore.saveProgress(any(), any(), any(), any()),
     ).thenAnswer((_) async {});
+    when(
+      () => readingHistoryStore.addHistory(any()),
+    ).thenAnswer((_) async {});
+  });
+
+  tearDown(() {
+    if (GetIt.instance.isRegistered<TranslationPipeline>()) {
+      GetIt.instance.unregister<TranslationPipeline>();
+    }
   });
 
   ReaderBloc buildBloc() => ReaderBloc(
         repository: repository,
         readingHistoryStore: readingHistoryStore,
         settingsStore: settingsStore,
+      );
+
+  const samplePageTranslation = PageTranslation(
+    sourceId: 'copy',
+    mangaId: 'manga',
+    chapterId: 'c1',
+    pageIndex: 0,
+    regions: [],
+    translatedAt: 0,
+  );
+
+  // A minimal valid 1x1 transparent PNG, so `img.decodeImage()` in
+  // ReaderBloc._drainTranslationQueue succeeds instead of throwing a
+  // RangeError on an empty buffer.
+  final onePixelPng = base64Decode(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY'
+    '42YAAAAASUVORK5CYII=',
+  );
+
+  Future<Uint8List> fakeLoadImageBytes({
+    required ChapterImage image,
+    String? sourceId,
+    String? mangaId,
+    String? chapterId,
+    int? imageIndex,
+  }) async =>
+      onePixelPng;
+
+  ReaderBloc buildBlocWithTranslation() => ReaderBloc(
+        repository: repository,
+        readingHistoryStore: readingHistoryStore,
+        settingsStore: settingsStore,
+        translationPipeline: translationPipeline,
+        loadImageBytes: fakeLoadImageBytes,
       );
 
   blocTest<ReaderBloc, ReaderState>(
@@ -62,7 +138,8 @@ void main() {
       isA<ReaderState>().having((s) => s.status, 'status', ReaderStatus.loading),
       isA<ReaderState>()
           .having((s) => s.status, 'status', ReaderStatus.error)
-          .having((s) => s.errorMessage, 'errorMessage', contains('Exception: boom')),
+          // _cleanErrorMessage strips the "Exception: " prefix.
+          .having((s) => s.errorMessage, 'errorMessage', contains('boom')),
     ],
   );
 
@@ -198,6 +275,579 @@ void main() {
       wait: const Duration(milliseconds: 10),
       verify: (_) {
         verifyNever(() => repository.getChapter(any(), any(), any(), any()));
+      },
+    );
+  });
+
+  group('Translation', () {
+    // The manga-translation feature toggle (AppSettings.mangaTranslationEnabled)
+    // gates TranslateChapterToggled, so every test in this group runs with the
+    // toggle on unless it explicitly re-stubs settingsStore.load().
+    setUp(() {
+      when(() => settingsStore.load()).thenAnswer(
+        (_) async => const settings.AppSettings(
+          layoutMode: settings.LayoutMode.horizontal,
+          readingDirection: settings.ReadingDirection.ltr,
+          mangaTranslationEnabled: true,
+        ),
+      );
+    });
+
+    const chapterOne = ChapterItem(id: 'c1', mangaId: 'manga', title: 'Ch 1');
+
+    ReaderState seedState({List<ChapterImage>? images}) {
+      return ReaderState(
+        sourceId: 'copy',
+        mangaId: 'manga',
+        chapterId: chapterOne.id,
+        chapterList: const [chapterOne],
+        images: images ?? const [ChapterImage(url: 'a')],
+      );
+    }
+
+    late Completer<PageTranslation> pageZeroCompleter;
+    late Completer<PageTranslation> c1Completer;
+    late Completer<PageTranslation> c2Completer;
+    late Completer<PageTranslation> firstCompleter;
+
+    blocTest<ReaderBloc, ReaderState>(
+      'enabling translation immediately queues the current page',
+      build: () {
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).thenAnswer((_) async => samplePageTranslation);
+        return buildBlocWithTranslation();
+      },
+      seed: seedState,
+      act: (bloc) => bloc.add(const TranslateChapterToggled(enabled: true)),
+      wait: const Duration(milliseconds: 30),
+      verify: (bloc) {
+        expect(bloc.state.translationEnabled, isTrue);
+        expect(
+          bloc.state.pageTranslations[0]?.status,
+          PageTranslationStatus.done,
+        );
+        expect(
+          bloc.state.pageTranslations[0]?.translation,
+          samplePageTranslation,
+        );
+      },
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'disabling translation clears queued-but-not-started pages without '
+      'cancelling the in-flight one',
+      build: () {
+        final completer = Completer<PageTranslation>();
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).thenAnswer((_) => completer.future);
+        addTearDown(() {
+          if (!completer.isCompleted) completer.complete(samplePageTranslation);
+        });
+        return buildBlocWithTranslation();
+      },
+      seed: () => seedState(
+        images: const [ChapterImage(url: 'a'), ChapterImage(url: 'b')],
+      ),
+      act: (bloc) async {
+        bloc.add(const TranslateChapterToggled(enabled: true)); // page 0: loading, blocked
+        await Future.delayed(const Duration(milliseconds: 10));
+        bloc.add(const TranslatePageRequested(pageIndex: 1)); // queued, not started
+        await Future.delayed(const Duration(milliseconds: 10));
+        bloc.add(const TranslateChapterToggled(enabled: false));
+      },
+      wait: const Duration(milliseconds: 20),
+      verify: (bloc) {
+        expect(
+          bloc.state.pageTranslations[0]?.status,
+          PageTranslationStatus.loading,
+        );
+        expect(bloc.state.pageTranslations.containsKey(1), isFalse);
+      },
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'toggling translation on twice while page 0 is still in-flight does '
+      'not enqueue/translate it a second time',
+      build: () {
+        pageZeroCompleter = Completer<PageTranslation>();
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).thenAnswer((_) => pageZeroCompleter.future);
+        return buildBlocWithTranslation();
+      },
+      seed: seedState,
+      act: (bloc) async {
+        // First toggle: page 0 starts translating and blocks on the
+        // completer (never resolves during this act()).
+        bloc.add(const TranslateChapterToggled(enabled: true));
+        await Future.delayed(const Duration(milliseconds: 10));
+        // Second toggle arrives while page 0 is still in-flight
+        // (_translatingPage == 0). Without the `_translatingPage` check in
+        // _enqueueTranslate, this would re-add page 0 to the queue and
+        // cause a second (duplicate) translatePage call once the first
+        // in-flight call finishes.
+        bloc.add(const TranslateChapterToggled(enabled: true));
+        await Future.delayed(const Duration(milliseconds: 10));
+        pageZeroCompleter.complete(samplePageTranslation);
+      },
+      wait: const Duration(milliseconds: 30),
+      verify: (bloc) {
+        verify(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).called(1);
+        expect(
+          bloc.state.pageTranslations[0]?.status,
+          PageTranslationStatus.done,
+        );
+      },
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'navigating to a new chapter while a translation is in-flight '
+      'discards the stale result instead of writing it into the new '
+      "chapter's state",
+      build: () {
+        pageZeroCompleter = Completer<PageTranslation>();
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).thenAnswer((_) => pageZeroCompleter.future);
+        when(() => repository.getChapterStream('copy', 'manga', 'c2', 1))
+            .thenAnswer((_) => Stream.value(
+                  const ChapterResult(
+                    chapter: Chapter(
+                      id: 'c2',
+                      mangaId: 'manga',
+                      title: 'Ch 2',
+                      images: [ChapterImage(url: 'b')],
+                    ),
+                  ),
+                ));
+        return buildBlocWithTranslation();
+      },
+      seed: seedState,
+      act: (bloc) async {
+        // Enable translation on chapter c1: page 0 starts translating and
+        // blocks on the completer.
+        bloc.add(const TranslateChapterToggled(enabled: true));
+        await Future.delayed(const Duration(milliseconds: 10));
+
+        // Navigate to chapter c2 while c1's page 0 translation is still
+        // in-flight (this bumps _translationEpoch and resets
+        // translationEnabled/pageTranslations per the fix).
+        bloc.add(const LoadChapter(
+          sourceId: 'copy',
+          mangaId: 'manga',
+          chapterId: 'c2',
+        ));
+        await Future.delayed(const Duration(milliseconds: 20));
+        expect(bloc.state.chapterId, 'c2');
+
+        // Now let the stale c1 translation resolve. Without the epoch
+        // guard, this would write into c2's pageTranslations map.
+        pageZeroCompleter.complete(samplePageTranslation);
+      },
+      wait: const Duration(milliseconds: 30),
+      verify: (bloc) {
+        expect(bloc.state.chapterId, 'c2');
+        expect(bloc.state.translationEnabled, isFalse);
+        expect(bloc.state.pageTranslations, isEmpty);
+      },
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      "a stale chapter's translation task finishing after the user has "
+      're-enabled translation on the new chapter does not clobber the new '
+      "chapter's in-flight marker and cause a duplicate translatePage call",
+      build: () {
+        c1Completer = Completer<PageTranslation>();
+        c2Completer = Completer<PageTranslation>();
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).thenAnswer((_) => c1Completer.future);
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c2',
+              0,
+              any(),
+            )).thenAnswer((_) => c2Completer.future);
+        when(() => repository.getChapterStream('copy', 'manga', 'c2', 1))
+            .thenAnswer((_) => Stream.value(
+                  const ChapterResult(
+                    chapter: Chapter(
+                      id: 'c2',
+                      mangaId: 'manga',
+                      title: 'Ch 2',
+                      images: [ChapterImage(url: 'b')],
+                    ),
+                  ),
+                ));
+        addTearDown(() {
+          if (!c1Completer.isCompleted) {
+            c1Completer.complete(samplePageTranslation);
+          }
+          if (!c2Completer.isCompleted) {
+            c2Completer.complete(samplePageTranslation);
+          }
+        });
+        return buildBlocWithTranslation();
+      },
+      seed: seedState,
+      act: (bloc) async {
+        // Enable translation on chapter c1: page 0 starts translating and
+        // blocks on c1Completer (never resolves during this step).
+        bloc.add(const TranslateChapterToggled(enabled: true));
+        await Future.delayed(const Duration(milliseconds: 10));
+
+        // Navigate to chapter c2 while c1's page 0 translation is still
+        // in-flight (this bumps _translationEpoch and resets
+        // _translatingPage/translationEnabled/pageTranslations per the
+        // first fix).
+        bloc.add(const LoadChapter(
+          sourceId: 'copy',
+          mangaId: 'manga',
+          chapterId: 'c2',
+        ));
+        await Future.delayed(const Duration(milliseconds: 20));
+        expect(bloc.state.chapterId, 'c2');
+
+        // Re-enable translation on the new chapter: c2's page 0 starts
+        // translating and blocks on a SEPARATE completer, setting
+        // _translatingPage = 0 again under the new epoch.
+        bloc.add(const TranslateChapterToggled(enabled: true));
+        await Future.delayed(const Duration(milliseconds: 10));
+
+        // Now let the stale c1 task resolve. Without the finally-block
+        // epoch guard, this wrongly clears _translatingPage (which now
+        // legitimately belongs to c2's in-flight task) to null, even
+        // though c2's page 0 translation is still genuinely in-flight.
+        c1Completer.complete(samplePageTranslation);
+        await Future.delayed(const Duration(milliseconds: 20));
+
+        // A later event that would normally be a no-op while page 0 is
+        // in-flight (e.g. the user toggling translation again) now sees
+        // `_translatingPage == null` instead of `0` if the stale finally
+        // block clobbered it, so `_enqueueTranslate`'s
+        // `pageIndex == _translatingPage` guard no longer recognizes c2's
+        // page 0 as already in-flight, and it gets queued/translated a
+        // second time.
+        bloc.add(const TranslateChapterToggled(enabled: true));
+        await Future.delayed(const Duration(milliseconds: 20));
+
+        // c2's page 0 translatePage call must still have been made exactly
+        // once at this point, even after the stale c1 task's finally block
+        // has run and this follow-up event has fired.
+        verify(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c2',
+              0,
+              any(),
+            )).called(1);
+        verify(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).called(1);
+
+        c2Completer.complete(samplePageTranslation);
+        await Future.delayed(const Duration(milliseconds: 10));
+      },
+      wait: const Duration(milliseconds: 10),
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'ignores TranslatePageRequested when translation is disabled',
+      build: buildBlocWithTranslation,
+      seed: seedState,
+      act: (bloc) => bloc.add(const TranslatePageRequested(pageIndex: 0)),
+      wait: const Duration(milliseconds: 10),
+      verify: (_) {
+        verifyNever(
+          () => translationPipeline.translatePage(
+            any(),
+            any(),
+            any(),
+            any(),
+            any(),
+          ),
+        );
+      },
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'does not re-translate a page that already finished',
+      build: () {
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).thenAnswer((_) async => samplePageTranslation);
+        return buildBlocWithTranslation();
+      },
+      seed: seedState,
+      act: (bloc) async {
+        bloc.add(const TranslateChapterToggled(enabled: true));
+        await Future.delayed(const Duration(milliseconds: 20));
+        bloc.add(const TranslatePageRequested(pageIndex: 0)); // no-op: already done
+      },
+      wait: const Duration(milliseconds: 20),
+      verify: (bloc) {
+        expect(
+          bloc.state.pageTranslations[0]?.status,
+          PageTranslationStatus.done,
+        );
+        verify(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).called(1);
+      },
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'processes queued pages strictly one at a time, resuming once the '
+      'current page finishes',
+      build: () {
+        firstCompleter = Completer<PageTranslation>();
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).thenAnswer((_) => firstCompleter.future);
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              1,
+              any(),
+            )).thenAnswer((_) async => samplePageTranslation);
+        addTearDown(() {
+          if (!firstCompleter.isCompleted) {
+            firstCompleter.complete(samplePageTranslation);
+          }
+        });
+        return buildBlocWithTranslation();
+      },
+      seed: () => seedState(
+        images: const [ChapterImage(url: 'a'), ChapterImage(url: 'b')],
+      ),
+      act: (bloc) async {
+        bloc.add(const TranslateChapterToggled(enabled: true)); // starts page 0, blocked
+        await Future.delayed(const Duration(milliseconds: 10));
+        bloc.add(const TranslatePageRequested(pageIndex: 1)); // queued, waits for page 0
+        await Future.delayed(const Duration(milliseconds: 10));
+        verify(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).called(1);
+        verifyNever(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              1,
+              any(),
+            ));
+        expect(bloc.state.pageTranslations.containsKey(1), isFalse);
+        firstCompleter.complete(samplePageTranslation); // page 0 finishes -> queue advances
+        await Future.delayed(const Duration(milliseconds: 20));
+      },
+      wait: const Duration(milliseconds: 10),
+      verify: (bloc) {
+        expect(
+          bloc.state.pageTranslations[0]?.status,
+          PageTranslationStatus.done,
+        );
+        expect(
+          bloc.state.pageTranslations[1]?.status,
+          PageTranslationStatus.done,
+        );
+        verify(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              1,
+              any(),
+            )).called(1);
+      },
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'marks a page as error when translatePage throws, and still processes '
+      'the next queued page',
+      build: () {
+        pageZeroCompleter = Completer<PageTranslation>();
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).thenAnswer((_) => pageZeroCompleter.future);
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              1,
+              any(),
+            )).thenAnswer((_) async => samplePageTranslation);
+        return buildBlocWithTranslation();
+      },
+      seed: () => seedState(
+        images: const [ChapterImage(url: 'a'), ChapterImage(url: 'b')],
+      ),
+      act: (bloc) async {
+        bloc.add(const TranslateChapterToggled(enabled: true)); // starts page 0, blocked
+        await Future.delayed(const Duration(milliseconds: 10));
+        bloc.add(const TranslatePageRequested(pageIndex: 1)); // queued, waits for page 0
+        await Future.delayed(const Duration(milliseconds: 10));
+        verifyNever(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              1,
+              any(),
+            ));
+        expect(bloc.state.pageTranslations.containsKey(1), isFalse);
+        pageZeroCompleter.completeError(Exception('boom')); // page 0 fails -> queue advances
+        await Future.delayed(const Duration(milliseconds: 20));
+      },
+      wait: const Duration(milliseconds: 10),
+      verify: (bloc) {
+        expect(
+          bloc.state.pageTranslations[0]?.status,
+          PageTranslationStatus.error,
+        );
+        expect(
+          bloc.state.pageTranslations[0]?.errorMessage,
+          contains('boom'),
+        );
+        expect(
+          bloc.state.pageTranslations[1]?.status,
+          PageTranslationStatus.done,
+        );
+      },
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'TranslatePageRetried re-translates a page that previously errored',
+      build: () {
+        var attempt = 0;
+        when(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).thenAnswer((_) {
+          attempt++;
+          if (attempt == 1) throw Exception('boom');
+          return Future.value(samplePageTranslation);
+        });
+        return buildBlocWithTranslation();
+      },
+      seed: seedState,
+      act: (bloc) async {
+        bloc.add(const TranslateChapterToggled(enabled: true)); // -> error
+        await Future.delayed(const Duration(milliseconds: 20));
+        bloc.add(const TranslatePageRetried(pageIndex: 0)); // forced retry
+      },
+      wait: const Duration(milliseconds: 20),
+      verify: (bloc) {
+        expect(
+          bloc.state.pageTranslations[0]?.status,
+          PageTranslationStatus.done,
+        );
+        verify(() => translationPipeline.translatePage(
+              'copy',
+              'manga',
+              'c1',
+              0,
+              any(),
+            )).called(2);
+      },
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'mirrors AppSettings.mangaTranslationEnabled into translationFeatureEnabled',
+      setUp: () {
+        when(() => settingsStore.load()).thenAnswer(
+          (_) async => const settings.AppSettings(
+            layoutMode: settings.LayoutMode.vertical,
+            mangaTranslationEnabled: true,
+          ),
+        );
+      },
+      build: buildBlocWithTranslation,
+      wait: const Duration(milliseconds: 10),
+      verify: (bloc) {
+        expect(bloc.state.translationFeatureEnabled, isTrue);
+      },
+    );
+
+    blocTest<ReaderBloc, ReaderState>(
+      'ignores TranslateChapterToggled while the feature toggle is off',
+      setUp: () {
+        when(() => settingsStore.load()).thenAnswer(
+          (_) async => const settings.AppSettings(
+            layoutMode: settings.LayoutMode.horizontal,
+            readingDirection: settings.ReadingDirection.ltr,
+          ),
+        );
+      },
+      build: buildBlocWithTranslation,
+      // Seeded with one image so the guard is what stops the translation, not
+      // the empty-images bail-out inside _enqueueTranslate.
+      seed: seedState,
+      wait: const Duration(milliseconds: 10),
+      act: (bloc) => bloc.add(const TranslateChapterToggled(enabled: true)),
+      verify: (bloc) {
+        expect(bloc.state.translationFeatureEnabled, isFalse);
+        expect(bloc.state.translationEnabled, isFalse);
+        verifyNever(() => translationPipeline.translatePage(
+              any(),
+              any(),
+              any(),
+              any(),
+              any(),
+            ));
       },
     );
   });

@@ -9,6 +9,7 @@ import 'package:comic_reader/presentation/detail/detail_screen.dart';
 import 'package:comic_reader/presentation/reader/reader_screen.dart';
 import 'package:comic_reader/presentation/settings/settings_screen.dart';
 import 'package:comic_reader/presentation/webview/webview_screen.dart';
+import 'package:comic_reader/presentation/poc/translation_poc_screen.dart';
 import 'package:comic_reader/presentation/shell/app_shell.dart';
 import 'routes.dart';
 
@@ -109,6 +110,10 @@ class AppRouter {
             initialUrl: extra?['url'] as String?,
           );
         },
+      ),
+      GoRoute(
+        path: AppRoutes.pocTranslation,
+        builder: (context, state) => const TranslationPocScreen(),
       ),
     ],
   );

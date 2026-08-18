@@ -25,6 +25,9 @@ class ReaderControls extends StatelessWidget {
               sourceId: state.sourceId,
               mangaId: state.mangaId,
               chapterId: state.chapterId,
+              translationFeatureEnabled: state.translationFeatureEnabled,
+              translationEnabled: state.translationEnabled,
+              layoutMode: state.layoutMode,
             ),
             const Spacer(),
             // Bottom bar
@@ -47,7 +50,18 @@ class _TopBar extends StatelessWidget {
   final String sourceId;
   final String mangaId;
   final String chapterId;
-  const _TopBar({required this.title, required this.sourceId, required this.mangaId, required this.chapterId});
+  final bool translationFeatureEnabled;
+  final bool translationEnabled;
+  final LayoutMode layoutMode;
+  const _TopBar({
+    required this.title,
+    required this.sourceId,
+    required this.mangaId,
+    required this.chapterId,
+    required this.translationFeatureEnabled,
+    required this.translationEnabled,
+    required this.layoutMode,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -84,6 +98,24 @@ class _TopBar extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
+          // Translation toggle: hidden unless the global feature toggle
+          // (settings → 漫画翻译) is on, since the feature needs a ~460MB
+          // model download and a user-supplied AI key. Also vertical-reader
+          // only (see reader_state.dart LayoutMode doc), so hide the button
+          // entirely in horizontal mode to avoid wasted translation calls.
+          if (translationFeatureEnabled && layoutMode == LayoutMode.vertical)
+            IconButton(
+              icon: Icon(
+                translationEnabled ? Icons.translate : Icons.translate_outlined,
+                color: translationEnabled
+                    ? Colors.lightBlueAccent
+                    : Colors.white,
+              ),
+              tooltip: translationEnabled ? '关闭翻译' : '翻译本章',
+              onPressed: () => context.read<ReaderBloc>().add(
+                TranslateChapterToggled(enabled: !translationEnabled),
+              ),
+            ),
           // Open in built-in browser button
           IconButton(
             icon: const Icon(Icons.open_in_browser, color: Colors.white),
@@ -161,11 +193,13 @@ class _BottomBar extends StatelessWidget {
                   size: 20,
                 ),
                 onPressed: () {
-                  bloc.add(ChangeLayoutMode(
-                    layoutMode == LayoutMode.horizontal
-                        ? LayoutMode.vertical
-                        : LayoutMode.horizontal,
-                  ));
+                  bloc.add(
+                    ChangeLayoutMode(
+                      layoutMode == LayoutMode.horizontal
+                          ? LayoutMode.vertical
+                          : LayoutMode.horizontal,
+                    ),
+                  );
                 },
                 tooltip: layoutMode == LayoutMode.horizontal ? '切换竖向' : '切换横向',
               ),
@@ -176,10 +210,8 @@ class _BottomBar extends StatelessWidget {
             SliderTheme(
               data: SliderTheme.of(context).copyWith(
                 trackHeight: 2,
-                thumbShape:
-                    const RoundSliderThumbShape(enabledThumbRadius: 6),
-                overlayShape:
-                    const RoundSliderOverlayShape(overlayRadius: 14),
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
                 activeTrackColor: Colors.white,
                 inactiveTrackColor: Colors.white24,
                 thumbColor: Colors.white,
@@ -206,8 +238,9 @@ class _BottomBar extends StatelessWidget {
                 style: TextButton.styleFrom(foregroundColor: Colors.white),
               ),
               TextButton.icon(
-                onPressed:
-                    hasNext ? () => bloc.add(const LoadNextChapter()) : null,
+                onPressed: hasNext
+                    ? () => bloc.add(const LoadNextChapter())
+                    : null,
                 icon: const Icon(Icons.skip_next, size: 18),
                 label: const Text('下一话'),
                 style: TextButton.styleFrom(foregroundColor: Colors.white),

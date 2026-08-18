@@ -9,6 +9,8 @@ import 'package:comic_reader/presentation/reader/bloc/reader_event.dart';
 import 'package:comic_reader/presentation/reader/bloc/reader_state.dart';
 import 'manga_image.dart';
 import 'manga_image_loader.dart';
+import 'translation_badge.dart';
+import 'reader_translation_overlay_painter.dart';
 
 /// Vertical scrolling (webtoon-style) manga reader.
 /// Images are stacked vertically in a scrollable list.
@@ -17,11 +19,7 @@ class VerticalReader extends StatefulWidget {
   final List<ChapterImage> images;
   final int initialPage;
 
-  const VerticalReader({
-    super.key,
-    required this.images,
-    this.initialPage = 0,
-  });
+  const VerticalReader({super.key, required this.images, this.initialPage = 0});
 
   @override
   State<VerticalReader> createState() => _VerticalReaderState();
@@ -33,6 +31,10 @@ class _VerticalReaderState extends State<VerticalReader> {
   /// Tracks which page indices have already been prefetched this session,
   /// to avoid re-issuing the same download on every scroll tick.
   final Set<int> _prefetchedIndices = {};
+
+  /// Tracks the last page index dispatched via [PageChanged]/translation
+  /// requests, to avoid re-issuing the same events on every scroll tick.
+  int? _lastKnownPage;
 
   @override
   void initState() {
@@ -49,22 +51,28 @@ class _VerticalReaderState extends State<VerticalReader> {
   }
 
   void _onScroll() {
-    // Update current page based on scroll position
     if (_scrollController.hasClients && widget.images.isNotEmpty) {
       final viewportHeight = _scrollController.position.viewportDimension;
       final scrollOffset = _scrollController.offset;
-      // Estimate current page based on typical manga page aspect ratio (~1.4:1)
       final screenWidth = MediaQuery.of(context).size.width;
       final estimatedImageHeight = screenWidth * 1.4;
       final estimatedPage = (scrollOffset / estimatedImageHeight).floor();
       final page = estimatedPage.clamp(0, widget.images.length - 1);
-      context.read<ReaderBloc>().add(PageChanged(page));
+      final bloc = context.read<ReaderBloc>();
+      final pageChanged = page != _lastKnownPage;
+      if (pageChanged) {
+        bloc.add(PageChanged(page));
+        _lastKnownPage = page;
+      }
       _prefetchWindow(page);
+      // Request translation for the page currently scrolled into view; `page`
+      // is a scroll-offset heuristic, so this only re-fires when it changes.
+      if (pageChanged && bloc.state.translationEnabled) {
+        bloc.add(TranslatePageRequested(pageIndex: page));
+      }
 
-      // Check if we've scrolled near the bottom - use BLoC state as guard
       final maxScroll = _scrollController.position.maxScrollExtent;
       if (scrollOffset >= maxScroll - viewportHeight * 0.5) {
-        final bloc = context.read<ReaderBloc>();
         if (!bloc.state.isAppendingNext && bloc.state.canAppendNext) {
           bloc.add(const AppendNextChapter());
         }
@@ -95,6 +103,24 @@ class _VerticalReaderState extends State<VerticalReader> {
         }),
       );
     }
+  }
+
+  void _showTranslationError(
+    BuildContext itemContext,
+    int pageIndex,
+    String? errorMessage,
+  ) {
+    ScaffoldMessenger.of(itemContext).showSnackBar(
+      SnackBar(
+        content: Text(errorMessage ?? '翻译失败'),
+        action: SnackBarAction(
+          label: '重试',
+          onPressed: () => itemContext.read<ReaderBloc>().add(
+            TranslatePageRetried(pageIndex: pageIndex),
+          ),
+        ),
+      ),
+    );
   }
 
   void _onTap(TapUpDetails details) {
@@ -138,7 +164,8 @@ class _VerticalReaderState extends State<VerticalReader> {
       child: BlocBuilder<ReaderBloc, ReaderState>(
         buildWhen: (prev, curr) =>
             prev.isAppendingNext != curr.isAppendingNext ||
-            prev.images != curr.images,
+            prev.images != curr.images ||
+            prev.pageTranslations != curr.pageTranslations,
         builder: (context, state) {
           return RefreshIndicator(
             onRefresh: _onRefresh,
@@ -151,21 +178,56 @@ class _VerticalReaderState extends State<VerticalReader> {
                 if (index >= widget.images.length) {
                   return const Padding(
                     padding: EdgeInsets.all(32.0),
-                    child: Center(
-                      child: CircularProgressIndicator(),
-                    ),
+                    child: Center(child: CircularProgressIndicator()),
                   );
                 }
+                final info =
+                    state.pageTranslations[index] ?? PageTranslationInfo.idle;
                 return SizedBox(
                   width: double.infinity,
-                  child: MangaImage(
-                    image: widget.images[index],
-                    fit: BoxFit.fitWidth,
-                    disableGesture: true,
-                    sourceId: state.sourceId,
-                    mangaId: state.mangaId,
-                    chapterId: state.chapterId,
-                    imageIndex: index,
+                  child: Stack(
+                    children: [
+                      MangaImage(
+                        image: widget.images[index],
+                        fit: BoxFit.fitWidth,
+                        disableGesture: true,
+                        sourceId: state.sourceId,
+                        mangaId: state.mangaId,
+                        chapterId: state.chapterId,
+                        imageIndex: index,
+                      ),
+                      if (info.status == PageTranslationStatus.done &&
+                          info.translation != null &&
+                          info.imageSize != null)
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: CustomPaint(
+                              painter: ReaderTranslationOverlayPainter(
+                                imageSize: info.imageSize!,
+                                regions: info.translation!.regions,
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (info.status == PageTranslationStatus.loading)
+                        const Positioned(
+                          top: 8,
+                          right: 8,
+                          child: TranslationBadge.loading(),
+                        ),
+                      if (info.status == PageTranslationStatus.error)
+                        Positioned(
+                          top: 8,
+                          right: 8,
+                          child: TranslationBadge.error(
+                            onTap: () => _showTranslationError(
+                              context,
+                              index,
+                              info.errorMessage,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 );
               },

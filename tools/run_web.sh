@@ -31,6 +31,26 @@ else
   PROXY_PID=""
 fi
 
+# ---- 翻译推理服务 (PoC, 端口 9091) ----
+TRANSLATION_DIR="$SCRIPT_DIR/translation_service"
+if [ ! -d "$TRANSLATION_DIR/node_modules" ]; then
+  echo "⚠️  翻译推理服务依赖未安装。请先运行:"
+  echo "    cd tools/translation_service && npm install"
+  echo "跳过翻译服务启动（web 端翻译功能将不可用）。"
+elif [ ! -f "$TRANSLATION_DIR/models/comictextdetector.onnx" ]; then
+  echo "⚠️  翻译模型缺失。请先运行: ./tools/download_models.sh"
+  echo "跳过翻译服务启动。"
+else
+  if ! lsof -i :9091 >/dev/null 2>&1; then
+    echo "启动翻译推理服务 (端口 9091)..."
+    (cd "$TRANSLATION_DIR" && exec node server.js) &
+    TRANSLATION_PID=$!
+    sleep 1
+  else
+    echo "翻译推理服务已在 9091 运行。"
+  fi
+fi
+
 # Run Flutter web
 cd "$PROJECT_DIR"
 flutter run -d chrome
@@ -40,3 +60,4 @@ if [ -n "$PROXY_PID" ]; then
   echo "Stopping CORS proxy..."
   kill $PROXY_PID 2>/dev/null
 fi
+[ -n "${TRANSLATION_PID:-}" ] && kill "$TRANSLATION_PID" 2>/dev/null || true

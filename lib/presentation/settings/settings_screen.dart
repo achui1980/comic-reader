@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../app/router/routes.dart';
 import 'bloc/settings_cubit.dart';
 import 'bloc/settings_state.dart';
 import 'sections/about_section.dart';
@@ -13,6 +15,7 @@ import 'sections/proxy_section.dart';
 import 'sections/reader_enhancements_section.dart';
 import 'sections/reading_section.dart';
 import 'sections/theme_section.dart';
+import 'sections/translation_section.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -43,9 +46,18 @@ class _SettingsView extends StatelessWidget {
               if (kIsWeb) const WebProxySection() else ProxySection(state: state),
               AdultContentSection(state: state),
               const AiSection(),
+              // Web 端翻译跑不起来（TranslationCacheStore 全 no-op、
+              // NativeMangaTextExtractor 依赖 dart:io），整段隐藏。
+              if (!kIsWeb) TranslationSection(state: state),
               PluginSection(state: state),
               const DataManagementSection(),
               const AboutSection(),
+              if (kDebugMode)
+                ListTile(
+                  leading: const Icon(Icons.translate),
+                  title: const Text('翻译管道调试页（临时）'),
+                  onTap: () => context.push(AppRoutes.pocTranslation),
+                ),
             ],
           );
         },

@@ -34,6 +34,10 @@ class AppSettings {
   final bool tapZonesInvert; // invert left/right tap zones
   final bool showTapZones; // show tap-zone overlay hint
   final DiscoveryViewMode discoveryViewMode; // grid or list layout
+  // --- Manga translation feature toggle ---
+  /// 漫画翻译功能总开关。关闭时阅读器顶栏不显示翻译按钮，功能入口对用户隐身。
+  /// 默认关闭：需要下载约 460MB 模型 + 自备 AI API Key。
+  final bool mangaTranslationEnabled;
 
   const AppSettings({
     this.themeMode = AppThemeMode.system,
@@ -54,6 +58,7 @@ class AppSettings {
     this.tapZonesInvert = false,
     this.showTapZones = false,
     this.discoveryViewMode = DiscoveryViewMode.grid,
+    this.mangaTranslationEnabled = false,
   });
 
   AppSettings copyWith({
@@ -75,6 +80,7 @@ class AppSettings {
     bool? tapZonesInvert,
     bool? showTapZones,
     DiscoveryViewMode? discoveryViewMode,
+    bool? mangaTranslationEnabled,
   }) {
     return AppSettings(
       themeMode: themeMode ?? this.themeMode,
@@ -95,6 +101,8 @@ class AppSettings {
       tapZonesInvert: tapZonesInvert ?? this.tapZonesInvert,
       showTapZones: showTapZones ?? this.showTapZones,
       discoveryViewMode: discoveryViewMode ?? this.discoveryViewMode,
+      mangaTranslationEnabled:
+          mangaTranslationEnabled ?? this.mangaTranslationEnabled,
     );
   }
 
@@ -117,6 +125,7 @@ class AppSettings {
         'tapZonesInvert': tapZonesInvert,
         'showTapZones': showTapZones,
         'discoveryViewMode': discoveryViewMode.index,
+        'mangaTranslationEnabled': mangaTranslationEnabled,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -144,6 +153,8 @@ class AppSettings {
       showTapZones: json['showTapZones'] as bool? ?? false,
       discoveryViewMode:
           DiscoveryViewMode.values[json['discoveryViewMode'] as int? ?? 0],
+      mangaTranslationEnabled:
+          json['mangaTranslationEnabled'] as bool? ?? false,
     );
   }
 }

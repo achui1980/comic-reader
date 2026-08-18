@@ -57,4 +57,3 @@ assets/models/**/*.bin
 assets/models/*.bin
 assets/models/manga-ocr/*.json
 assets/models/manga-ocr/*.txt
-**/translation_service/**

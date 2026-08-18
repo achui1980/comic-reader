@@ -3,6 +3,8 @@
 > 目标：从「31 源多平台漫画聚合器」演进为**正式产品**，核心方向 = 跨源聚合智能 + 成人内容激活码门禁 + AI 功能（BYOK）。
 > 本文档是执行清单，逐条完成后勾选。仍未开始的项标 `[ ]`，完成标 `[x]`。
 
+> **并行计划**：`docs/plans/2026-08-11-mihon-gap-improvement-plan.md` 是对标 mihon 后产出的**工程质量与书架体验**补齐计划（阶段 0 CI gate / 阶段 1 四个 bug / 阶段 2 书架排序筛选 / 阶段 3 未读徽章，共 12 项）。它与本文档 #22/#23 是**并列关系**，不是替代：本文档管产品方向，那份管工程债与书架基础体验。两处交集见 #23 与「执行约定」下的注。
+
 ## 已定案的关键决策
 
 | 决策项 | 选择 | 理由 |
@@ -132,6 +134,7 @@
 - [ ] **#23 云同步 WebDAV**
   - 扩 `backup_service._storageKeys` 补 categories/auth/download_tasks/reading_timeline
   - 版本迁移 + merge 策略；包 WebDAV/坚果云（复用 export/import string 缝隙）
+  - ⚠️ **第一条与 `docs/plans/2026-08-11-mihon-gap-improvement-plan.md` 阶段 1.2 重叠**。那份计划会先把 `_storageKeys` 补齐（categories / work_groups / ai_metadata / reading_timeline，并在恢复时清理孤儿 `categoryIds`），且明确**不加** `auth`（含凭据，走 SecureStore）和 `download_tasks`（本机瞬时状态）。做 #23 时按那份的结论走，只补版本迁移 + merge + WebDAV 传输层。
 - [x] **#24 拆上帝文件**
   - `manga_image.dart`(730) / `settings_screen.dart`(719) / `manga_repository_impl.dart`(713)
   - 已完成（2026-07-29）：拆分为 `manga_image.dart`(313行)+4个新文件、`settings_screen.dart`(55行)+9个section文件、`manga_repository_impl.dart`(130行)+4个新文件（含 getChapter/getChapterStream 共用逻辑去重）
@@ -157,6 +160,12 @@
 | 🟡 | 3 处空 catch 静默吞错误 | webview_fetcher:474 等 |
 | 🟡 | injectable/build_runner 引了没用；两图片库重叠 | pubspec |
 | 🟡 | backup 漏 categories/auth/downloads/timeline | `backup_service.dart:13` |
+| 🔴 | JSON 落盘非原子（无 tmp+rename+flush），写入中崩溃丢整个文件 | `local_storage_io.dart:22` |
+| 🟠 | 章节分页中途失败会静默丢弃已累积的全部章节 | `detail_cubit.dart:115-117` |
+| 🟠 | PR 无任何 CI 门禁（零 analyze / 零 test / 无 pull_request 触发） | `.github/workflows/` |
+| 🟡 | `splitWidePages` / `cropBorders` 是死设置：可开关、能持久化、渲染层零引用 | `settings_store.dart:29,31` |
+
+> 下半部分 4 条来自 `docs/plans/2026-08-11-mihon-gap-improvement-plan.md`（阶段 0/1 覆盖）。
 
 ---
 
@@ -167,3 +176,5 @@
 2. `flutter analyze <改动文件>` 通过
 3. 相关测试通过（`flutter test <test 文件>`）
 4. 勾选本文档对应项 + 更新 TODO 状态
+
+> 第 2/3 条目前只是**口头约定**，没有任何 CI 强制（三个 workflow 都不跑 analyze/test，也没有一个由 `pull_request` 触发）。`docs/plans/2026-08-11-mihon-gap-improvement-plan.md` 阶段 0 会新增 `.github/workflows/ci.yml` 把这两条变成 PR 硬门禁。届时本节改为「CI 自动校验，本地可选预跑」。

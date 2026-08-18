@@ -1,13 +1,40 @@
+import 'dart:ui' show Size;
+
 import 'package:flutter/widgets.dart' show BoxFit;
 import 'package:equatable/equatable.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/data/local/settings_store.dart' show ScaleType;
+import 'package:comic_reader/data/translation/models/page_translation.dart';
 
 enum ReaderStatus { initial, loading, loaded, error }
 
 enum LayoutMode { horizontal, vertical }
 
 enum ReadingDirection { ltr, rtl }
+
+enum PageTranslationStatus { idle, loading, done, error }
+
+/// Per-page translation UI state, keyed by page index in
+/// [ReaderState.pageTranslations]. Not persisted — lives only in memory for
+/// the current [ReaderBloc] instance / reading session.
+class PageTranslationInfo {
+  const PageTranslationInfo({
+    required this.status,
+    this.translation,
+    this.errorMessage,
+    this.imageSize,
+  });
+
+  final PageTranslationStatus status;
+  final PageTranslation? translation;
+  final String? errorMessage;
+
+  /// Original image pixel size, used by [ReaderTranslationOverlayPainter]
+  /// to scale [TextRegion.box] coordinates onto the rendered widget size.
+  final Size? imageSize;
+
+  static const idle = PageTranslationInfo(status: PageTranslationStatus.idle);
+}
 
 class ChapterBoundary extends Equatable {
   final int startIndex;
@@ -63,6 +90,16 @@ class ReaderState extends Equatable {
   final bool tapZonesInvert;
   final bool showTapZones;
 
+  // --- Manga translation overlay (vertical reader only) ---
+  /// 漫画翻译功能总开关（AppSettings.mangaTranslationEnabled 的镜像）。
+  /// 由 ReaderBloc 构造时读一次，决定顶栏是否渲染翻译按钮。
+  final bool translationFeatureEnabled;
+  /// Whether the user has toggled on translation for the current session.
+  /// Not persisted; resets to false every time the reader is opened.
+  final bool translationEnabled;
+  /// Per-page translation state, keyed by page index.
+  final Map<int, PageTranslationInfo> pageTranslations;
+
   const ReaderState({
     this.status = ReaderStatus.initial,
     this.layoutMode = LayoutMode.horizontal,
@@ -91,6 +128,9 @@ class ReaderState extends Equatable {
     this.showPageNumber = true,
     this.tapZonesInvert = false,
     this.showTapZones = false,
+    this.translationFeatureEnabled = false,
+    this.translationEnabled = false,
+    this.pageTranslations = const {},
   });
 
   ReaderState copyWith({
@@ -121,6 +161,9 @@ class ReaderState extends Equatable {
     bool? showPageNumber,
     bool? tapZonesInvert,
     bool? showTapZones,
+    bool? translationFeatureEnabled,
+    bool? translationEnabled,
+    Map<int, PageTranslationInfo>? pageTranslations,
   }) {
     return ReaderState(
       status: status ?? this.status,
@@ -150,6 +193,10 @@ class ReaderState extends Equatable {
       showPageNumber: showPageNumber ?? this.showPageNumber,
       tapZonesInvert: tapZonesInvert ?? this.tapZonesInvert,
       showTapZones: showTapZones ?? this.showTapZones,
+      translationFeatureEnabled:
+          translationFeatureEnabled ?? this.translationFeatureEnabled,
+      translationEnabled: translationEnabled ?? this.translationEnabled,
+      pageTranslations: pageTranslations ?? this.pageTranslations,
     );
   }
 
@@ -208,5 +255,8 @@ class ReaderState extends Equatable {
         showPageNumber,
         tapZonesInvert,
         showTapZones,
+        translationFeatureEnabled,
+        translationEnabled,
+        pageTranslations,
       ];
 }
