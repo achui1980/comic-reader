@@ -99,6 +99,12 @@ class SettingsCubit extends Cubit<SettingsState> {
     await _settingsStore.save(updated);
   }
 
+  Future<void> setMangaTranslationEnabled(bool enabled) async {
+    final updated = state.settings.copyWith(mangaTranslationEnabled: enabled);
+    emit(state.copyWith(settings: updated));
+    await _settingsStore.save(updated);
+  }
+
   Future<void> setVolumeKeyTurn(bool enabled) async {
     final updated = state.settings.copyWith(volumeKeyTurn: enabled);
     emit(state.copyWith(settings: updated));
