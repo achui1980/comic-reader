@@ -1,0 +1,47 @@
+# git-cliff configuration ~ https://git-cliff.org/docs/configuration
+#
+# 用途：为 GitHub Release 自动生成"本次更新"分组变更列表。
+# 版本大标题(## Comic Reader vX.X.X)已经在 .github/workflows/release.yml 的
+# Create Release 步骤里手写，这里的 body 模板只输出按类型分组后的提交列表，
+# 不重复渲染版本标题/日期。
+
+[changelog]
+header = ""
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}**: {% endif %}{{ commit.message | split(pat="\n") | first | upper_first }} ({{ commit.id | truncate(length=7, end="") }})
+{% endfor %}
+{% endfor %}
+"""
+footer = ""
+trim = true
+render_always = true
+
+[git]
+# 按 Conventional Commits 规范解析 commit message
+conventional_commits = true
+# 不过滤不符合规范的 commit（保留兜底分组，避免遗漏）
+filter_unconventional = false
+require_conventional = false
+split_commits = false
+commit_preprocessors = []
+# 分组顺序通过 <!-- N --> 前缀控制，渲染时用 striptags 过滤掉
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->✨ 新功能" },
+  { message = "^fix", group = "<!-- 1 -->🐛 修复" },
+  { message = "^perf", group = "<!-- 2 -->⚡ 性能优化" },
+  { message = "^refactor", group = "<!-- 3 -->♻️ 重构" },
+  { message = "^docs", group = "<!-- 4 -->📝 文档" },
+  { message = "^test", group = "<!-- 5 -->✅ 测试" },
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^style", group = "<!-- 6 -->💄 样式" },
+  { message = "^ci", group = "<!-- 7 -->👷 CI" },
+  { message = "^chore", group = "<!-- 8 -->🔧 其他" },
+  { message = ".*", group = "<!-- 9 -->🔨 其他改动" },
+]
+protect_breaking_commits = false
+filter_commits = false
+tag_pattern = "v[0-9]*"
+sort_commits = "oldest"

@@ -1,2 +1,10 @@
 #include "../../Flutter/Flutter-Release.xcconfig"
 #include "Warnings.xcconfig"
+
+// 只构建 Apple Silicon (arm64)，不再产出 x86_64 切片。
+// flutter_onnxruntime 引入的 ONNX Runtime 静态库体积很大（macOS 切片约80MB），
+// 双架构 universal 打包会把它在主可执行文件里重复链接两份，是 v1.2.2 之后
+// 安装包从 ~70MB 暴涨到 ~140MB 的主因。去掉 x86_64 切片可以把这部分几乎砍半。
+// 代价：不再支持 Intel Mac，用户需使用 Apple Silicon (M系列芯片) 设备。
+ARCHS = arm64
+ONLY_ACTIVE_ARCH = NO

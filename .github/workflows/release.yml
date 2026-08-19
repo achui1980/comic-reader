@@ -230,6 +230,24 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Resolved version: $VERSION"
 
+      - name: Get previous build tag
+        id: prevtag
+        run: |
+          # 找上一个 build tag 作为 changelog 起点。
+          # 用 -build.N 后缀筛选，是因为每次 release 实际创建的 tag 都带这个后缀
+          # （见上一步注释：语义 tag 已存在时会自动追加 build 号）。
+          # grep -v 排除本次即将创建的 tag，防御 run_number 重复等极端情况。
+          PREV_TAG=$(git tag --sort=-creatordate --merged HEAD | grep -E '\-build\.[0-9]+$' | grep -v "^v${{ steps.version.outputs.version }}$" | head -1 || true)
+          echo "prev_tag=$PREV_TAG" >> $GITHUB_OUTPUT
+          echo "Previous build tag: ${PREV_TAG:-<none, using full history>}"
+
+      - name: Generate changelog
+        uses: orhun/git-cliff-action@v4
+        id: changelog
+        with:
+          config: cliff.toml
+          args: --strip header ${{ steps.prevtag.outputs.prev_tag != '' && format('{0}..HEAD', steps.prevtag.outputs.prev_tag) || '' }}
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -254,11 +272,14 @@ jobs:
           body: |
             ## Comic Reader v${{ steps.version.outputs.version }}
 
+            ### 本次更新
+            ${{ steps.changelog.outputs.content }}
+
             ### 下载
 
             | 平台 | 文件 | 说明 |
             |------|------|------|
-            | macOS | `ComicReader-${{ steps.version.outputs.version }}-macOS.dmg` | 要求 macOS 11.0+ |
+            | macOS | `ComicReader-${{ steps.version.outputs.version }}-macOS.dmg` | 要求 macOS 11.0+，仅支持 Apple Silicon (M系列芯片) |
             | Windows | `ComicReader-${{ steps.version.outputs.version }}-Windows.zip` | 解压即用 |
             | Android | `ComicReader-${{ steps.version.outputs.version }}-Android.apk` | 要求 Android 5.0+ |
 
