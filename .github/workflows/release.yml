@@ -180,12 +180,20 @@ jobs:
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Build APK
-        run: flutter build apk --release --build-name=${{ steps.version.outputs.version }}
+      - name: Build APK (split per ABI)
+        # 按架构拆分产出独立 APK，用户只需下载自己手机对应的那一份。
+        # 排除 x86_64：真实 Android 手机几乎不用这个架构（主要是模拟器/极少数 x86 平板），
+        # 而 ONNX Runtime 的原生库会给每个架构各打包一份，砍掉它能显著减小分发体积。
+        run: |
+          flutter build apk --release --split-per-abi \
+            --target-platform android-arm,android-arm64 \
+            --build-name=${{ steps.version.outputs.version }}
 
       - name: Rename APK
         run: |
-          mv build/app/outputs/flutter-apk/app-release.apk "ComicReader-${{ steps.version.outputs.version }}-Android.apk"
+          cd build/app/outputs/flutter-apk
+          mv app-armeabi-v7a-release.apk "../../../../ComicReader-${{ steps.version.outputs.version }}-Android-armeabi-v7a.apk"
+          mv app-arm64-v8a-release.apk "../../../../ComicReader-${{ steps.version.outputs.version }}-Android-arm64-v8a.apk"
 
       - name: Upload Android artifact
         uses: actions/upload-artifact@v4
@@ -281,7 +289,10 @@ jobs:
             |------|------|------|
             | macOS | `ComicReader-${{ steps.version.outputs.version }}-macOS.dmg` | 要求 macOS 11.0+，仅支持 Apple Silicon (M系列芯片) |
             | Windows | `ComicReader-${{ steps.version.outputs.version }}-Windows.zip` | 解压即用 |
-            | Android | `ComicReader-${{ steps.version.outputs.version }}-Android.apk` | 要求 Android 5.0+ |
+            | Android | `ComicReader-${{ steps.version.outputs.version }}-Android-arm64-v8a.apk` | 绝大多数 2018 年后的手机选这个 |
+            | Android | `ComicReader-${{ steps.version.outputs.version }}-Android-armeabi-v7a.apk` | 老款 32 位手机选这个 |
+
+            > Android 不确定选哪个？大多数现代手机都是 arm64-v8a，直接下这个即可。
 
             ### macOS 安装说明（未签名应用）
             本应用未经 Apple 公证，从浏览器下载后会被系统标记隔离，首次打开需手动去除：
