@@ -38,8 +38,18 @@ void main() {
 
   // Empty coverUrl avoids CachedNetworkImage attempting a real network
   // fetch during the widget test (no network access in the test sandbox).
-  const mangaA = MangaSummary(id: 'mA', sourceId: 'sA', title: 'Manga A', coverUrl: '');
-  const mangaB = MangaSummary(id: 'mB', sourceId: 'sB', title: 'Manga B', coverUrl: '');
+  const mangaA = MangaSummary(
+    id: 'mA',
+    sourceId: 'sA',
+    title: 'Manga A',
+    coverUrl: '',
+  );
+  const mangaB = MangaSummary(
+    id: 'mB',
+    sourceId: 'sB',
+    title: 'Manga B',
+    coverUrl: '',
+  );
 
   setUp(() async {
     favoritesStore = MockFavoritesStore();
@@ -54,8 +64,9 @@ void main() {
     GetIt.instance.registerSingleton<FavoritesStore>(favoritesStore);
     GetIt.instance.registerSingleton<UpdateStore>(updateStore);
     GetIt.instance.registerSingleton<CategoryStore>(categoryStore);
-    GetIt.instance
-        .registerSingleton<LibraryUpdateService>(libraryUpdateService);
+    GetIt.instance.registerSingleton<LibraryUpdateService>(
+      libraryUpdateService,
+    );
     GetIt.instance.registerSingleton<MangaRepository>(repository);
     GetIt.instance.registerSingleton<ReadingHistoryStore>(historyStore);
     GetIt.instance.registerSingleton<DownloadManager>(downloadManager);
@@ -63,13 +74,14 @@ void main() {
     // null, which _buildMangaCard already handles (no source name shown).
     GetIt.instance.registerSingleton<SourceRegistry>(SourceRegistry());
 
-    when(() => favoritesStore.getAll())
-        .thenAnswer((_) async => [mangaA, mangaB]);
-    when(() => favoritesStore.getCategoryMap())
-        .thenAnswer((_) async => <String, List<String>>{});
+    when(
+      () => favoritesStore.getAll(),
+    ).thenAnswer((_) async => [mangaA, mangaB]);
+    when(
+      () => favoritesStore.getCategoryMap(),
+    ).thenAnswer((_) async => <String, List<String>>{});
     when(() => favoritesStore.notifier).thenReturn(ValueNotifier<int>(0));
-    when(() => updateStore.getAllUpdated())
-        .thenAnswer((_) async => <String>{});
+    when(() => updateStore.getAllUpdated()).thenAnswer((_) async => <String>{});
     when(() => categoryStore.getAll()).thenAnswer((_) async => <Category>[]);
     when(() => downloadManager.activeCount).thenReturn(0);
   });
@@ -85,56 +97,62 @@ void main() {
     await tester.pump();
   }
 
-  Finder downloadSelectedButton() => find.byWidgetPredicate(
-        (w) => w is IconButton && w.tooltip == '下载所选',
-      );
+  Finder downloadSelectedButton() =>
+      find.byWidgetPredicate((w) => w is IconButton && w.tooltip == '下载所选');
 
   testWidgets(
-      '长按选中一部漫画后，"下载所选"按钮可用；点击后调用 downloadSelected 并显示准确的 SnackBar 文案',
-      (tester) async {
-    // The selected manga (sA/mA) has one unread chapter -> downloadSelected
-    // should queue exactly 1 chapter, and the SnackBar must reflect that
-    // real count instead of a generic "done" message.
-    final chapters = [
-      const ChapterItem(id: 'c1', mangaId: 'mA', title: 'Ch1'),
-    ];
-    when(() => repository.getChapterList('sA', 'mA', 1)).thenAnswer(
-        (_) async => ChapterListResult(chapters: chapters, canLoadMore: false));
-    when(() => historyStore.getReadChapters('sA', 'mA'))
-        .thenAnswer((_) async => <String>{});
-    when(() => downloadManager.addTask(
+    '长按选中一部漫画后，"下载所选"按钮可用；点击后调用 downloadSelected 并显示准确的 SnackBar 文案',
+    (tester) async {
+      // The selected manga (sA/mA) has one unread chapter -> downloadSelected
+      // should queue exactly 1 chapter, and the SnackBar must reflect that
+      // real count instead of a generic "done" message.
+      final chapters = [
+        const ChapterItem(id: 'c1', mangaId: 'mA', title: 'Ch1'),
+      ];
+      when(() => repository.getChapterList('sA', 'mA', 1)).thenAnswer(
+        (_) async => ChapterListResult(chapters: chapters, canLoadMore: false),
+      );
+      when(
+        () => historyStore.getReadChapters('sA', 'mA'),
+      ).thenAnswer((_) async => <String>{});
+      when(
+        () => downloadManager.addTask(
           sourceId: any(named: 'sourceId'),
           mangaId: any(named: 'mangaId'),
           chapterId: any(named: 'chapterId'),
           mangaTitle: any(named: 'mangaTitle'),
           chapterTitle: any(named: 'chapterTitle'),
-        )).thenAnswer((_) async {});
+        ),
+      ).thenAnswer((_) async {});
 
-    await pumpHome(tester);
+      await pumpHome(tester);
 
-    await tester.longPress(find.text('Manga A'));
-    await tester.pump();
+      await tester.longPress(find.text('Manga A'));
+      await tester.pump();
 
-    expect(find.text('已选 1 项'), findsOneWidget);
-    final button = tester.widget<IconButton>(downloadSelectedButton());
-    expect(button.onPressed, isNotNull);
+      expect(find.text('已选 1 项'), findsOneWidget);
+      final button = tester.widget<IconButton>(downloadSelectedButton());
+      expect(button.onPressed, isNotNull);
 
-    await tester.tap(downloadSelectedButton());
-    // Flush the awaited downloadSelected() -> downloadUnread() chain plus
-    // the SnackBar's entrance animation.
-    for (var i = 0; i < 5; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
-    }
+      await tester.tap(downloadSelectedButton());
+      // Flush the awaited downloadSelected() -> downloadUnread() chain plus
+      // the SnackBar's entrance animation.
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
 
-    verify(() => downloadManager.addTask(
+      verify(
+        () => downloadManager.addTask(
           sourceId: 'sA',
           mangaId: 'mA',
           chapterId: 'c1',
           mangaTitle: 'Manga A',
           chapterTitle: 'Ch1',
-        )).called(1);
-    expect(find.text('已加入下载队列（共1章）'), findsOneWidget);
-  });
+        ),
+      ).called(1);
+      expect(find.text('已加入下载队列 (1章)'), findsOneWidget);
+    },
+  );
 
   testWidgets('未选中任何漫画时（切换到空分类后点击全选），"下载所选"按钮禁用', (tester) async {
     // A category with zero matching manga: after entering selection mode,
@@ -143,7 +161,8 @@ void main() {
     // to "selecting with nothing selected" via the real production code
     // (see HomeCubit.selectAll / toggleSelection).
     when(() => categoryStore.getAll()).thenAnswer(
-        (_) async => const [Category(id: 'c1', name: 'Empty', order: 0)]);
+      (_) async => const [Category(id: 'c1', name: 'Empty', order: 0)],
+    );
 
     await pumpHome(tester);
 

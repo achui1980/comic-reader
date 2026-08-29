@@ -115,7 +115,10 @@ class _HomeViewState extends State<_HomeView> {
     );
   }
 
-  PreferredSizeWidget _buildSelectionAppBar(BuildContext context, HomeState state) {
+  PreferredSizeWidget _buildSelectionAppBar(
+    BuildContext context,
+    HomeState state,
+  ) {
     return AppBar(
       leading: IconButton(
         icon: const Icon(Icons.close),
@@ -180,6 +183,16 @@ class _HomeViewState extends State<_HomeView> {
   /// download button's honest-result pattern below) rather than a blind
   /// "queued" message — [HomeCubit.downloadSelected] returns the real total
   /// chapter count queued across all selected manga.
+  ///
+  /// NOTE on the try/catch below: [HomeCubit.downloadSelected] delegates to
+  /// [HomeCubit.downloadUnread], whose doc contract states it "never
+  /// throws" (all fetch/history-lookup errors are swallowed and counted as
+  /// 0 queued). This try/catch is therefore defensive-in-depth against a
+  /// future change to that contract, not a currently-reachable path — it is
+  /// intentionally not covered by a test targeting the catch branch
+  /// specifically, since forcing it to fire would require bypassing
+  /// [HomeCubit]'s real implementation (see the identical, equally
+  /// untested pattern in the single-manga download button below).
   Future<void> _downloadSelected(BuildContext context) async {
     final cubit = context.read<HomeCubit>();
     final messenger = ScaffoldMessenger.of(context);
@@ -195,8 +208,8 @@ class _HomeViewState extends State<_HomeView> {
     final message = errorMessage != null
         ? '加入下载队列失败：$errorMessage'
         : count > 0
-            ? '已加入下载队列（共$count章）'
-            : '所选漫画均无未读章节';
+        ? '已加入下载队列 ($count章)'
+        : '所选漫画均无未读章节';
     messenger.showSnackBar(SnackBar(content: Text(message)));
   }
 
@@ -229,7 +242,8 @@ class _HomeViewState extends State<_HomeView> {
   }
 
   Widget _buildBody(BuildContext context, HomeState state) {
-    if (state.status == HomeStatus.loading || state.status == HomeStatus.initial) {
+    if (state.status == HomeStatus.loading ||
+        state.status == HomeStatus.initial) {
       return const Center(child: CircularProgressIndicator());
     }
     if (state.favorites.isEmpty) {
@@ -283,13 +297,13 @@ class _HomeViewState extends State<_HomeView> {
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final tab = tabs[index];
-          final selected = state.selectedCategoryId == tab.id ||
+          final selected =
+              state.selectedCategoryId == tab.id ||
               (state.selectedCategoryId == null && tab.id == kAllCategoryId);
           return ChoiceChip(
             label: Text(tab.name),
             selected: selected,
-            onSelected: (_) =>
-                context.read<HomeCubit>().selectCategory(tab.id),
+            onSelected: (_) => context.read<HomeCubit>().selectCategory(tab.id),
           );
         },
       ),
@@ -305,19 +319,26 @@ class _HomeViewState extends State<_HomeView> {
           const SizedBox(height: 12),
           Text(
             '该分类暂无漫画',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildMangaCard(BuildContext context, MangaSummary manga, HomeState state) {
+  Widget _buildMangaCard(
+    BuildContext context,
+    MangaSummary manga,
+    HomeState state,
+  ) {
     final hasNewUpdate = state.hasUpdate(manga.sourceId, manga.id);
     final key = '${manga.sourceId}_${manga.id}';
     final isSelected = state.selectedKeys.contains(key);
-    final sourceName =
-        GetIt.instance<SourceRegistry>().get(manga.sourceId)?.shortName;
+    final sourceName = GetIt.instance<SourceRegistry>()
+        .get(manga.sourceId)
+        ?.shortName;
 
     return GestureDetector(
       onTap: () async {
@@ -365,7 +386,10 @@ class _HomeViewState extends State<_HomeView> {
                     top: 4,
                     right: 4,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.red,
                         borderRadius: BorderRadius.circular(8),
@@ -395,7 +419,11 @@ class _HomeViewState extends State<_HomeView> {
                         border: Border.all(color: Colors.white, width: 2),
                       ),
                       child: isSelected
-                          ? const Icon(Icons.check, size: 14, color: Colors.white)
+                          ? const Icon(
+                              Icons.check,
+                              size: 14,
+                              color: Colors.white,
+                            )
                           : null,
                     ),
                   ),
@@ -413,6 +441,16 @@ class _HomeViewState extends State<_HomeView> {
                           final messenger = ScaffoldMessenger.of(context);
                           int count;
                           String? errorMessage;
+                          // NOTE: [HomeCubit.downloadUnread]'s doc contract
+                          // states it "never throws" (fetch/history-lookup
+                          // errors are swallowed and counted as 0 queued).
+                          // This try/catch is defensive-in-depth against a
+                          // future contract change, not a currently-reachable
+                          // path — intentionally not covered by a test
+                          // targeting the catch branch specifically, since
+                          // forcing it to fire would require bypassing
+                          // [HomeCubit]'s real implementation (see the
+                          // identical pattern in `_downloadSelected` above).
                           try {
                             count = await cubit.downloadUnread(manga);
                           } catch (e) {
@@ -423,15 +461,19 @@ class _HomeViewState extends State<_HomeView> {
                           final message = errorMessage != null
                               ? '加入下载队列失败：$errorMessage'
                               : count > 0
-                                  ? '已加入下载队列 ($count章)'
-                                  : '本漫画暂无未读章节';
+                              ? '已加入下载队列 ($count章)'
+                              : '本漫画暂无未读章节';
                           messenger.showSnackBar(
                             SnackBar(content: Text(message)),
                           );
                         },
                         child: const Padding(
                           padding: EdgeInsets.all(4),
-                          child: Icon(Icons.download, size: 18, color: Colors.white),
+                          child: Icon(
+                            Icons.download,
+                            size: 18,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                     ),
@@ -452,9 +494,9 @@ class _HomeViewState extends State<_HomeView> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: Colors.grey,
-                    fontSize: 10,
-                  ),
+                color: Colors.grey,
+                fontSize: 10,
+              ),
             ),
         ],
       ),
@@ -466,16 +508,24 @@ class _HomeViewState extends State<_HomeView> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.collections_bookmark_outlined, size: 80, color: Colors.grey.shade400),
+          Icon(
+            Icons.collections_bookmark_outlined,
+            size: 80,
+            color: Colors.grey.shade400,
+          ),
           const SizedBox(height: 16),
           Text(
             '暂无收藏',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.grey),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(color: Colors.grey),
           ),
           const SizedBox(height: 8),
           Text(
             '去发现页面浏览漫画吧',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: Colors.grey),
           ),
           const SizedBox(height: 24),
           FilledButton.icon(
@@ -497,7 +547,10 @@ class _HomeViewState extends State<_HomeView> {
   }
 
   /// Category management dialog: add / rename / delete categories.
-  Future<void> _showCategoryManager(BuildContext context, HomeState state) async {
+  Future<void> _showCategoryManager(
+    BuildContext context,
+    HomeState state,
+  ) async {
     final cubit = context.read<HomeCubit>();
     await showDialog<void>(
       context: context,
@@ -627,9 +680,9 @@ class _HomeViewState extends State<_HomeView> {
   Future<void> _showSetCategories(BuildContext context, HomeState state) async {
     final cubit = context.read<HomeCubit>();
     if (state.categories.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请先在“分类管理”中添加分类')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请先在“分类管理”中添加分类')));
       return;
     }
     final selected = <String>{};
