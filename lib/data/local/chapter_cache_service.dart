@@ -7,6 +7,20 @@ import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/core/utils/image_response_decoder.dart';
 
 /// Result of a [ChapterCacheService.downloadChapter] call.
+///
+/// - [cancelled]: `true` if the download was aborted via [CancelToken]
+///   cancellation before every image was attempted. When `true`,
+///   [completedImages] and [failedImageIndexes] only reflect the images
+///   that were processed before cancellation; the remaining images were
+///   never attempted (and are not listed in [failedImageIndexes]).
+/// - [completedImages]: the count of images that were **successfully**
+///   downloaded (or already present on disk from a previous run). This
+///   does NOT include images that ultimately failed after exhausting the
+///   retry budget. In the non-cancelled case,
+///   `completedImages == images.length - failedImageIndexes.length`.
+/// - [failedImageIndexes]: sorted indexes of images that failed every
+///   attempt (1 initial attempt + retries, up to [ChapterCacheService]'s
+///   internal max retry count) and were given up on.
 class ChapterDownloadResult {
   final bool cancelled;
   final int completedImages;
@@ -193,7 +207,6 @@ class ChapterCacheService {
           attempt++;
           if (attempt > _maxImageRetries) {
             failedIndexes.add(i);
-            completed++;
             onProgress?.call(completed, images.length);
             return;
           }
