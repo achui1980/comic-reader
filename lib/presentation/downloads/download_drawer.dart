@@ -67,23 +67,21 @@ class DownloadDrawer extends StatelessWidget {
   Widget _buildHeader(BuildContext context, DownloadManager manager) {
     final total = manager.tasks.length;
     final active = manager.activeCount;
-    final hasPaused =
-        manager.tasks.any((t) => t.status == DownloadTaskStatus.paused);
+    final hasPaused = manager.tasks.any(
+      (t) => t.status == DownloadTaskStatus.paused,
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: [
-          Text(
-            '下载队列 ($total)',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
+          Text('下载队列 ($total)', style: Theme.of(context).textTheme.titleMedium),
           const Spacer(),
           if (active > 0)
             Text(
               '进行中: $active',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
+                color: Theme.of(context).colorScheme.primary,
+              ),
             ),
           IconButton(
             icon: const Icon(Icons.pause),
@@ -111,10 +109,9 @@ class DownloadDrawer extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             '暂无下载任务',
-            style: Theme.of(context)
-                .textTheme
-                .bodyMedium
-                ?.copyWith(color: Colors.grey),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: Colors.grey),
           ),
         ],
       ),
@@ -122,7 +119,10 @@ class DownloadDrawer extends StatelessWidget {
   }
 
   Widget _buildTaskTile(
-      BuildContext context, DownloadTask task, DownloadManager manager) {
+    BuildContext context,
+    DownloadTask task,
+    DownloadManager manager,
+  ) {
     return GestureDetector(
       onLongPress: () => _confirmRemove(context, task, manager),
       child: ListTile(
@@ -160,7 +160,10 @@ class DownloadDrawer extends StatelessWidget {
   }
 
   Widget? _buildTrailing(
-      BuildContext context, DownloadTask task, DownloadManager manager) {
+    BuildContext context,
+    DownloadTask task,
+    DownloadManager manager,
+  ) {
     switch (task.status) {
       case DownloadTaskStatus.downloading:
         return SizedBox(
@@ -195,7 +198,10 @@ class DownloadDrawer extends StatelessWidget {
   }
 
   void _confirmRemove(
-      BuildContext context, DownloadTask task, DownloadManager manager) {
+    BuildContext context,
+    DownloadTask task,
+    DownloadManager manager,
+  ) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
