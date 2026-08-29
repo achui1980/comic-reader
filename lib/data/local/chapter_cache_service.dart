@@ -1,11 +1,14 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:logging/logging.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/core/utils/image_response_decoder.dart';
+
+final _log = Logger('ChapterCacheService');
 
 /// Result of a [ChapterCacheService.downloadChapter] call.
 ///
@@ -51,11 +54,27 @@ bool get _isMacOSForBookmark =>
 /// Persists a security-scoped bookmark for [path] so it remains writable
 /// (via [resolveDownloadDirectoryBookmark]) after the app is relaunched.
 ///
-/// No-op on any platform other than macOS (App Sandbox / security-scoped
-/// bookmarks are a macOS-only concept; other platforms don't need this).
-Future<void> saveDownloadDirectoryBookmark(String path) async {
-  if (!_isMacOSForBookmark) return;
-  await _downloadBookmarkChannel.invokeMethod('saveBookmark', {'path': path});
+/// No-op (returns `true` immediately) on any platform other than macOS
+/// (App Sandbox / security-scoped bookmarks are a macOS-only concept;
+/// other platforms don't need this).
+///
+/// Returns `true` if the bookmark was saved (or the call was a no-op),
+/// `false` if the native side threw (e.g. `url.bookmarkData()` failing on
+/// an invalid path or a revoked sandbox extension surfaces as a
+/// [PlatformException] on the Dart side). The exception is caught and
+/// logged here rather than rethrown, so callers are never forced to
+/// handle it, but can still react to the failure via the return value.
+Future<bool> saveDownloadDirectoryBookmark(String path) async {
+  if (!_isMacOSForBookmark) return true;
+  try {
+    await _downloadBookmarkChannel.invokeMethod('saveBookmark', {
+      'path': path,
+    });
+    return true;
+  } catch (e, stack) {
+    _log.warning('Failed to save download directory bookmark: $e', e, stack);
+    return false;
+  }
 }
 
 /// Resolves the previously-saved security-scoped bookmark and starts

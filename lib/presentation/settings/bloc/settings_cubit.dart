@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:get_it/get_it.dart';
+import 'package:logging/logging.dart';
 import 'package:comic_reader/app/theme/app_theme.dart';
 import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
@@ -13,6 +14,8 @@ import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/core/activation/activation_service.dart';
 import 'package:comic_reader/main.dart';
 import 'settings_state.dart';
+
+final _log = Logger('SettingsCubit');
 
 class SettingsCubit extends Cubit<SettingsState> {
   final SettingsStore _settingsStore;
@@ -209,13 +212,26 @@ class SettingsCubit extends Cubit<SettingsState> {
   /// 留在 UserDefaults 中不主动清除——这是安全的，因为启动时（见
   /// `main.dart`）只有在 `AppSettings.downloadDirectory` 非空时才会去解析
   /// bookmark，恢复默认后不会被这份残留 bookmark 复活。
+  ///
+  /// [saveDownloadDirectoryBookmark] already catches and logs any native
+  /// exception internally (never rethrows), so a bookmark-save failure
+  /// here is only surfaced via its `bool` return value — it does not
+  /// throw and does not block the settings/`customDownloadDirectory`
+  /// update above, which already succeeded by this point.
   Future<void> setDownloadDirectory(String? path) async {
     final updated = state.settings.copyWith(downloadDirectory: path);
     emit(state.copyWith(settings: updated));
     await _settingsStore.save(updated);
     ChapterCacheService.customDownloadDirectory = path;
     if (Platform.isMacOS && path != null) {
-      await saveDownloadDirectoryBookmark(path);
+      final bookmarkSaved = await saveDownloadDirectoryBookmark(path);
+      if (!bookmarkSaved) {
+        _log.warning(
+          'Failed to persist security-scoped bookmark for download '
+          'directory "$path"; the custom directory will only remain '
+          'writable for the current app session.',
+        );
+      }
     }
   }
 

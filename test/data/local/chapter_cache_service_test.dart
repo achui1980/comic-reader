@@ -608,6 +608,28 @@ void main() {
           expect(result, isNull);
         },
       );
+
+      test(
+        'saveDownloadDirectoryBookmark catches a PlatformException thrown '
+        'by the native saveBookmark call, logs it, and returns false '
+        'instead of rethrowing',
+        () async {
+          debugIsMacOSOverrideForTest = true;
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, (call) async {
+            throw PlatformException(
+              code: 'BOOKMARK_ERROR',
+              message: 'url.bookmarkData() failed',
+            );
+          });
+
+          final result = await saveDownloadDirectoryBookmark(
+            '/Users/someone/Downloads/comics',
+          );
+
+          expect(result, isFalse);
+        },
+      );
     },
   );
 }

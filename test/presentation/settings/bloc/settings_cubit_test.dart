@@ -85,5 +85,27 @@ void main() {
       expect(cubit.state.settings.downloadDirectory, isNull);
       expect(ChapterCacheService.customDownloadDirectory, isNull);
     });
+
+    test(
+      'a PlatformException from the native saveBookmark call does not '
+      'propagate out of setDownloadDirectory (it is caught and logged '
+      'inside saveDownloadDirectoryBookmark), and the settings/static '
+      'field update that already happened before the native call is '
+      'unaffected',
+      () async {
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(bookmarkChannel, (call) async {
+          throw PlatformException(
+            code: 'BOOKMARK_ERROR',
+            message: 'url.bookmarkData() failed',
+          );
+        });
+
+        await cubit.setDownloadDirectory('/custom/path');
+
+        expect(cubit.state.settings.downloadDirectory, '/custom/path');
+        expect(ChapterCacheService.customDownloadDirectory, '/custom/path');
+      },
+    );
   });
 }
