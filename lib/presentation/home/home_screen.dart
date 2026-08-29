@@ -18,6 +18,26 @@ import 'package:comic_reader/presentation/downloads/download_drawer.dart';
 import 'bloc/home_cubit.dart';
 import 'bloc/home_state.dart';
 
+/// Builds the SnackBar text for a "queue unread chapters for download"
+/// action's outcome. Shared by both the single-manga download button (in
+/// [_HomeViewState._buildMangaCard]) and the batch "下载所选" button (in
+/// [_HomeViewState._downloadSelected]) so their wording cannot silently
+/// drift apart again — they previously disagreed on punctuation style for
+/// the success message ('已加入下载队列（共N章）' vs '已加入下载队列 (N章)').
+///
+/// [emptyMessage] is the only piece that legitimately differs between the
+/// two call sites (singular "this manga" vs plural "selected manga"
+/// wording), so it stays a parameter rather than being hard-coded here.
+String _downloadResultMessage({
+  required int count,
+  required String? errorMessage,
+  required String emptyMessage,
+}) {
+  if (errorMessage != null) return '加入下载队列失败：$errorMessage';
+  if (count > 0) return '已加入下载队列 ($count章)';
+  return emptyMessage;
+}
+
 /// Home screen showing user's favorite manga bookshelf.
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -205,11 +225,11 @@ class _HomeViewState extends State<_HomeView> {
       errorMessage = e.toString();
     }
     if (!context.mounted) return;
-    final message = errorMessage != null
-        ? '加入下载队列失败：$errorMessage'
-        : count > 0
-        ? '已加入下载队列 ($count章)'
-        : '所选漫画均无未读章节';
+    final message = _downloadResultMessage(
+      count: count,
+      errorMessage: errorMessage,
+      emptyMessage: '所选漫画均无未读章节',
+    );
     messenger.showSnackBar(SnackBar(content: Text(message)));
   }
 
@@ -458,11 +478,11 @@ class _HomeViewState extends State<_HomeView> {
                             errorMessage = e.toString();
                           }
                           if (!context.mounted) return;
-                          final message = errorMessage != null
-                              ? '加入下载队列失败：$errorMessage'
-                              : count > 0
-                              ? '已加入下载队列 ($count章)'
-                              : '本漫画暂无未读章节';
+                          final message = _downloadResultMessage(
+                            count: count,
+                            errorMessage: errorMessage,
+                            emptyMessage: '本漫画暂无未读章节',
+                          );
                           messenger.showSnackBar(
                             SnackBar(content: Text(message)),
                           );
