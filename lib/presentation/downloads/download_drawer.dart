@@ -30,7 +30,7 @@ class DownloadDrawer extends StatelessWidget {
             return Column(
               children: [
                 _buildHandle(),
-                _buildHeader(context, tasks.length, manager.activeCount),
+                _buildHeader(context, manager),
                 const Divider(height: 1),
                 Expanded(
                   child: tasks.isEmpty
@@ -64,7 +64,11 @@ class DownloadDrawer extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader(BuildContext context, int total, int active) {
+  Widget _buildHeader(BuildContext context, DownloadManager manager) {
+    final total = manager.tasks.length;
+    final active = manager.activeCount;
+    final hasPaused =
+        manager.tasks.any((t) => t.status == DownloadTaskStatus.paused);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
@@ -81,6 +85,18 @@ class DownloadDrawer extends StatelessWidget {
                     color: Theme.of(context).colorScheme.primary,
                   ),
             ),
+          IconButton(
+            icon: const Icon(Icons.pause),
+            tooltip: '全部暂停',
+            onPressed: active == 0 && manager.pendingCount == 0
+                ? null
+                : () => manager.pauseAll(),
+          ),
+          IconButton(
+            icon: const Icon(Icons.play_arrow),
+            tooltip: '全部恢复',
+            onPressed: hasPaused ? () => manager.resumeAll() : null,
+          ),
         ],
       ),
     );
@@ -136,6 +152,10 @@ class DownloadDrawer extends StatelessWidget {
         return const Icon(Icons.check_circle, color: Colors.green);
       case DownloadTaskStatus.failed:
         return const Icon(Icons.error, color: Colors.red);
+      case DownloadTaskStatus.paused:
+        return const Icon(Icons.pause_circle_outline, color: Colors.orange);
+      case DownloadTaskStatus.partiallyFailed:
+        return const Icon(Icons.error_outline, color: Colors.orange);
     }
   }
 
@@ -155,6 +175,18 @@ class DownloadDrawer extends StatelessWidget {
         return IconButton(
           icon: const Icon(Icons.refresh, size: 20),
           tooltip: '重试',
+          onPressed: () => manager.retryTask(task.key),
+        );
+      case DownloadTaskStatus.paused:
+        return IconButton(
+          icon: const Icon(Icons.play_circle_outline, size: 20),
+          tooltip: '恢复',
+          onPressed: () => manager.resumeTask(task.key),
+        );
+      case DownloadTaskStatus.partiallyFailed:
+        return TextButton.icon(
+          icon: const Icon(Icons.refresh, size: 16),
+          label: Text('${task.failedImageIndexes.length}张失败，点击重试'),
           onPressed: () => manager.retryTask(task.key),
         );
       default:
