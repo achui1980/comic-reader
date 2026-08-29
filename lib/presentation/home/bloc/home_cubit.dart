@@ -257,7 +257,13 @@ class HomeCubit extends Cubit<HomeState> {
   ///
   /// [downloadUnread] never throws, so one manga's failure never aborts the
   /// rest of the batch.
-  Future<void> downloadSelected() async {
+  ///
+  /// Returns the total number of chapters queued across all selected manga
+  /// (0 if none were unread, or if all lookups/fetches failed), mirroring
+  /// [downloadUnread]'s honest-result contract so the UI caller can show an
+  /// accurate summary instead of a blind "done" message.
+  Future<int> downloadSelected() async {
+    var total = 0;
     for (final key in state.selectedKeys) {
       final parts = key.split('_');
       if (parts.length < 2) continue;
@@ -267,8 +273,9 @@ class HomeCubit extends Cubit<HomeState> {
         (m) => m.sourceId == sourceId && m.id == mangaId,
       );
       if (manga != null) {
-        await downloadUnread(manga);
+        total += await downloadUnread(manga);
       }
     }
+    return total;
   }
 }

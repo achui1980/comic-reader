@@ -175,14 +175,29 @@ class _HomeViewState extends State<_HomeView> {
     }
   }
 
+  /// Download unread chapters for every currently selected manga, then show
+  /// a SnackBar reflecting the actual outcome (mirroring the single-manga
+  /// download button's honest-result pattern below) rather than a blind
+  /// "queued" message — [HomeCubit.downloadSelected] returns the real total
+  /// chapter count queued across all selected manga.
   Future<void> _downloadSelected(BuildContext context) async {
     final cubit = context.read<HomeCubit>();
     final messenger = ScaffoldMessenger.of(context);
-    await cubit.downloadSelected();
+    int count;
+    String? errorMessage;
+    try {
+      count = await cubit.downloadSelected();
+    } catch (e) {
+      count = 0;
+      errorMessage = e.toString();
+    }
     if (!context.mounted) return;
-    messenger.showSnackBar(
-      const SnackBar(content: Text('已加入下载队列')),
-    );
+    final message = errorMessage != null
+        ? '加入下载队列失败：$errorMessage'
+        : count > 0
+            ? '已加入下载队列（共$count章）'
+            : '所选漫画均无未读章节';
+    messenger.showSnackBar(SnackBar(content: Text(message)));
   }
 
   Widget _buildUpdateAction(BuildContext context, HomeState state) {

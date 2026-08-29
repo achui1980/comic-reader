@@ -290,6 +290,46 @@ void main() {
     },
   );
 
+  test('downloadSelected 返回所有选中漫画累加的未读章节总数', () async {
+    when(() => favoritesStore.getAll())
+        .thenAnswer((_) async => [mangaA, mangaB]);
+    when(() => updateStore.getAllUpdated())
+        .thenAnswer((_) async => <String>{});
+    when(() => categoryStore.getAll()).thenAnswer((_) async => []);
+    when(() => favoritesStore.getCategoryMap())
+        .thenAnswer((_) async => <String, List<String>>{});
+    when(() => repository.getChapterList('s1', 'm_1', 1)).thenAnswer(
+        (_) async =>
+            ChapterListResult(chapters: chaptersA, canLoadMore: false));
+    when(() => repository.getChapterList('s2', 'm2', 1)).thenAnswer(
+        (_) async =>
+            ChapterListResult(chapters: chaptersB, canLoadMore: false));
+    // mangaA: 'ca1' already read, 'ca2' unread -> 1 chapter queued.
+    when(() => historyStore.getReadChapters('s1', 'm_1'))
+        .thenAnswer((_) async => {'ca1'});
+    // mangaB: nothing read yet -> 'cb1' queued -> 1 chapter queued.
+    when(() => historyStore.getReadChapters('s2', 'm2'))
+        .thenAnswer((_) async => <String>{});
+    when(() => downloadManager.addTask(
+          sourceId: any(named: 'sourceId'),
+          mangaId: any(named: 'mangaId'),
+          chapterId: any(named: 'chapterId'),
+          mangaTitle: any(named: 'mangaTitle'),
+          chapterTitle: any(named: 'chapterTitle'),
+        )).thenAnswer((_) async {});
+
+    final cubit = buildCubit();
+    await cubit.loadFavorites();
+    // Select both manga via the public selection API rather than reaching
+    // into Cubit.emit (protected) — mirrors how the UI actually drives this.
+    cubit.enterSelectionMode('s1', 'm_1');
+    cubit.toggleSelection('s2', 'm2');
+
+    final total = await cubit.downloadSelected();
+
+    expect(total, 2); // 1 (mangaA's ca2) + 1 (mangaB's cb1)
+  });
+
   blocTest<HomeCubit, dynamic>(
     'downloadSelected 中一个漫画拉取章节失败时，不影响其它漫画继续下载',
     build: () {
