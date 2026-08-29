@@ -4,7 +4,14 @@ import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
 import 'local_storage.dart';
 
-enum DownloadTaskStatus { pending, downloading, completed, failed }
+enum DownloadTaskStatus {
+  pending,
+  downloading,
+  completed,
+  failed,
+  paused,
+  partiallyFailed,
+}
 
 class DownloadTask {
   final String sourceId;
@@ -15,6 +22,12 @@ class DownloadTask {
   DownloadTaskStatus status;
   int progress; // 0-100
   String? error;
+  int totalImages;
+  int completedImages;
+  List<int> failedImageIndexes;
+  int retryCount;
+  DateTime? pausedAt;
+  int priority;
 
   DownloadTask({
     required this.sourceId,
@@ -25,7 +38,13 @@ class DownloadTask {
     this.status = DownloadTaskStatus.pending,
     this.progress = 0,
     this.error,
-  });
+    this.totalImages = 0,
+    this.completedImages = 0,
+    List<int>? failedImageIndexes,
+    this.retryCount = 0,
+    this.pausedAt,
+    this.priority = 0,
+  }) : failedImageIndexes = failedImageIndexes ?? [];
 
   String get key => '${sourceId}_${mangaId}_$chapterId';
 
@@ -38,6 +57,12 @@ class DownloadTask {
     'status': status.index,
     'progress': progress,
     'error': error,
+    'totalImages': totalImages,
+    'completedImages': completedImages,
+    'failedImageIndexes': failedImageIndexes,
+    'retryCount': retryCount,
+    'pausedAt': pausedAt?.toIso8601String(),
+    'priority': priority,
   };
 
   factory DownloadTask.fromJson(Map<String, dynamic> json) => DownloadTask(
@@ -49,6 +74,16 @@ class DownloadTask {
     status: DownloadTaskStatus.values[json['status'] as int? ?? 0],
     progress: json['progress'] as int? ?? 0,
     error: json['error'] as String?,
+    totalImages: json['totalImages'] as int? ?? 0,
+    completedImages: json['completedImages'] as int? ?? 0,
+    failedImageIndexes:
+        (json['failedImageIndexes'] as List?)?.map((e) => e as int).toList() ??
+        [],
+    retryCount: json['retryCount'] as int? ?? 0,
+    pausedAt: json['pausedAt'] != null
+        ? DateTime.parse(json['pausedAt'] as String)
+        : null,
+    priority: json['priority'] as int? ?? 0,
   );
 }
 
