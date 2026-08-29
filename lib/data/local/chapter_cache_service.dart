@@ -6,10 +6,26 @@ import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/core/utils/image_response_decoder.dart';
 
+/// Result of a [ChapterCacheService.downloadChapter] call.
+class ChapterDownloadResult {
+  final bool cancelled;
+  final int completedImages;
+  final List<int> failedImageIndexes;
+
+  const ChapterDownloadResult({
+    required this.cancelled,
+    required this.completedImages,
+    required this.failedImageIndexes,
+  });
+}
+
 /// Manages local caching and downloading of chapter images.
 /// On web: all methods are no-ops (web uses online-only browsing).
 /// On native: stores images as files under appDocDir/chapter_cache/.
 class ChapterCacheService {
+  static const int _maxConcurrentImagesPerChapter = 4;
+  static const int _maxImageRetries = 2;
+
   String? _basePath;
   final Dio _dio;
 
@@ -106,10 +122,12 @@ class ChapterCacheService {
     return files >= totalImages;
   }
 
-  /// Download all images of a chapter to local cache.
+  /// Download all images of a chapter to local cache, [_maxConcurrentImagesPerChapter]
+  /// images at a time, with per-image retry (up to [_maxImageRetries]).
   /// [onProgress] callback reports (completedCount, totalCount).
-  /// Returns true if all images downloaded successfully.
-  Future<bool> downloadChapter({
+  /// Already-downloaded images (by index, any known extension) are skipped,
+  /// which is the basis for resumable downloads.
+  Future<ChapterDownloadResult> downloadChapter({
     required String sourceId,
     required String mangaId,
     required String chapterId,
@@ -117,69 +135,100 @@ class ChapterCacheService {
     void Function(int completed, int total)? onProgress,
     CancelToken? cancelToken,
   }) async {
-    if (kIsWeb) return false;
+    if (kIsWeb) {
+      return ChapterDownloadResult(
+        cancelled: false,
+        completedImages: 0,
+        failedImageIndexes: List.generate(images.length, (i) => i),
+      );
+    }
+
     final base = await _cachePath;
     final dir = _chapterDir(base, sourceId, mangaId, chapterId);
-    final directory = Directory(dir);
-    if (!await directory.exists()) {
-      await directory.create(recursive: true);
-    }
+    await Directory(dir).create(recursive: true);
 
     int completed = 0;
-    final total = images.length;
+    final failedIndexes = <int>{};
 
-    for (int i = 0; i < images.length; i++) {
+    Future<void> downloadOne(int i) async {
       final baseName = i.toString().padLeft(4, '0');
 
-      // Check if already downloaded (any extension)
-      bool alreadyExists = false;
+      // Preserve the existing "skip if already downloaded" logic (by index),
+      // which is the basis for resumable downloads.
       for (final ext in ['.jpg', '.png', '.webp', '.gif', '']) {
-        final file = File('$dir/$baseName$ext');
-        if (await file.exists()) {
-          alreadyExists = true;
-          break;
+        if (await File('$dir/$baseName$ext').exists()) {
+          completed++;
+          onProgress?.call(completed, images.length);
+          return;
         }
       }
-      if (alreadyExists) {
-        completed++;
-        onProgress?.call(completed, total);
-        continue;
-      }
 
-      try {
-        final url = ImageProxy.url(images[i].url);
-        final response = await _dio.get<List<int>>(
-          url,
-          options: Options(
-            headers: images[i].headers,
-            responseType: ResponseType.bytes,
-          ),
-          cancelToken: cancelToken,
-        );
-
-        if (response.data != null) {
-          final contentType = response.headers.value('content-type');
-          final ext = _extensionFromContentType(contentType);
-          final file = File('$dir/$baseName$ext');
-          final bytes = decodeImageResponseBytes(
-            Uint8List.fromList(response.data as List<int>),
-            images[i].responseEncoding,
+      var attempt = 0;
+      while (true) {
+        try {
+          final response = await _dio.get<List<int>>(
+            ImageProxy.url(images[i].url),
+            options: Options(
+              headers: images[i].headers,
+              responseType: ResponseType.bytes,
+            ),
+            cancelToken: cancelToken,
           );
-          await file.writeAsBytes(bytes);
+          if (response.data != null) {
+            final contentType = response.headers.value('content-type');
+            final ext = _extensionFromContentType(contentType);
+            final bytes = decodeImageResponseBytes(
+              Uint8List.fromList(response.data as List<int>),
+              images[i].responseEncoding,
+            );
+            await File('$dir/$baseName$ext').writeAsBytes(bytes);
+          }
+          completed++;
+          onProgress?.call(completed, images.length);
+          return;
+        } on DioException catch (e) {
+          if (e.type == DioExceptionType.cancel) {
+            rethrow;
+          }
+          attempt++;
+          if (attempt > _maxImageRetries) {
+            failedIndexes.add(i);
+            completed++;
+            onProgress?.call(completed, images.length);
+            return;
+          }
         }
-        completed++;
-        onProgress?.call(completed, total);
-      } on DioException catch (e) {
-        if (e.type == DioExceptionType.cancel) {
-          return false; // Cancelled
-        }
-        // Skip failed image, continue with rest
-        completed++;
-        onProgress?.call(completed, total);
       }
     }
 
-    return true;
+    try {
+      for (
+        var start = 0;
+        start < images.length;
+        start += _maxConcurrentImagesPerChapter
+      ) {
+        final end = (start + _maxConcurrentImagesPerChapter).clamp(
+          0,
+          images.length,
+        );
+        await Future.wait([for (var i = start; i < end; i++) downloadOne(i)]);
+      }
+    } on DioException catch (e) {
+      if (e.type == DioExceptionType.cancel) {
+        return ChapterDownloadResult(
+          cancelled: true,
+          completedImages: completed,
+          failedImageIndexes: failedIndexes.toList()..sort(),
+        );
+      }
+      rethrow;
+    }
+
+    return ChapterDownloadResult(
+      cancelled: false,
+      completedImages: completed,
+      failedImageIndexes: failedIndexes.toList()..sort(),
+    );
   }
 
   /// Delete cached images for a specific chapter.
