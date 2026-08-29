@@ -8,6 +8,7 @@ import 'package:comic_reader/app/app.dart';
 import 'package:comic_reader/app/di/injection.dart';
 import 'package:comic_reader/data/local/auth_store.dart';
 import 'package:comic_reader/data/local/settings_store.dart';
+import 'package:comic_reader/data/local/chapter_cache_service.dart';
 import 'package:comic_reader/data/local/download_manager.dart';
 import 'package:comic_reader/data/local/library_update_service.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
@@ -98,6 +99,7 @@ void main() async {
   final appSettings = await settingsStore.load();
   registry.setDisabledSources(appSettings.disabledSources);
   registry.setAdultUnlocked(appSettings.adultUnlocked);
+  ChapterCacheService.customDownloadDirectory = appSettings.downloadDirectory;
 
   // Apply proxy settings from persisted config
   if (!kIsWeb) {

@@ -195,6 +195,17 @@ class SettingsCubit extends Cubit<SettingsState> {
     return await ChapterCacheService().getCacheSize();
   }
 
+  /// 设置自定义下载存储目录（macOS/Windows）。`null` 表示恢复平台默认位置。
+  ///
+  /// 同步更新 [ChapterCacheService.customDownloadDirectory]，使后续下载/缓存
+  /// 读写立即生效，无需重启应用。
+  Future<void> setDownloadDirectory(String? path) async {
+    final updated = state.settings.copyWith(downloadDirectory: path);
+    emit(state.copyWith(settings: updated));
+    await _settingsStore.save(updated);
+    ChapterCacheService.customDownloadDirectory = path;
+  }
+
   Future<void> setProxyEnabled(bool enabled) async {
     final updated = state.settings.copyWith(proxyEnabled: enabled);
     emit(state.copyWith(settings: updated));

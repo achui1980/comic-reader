@@ -52,4 +52,33 @@ void main() {
       expect(restored.mangaTranslationEnabled, isFalse);
     });
   });
+
+  group('AppSettings.downloadDirectory', () {
+    test('defaults to null', () {
+      const settings = AppSettings();
+      expect(settings.downloadDirectory, isNull);
+    });
+
+    test('copyWith updates downloadDirectory', () {
+      const settings = AppSettings();
+      final updated = settings.copyWith(downloadDirectory: '/custom/path');
+      expect(updated.downloadDirectory, '/custom/path');
+    });
+
+    test('toJson/fromJson round-trip preserves downloadDirectory', () {
+      const settings = AppSettings();
+      final updated = settings.copyWith(downloadDirectory: '/custom/path');
+      final json = updated.toJson();
+      expect(json['downloadDirectory'], '/custom/path');
+
+      final restored = AppSettings.fromJson(json);
+      expect(restored.downloadDirectory, '/custom/path');
+    });
+
+    test('fromJson defaults to null when field is missing (legacy data)',
+        () {
+      final restored = AppSettings.fromJson(<String, dynamic>{});
+      expect(restored.downloadDirectory, isNull);
+    });
+  });
 }

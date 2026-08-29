@@ -8,11 +8,14 @@ import 'package:file_picker/file_picker.dart';
 
 import 'package:comic_reader/data/local/backup_service.dart';
 import '../bloc/settings_cubit.dart';
+import '../bloc/settings_state.dart';
 import 'section_widgets.dart';
 
 /// "数据管理" section (was `_SettingsView._buildDataSection`).
 class DataManagementSection extends StatelessWidget {
-  const DataManagementSection({super.key});
+  const DataManagementSection({super.key, required this.state});
+
+  final SettingsState state;
 
   @override
   Widget build(BuildContext context) {
@@ -109,6 +112,18 @@ class DataManagementSection extends StatelessWidget {
             onConfirm: cubit.clearImageCache,
           ),
         ),
+        if (!kIsWeb && (Platform.isMacOS || Platform.isWindows))
+          ListTile(
+            leading: const Icon(Icons.folder_open),
+            title: const Text('下载存储位置'),
+            subtitle: Text(state.settings.downloadDirectory ?? '默认位置'),
+            onTap: () async {
+              final path = await FilePicker.platform.getDirectoryPath();
+              if (path != null) {
+                cubit.setDownloadDirectory(path);
+              }
+            },
+          ),
         const Divider(),
       ],
     );

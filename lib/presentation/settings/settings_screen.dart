@@ -50,7 +50,7 @@ class _SettingsView extends StatelessWidget {
               // NativeMangaTextExtractor 依赖 dart:io），整段隐藏。
               if (!kIsWeb) TranslationSection(state: state),
               PluginSection(state: state),
-              const DataManagementSection(),
+              DataManagementSection(state: state),
               const AboutSection(),
               if (kDebugMode)
                 ListTile(

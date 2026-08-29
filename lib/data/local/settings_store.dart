@@ -13,6 +13,13 @@ enum ScaleType { fitScreen, fitWidth, fitHeight, original }
 /// Discovery screen layout mode.
 enum DiscoveryViewMode { grid, list }
 
+/// Sentinel used by [AppSettings.copyWith] to distinguish "argument omitted"
+/// from "argument explicitly set to null" for nullable fields (needed so a
+/// caller can clear [AppSettings.downloadDirectory] back to the platform
+/// default). Plain `x ?? this.x` cannot express that: it would silently
+/// ignore an explicit null and keep the previous value.
+const _unset = Object();
+
 /// User-configurable settings data class.
 class AppSettings {
   final AppThemeMode themeMode;
@@ -38,6 +45,10 @@ class AppSettings {
   /// 漫画翻译功能总开关。关闭时阅读器顶栏不显示翻译按钮，功能入口对用户隐身。
   /// 默认关闭：需要下载约 460MB 模型 + 自备 AI API Key。
   final bool mangaTranslationEnabled;
+  // --- Custom download storage location (macOS/Windows only) ---
+  /// Absolute path to a user-chosen download storage directory. `null`
+  /// means use the platform default (see `ChapterCacheService._cachePath`).
+  final String? downloadDirectory;
 
   const AppSettings({
     this.themeMode = AppThemeMode.system,
@@ -59,6 +70,7 @@ class AppSettings {
     this.showTapZones = false,
     this.discoveryViewMode = DiscoveryViewMode.grid,
     this.mangaTranslationEnabled = false,
+    this.downloadDirectory,
   });
 
   AppSettings copyWith({
@@ -81,6 +93,7 @@ class AppSettings {
     bool? showTapZones,
     DiscoveryViewMode? discoveryViewMode,
     bool? mangaTranslationEnabled,
+    Object? downloadDirectory = _unset,
   }) {
     return AppSettings(
       themeMode: themeMode ?? this.themeMode,
@@ -103,6 +116,9 @@ class AppSettings {
       discoveryViewMode: discoveryViewMode ?? this.discoveryViewMode,
       mangaTranslationEnabled:
           mangaTranslationEnabled ?? this.mangaTranslationEnabled,
+      downloadDirectory: identical(downloadDirectory, _unset)
+          ? this.downloadDirectory
+          : downloadDirectory as String?,
     );
   }
 
@@ -126,6 +142,7 @@ class AppSettings {
         'showTapZones': showTapZones,
         'discoveryViewMode': discoveryViewMode.index,
         'mangaTranslationEnabled': mangaTranslationEnabled,
+        'downloadDirectory': downloadDirectory,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -155,6 +172,7 @@ class AppSettings {
           DiscoveryViewMode.values[json['discoveryViewMode'] as int? ?? 0],
       mangaTranslationEnabled:
           json['mangaTranslationEnabled'] as bool? ?? false,
+      downloadDirectory: json['downloadDirectory'] as String?,
     );
   }
 }
