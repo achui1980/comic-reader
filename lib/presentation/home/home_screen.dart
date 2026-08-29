@@ -129,6 +129,13 @@ class _HomeViewState extends State<_HomeView> {
           onPressed: () => context.read<HomeCubit>().selectAll(),
         ),
         IconButton(
+          icon: const Icon(Icons.download),
+          tooltip: '下载所选',
+          onPressed: state.selectedKeys.isEmpty
+              ? null
+              : () => _downloadSelected(context),
+        ),
+        IconButton(
           icon: const Icon(Icons.label),
           tooltip: '设置分类',
           onPressed: state.selectedKeys.isEmpty
@@ -166,6 +173,16 @@ class _HomeViewState extends State<_HomeView> {
     if (confirmed == true && context.mounted) {
       context.read<HomeCubit>().deleteSelected();
     }
+  }
+
+  Future<void> _downloadSelected(BuildContext context) async {
+    final cubit = context.read<HomeCubit>();
+    final messenger = ScaffoldMessenger.of(context);
+    await cubit.downloadSelected();
+    if (!context.mounted) return;
+    messenger.showSnackBar(
+      const SnackBar(content: Text('已加入下载队列')),
+    );
   }
 
   Widget _buildUpdateAction(BuildContext context, HomeState state) {
