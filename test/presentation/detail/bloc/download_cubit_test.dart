@@ -263,6 +263,29 @@ void main() {
     cubit.close();
   });
 
+  test('_onManagerChanged does not reset a completed task\'s chapter to '
+      'none when the task is removed from DownloadManager.tasks (e.g. '
+      'removeTask() called from the download drawer on an already-'
+      'completed download, which does not delete files from disk)', () {
+    when(() => mockManager.tasks).thenReturn([
+      _task(chapterId: 'c1', status: DownloadTaskStatus.completed),
+    ]);
+    final cubit = build();
+    expect(cubit.state.chapters['c1'], ChapterDownloadStatus.cached);
+
+    // c1's completed task is removed from the manager (e.g. via
+    // DownloadManager.removeTask() from the download drawer's long-press
+    // "remove" action on a finished download) while this cubit is still
+    // alive. The files are still on disk, so the chapter must remain
+    // `cached`, not be reset to `none`.
+    when(() => mockManager.tasks).thenReturn(<DownloadTask>[]);
+    capturedListener();
+
+    expect(cubit.state.chapters['c1'], ChapterDownloadStatus.cached);
+
+    cubit.close();
+  });
+
   blocTest<DownloadCubit, DownloadState>(
     '_onManagerChanged does not clear disk-based statuses set by '
     'checkCachedChapters that never had a corresponding task',

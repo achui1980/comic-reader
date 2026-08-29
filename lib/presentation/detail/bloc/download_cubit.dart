@@ -44,22 +44,28 @@ class DownloadCubit extends Cubit<DownloadState> {
       DownloadManager.keyFor(sourceId, mangaId, chapterId);
 
   /// Chapter IDs (for this cubit's [sourceId]/[mangaId]) that had a live
-  /// [DownloadManager] task as of the last [_onManagerChanged] run. Needed
-  /// because [DownloadState.chapters] alone doesn't record which manga a
-  /// chapter entry belongs to (it may also hold disk-only statuses set by
-  /// [checkCachedChapters]) — this set lets us tell "a task we used to
-  /// track disappeared" apart from "a chapter that was never task-backed".
-  final Set<String> _knownTaskChapterIds = {};
+  /// [DownloadManager] task as of the last [_onManagerChanged] run, mapped
+  /// to that task's last known [DownloadTaskStatus]. Needed because
+  /// [DownloadState.chapters] alone doesn't record which manga a chapter
+  /// entry belongs to (it may also hold disk-only statuses set by
+  /// [checkCachedChapters]) — this map lets us tell "a task we used to
+  /// track disappeared" apart from "a chapter that was never task-backed",
+  /// and — critically — lets us tell "a still-in-progress task disappeared"
+  /// (reset to `none`) apart from "a *completed* task disappeared" (e.g.
+  /// `DownloadManager.removeTask()` called from the download drawer on an
+  /// already-finished download, which does NOT delete the files from disk
+  /// — that chapter must stay `cached`, not be reset to `none`).
+  final Map<String, DownloadTaskStatus> _knownTaskChapterIds = {};
 
   void _onManagerChanged() {
     final chapters = <String, ChapterDownloadStatus>{...state.chapters};
-    final currentTaskChapterIds = <String>{};
+    final currentTaskChapterIds = <String, DownloadTaskStatus>{};
     String? activeChapterId;
     int activeProgress = 0;
     int activeTotal = 0;
     for (final task in _downloadManager.tasks) {
       if (task.sourceId != sourceId || task.mangaId != mangaId) continue;
-      currentTaskChapterIds.add(task.chapterId);
+      currentTaskChapterIds[task.chapterId] = task.status;
       chapters[task.chapterId] = switch (task.status) {
         DownloadTaskStatus.pending => ChapterDownloadStatus.queued,
         DownloadTaskStatus.downloading => ChapterDownloadStatus.downloading,
@@ -78,9 +84,16 @@ class DownloadCubit extends Cubit<DownloadState> {
     // Clear statuses for chapters that had a task last time but no longer
     // do (e.g. DownloadManager.removeTask() was called from the download
     // drawer while this cubit is still alive) — otherwise their stale
-    // queued/downloading/paused icon would show indefinitely.
-    for (final staleChapterId in _knownTaskChapterIds) {
-      if (!currentTaskChapterIds.contains(staleChapterId)) {
+    // queued/downloading/paused icon would show indefinitely. Exception:
+    // if the task's last known status was `completed`, the chapter is
+    // fully downloaded on disk and removing the task entry (list tidying)
+    // must not make it look "not downloaded" — leave its `cached` entry
+    // untouched.
+    for (final entry in _knownTaskChapterIds.entries) {
+      final staleChapterId = entry.key;
+      final lastKnownStatus = entry.value;
+      if (!currentTaskChapterIds.containsKey(staleChapterId) &&
+          lastKnownStatus != DownloadTaskStatus.completed) {
         chapters[staleChapterId] = ChapterDownloadStatus.none;
       }
     }
