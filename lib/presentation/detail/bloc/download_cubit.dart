@@ -1,168 +1,132 @@
-import 'package:dio/dio.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
+import 'package:comic_reader/data/local/download_manager.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'download_state.dart';
 
-/// Manages chapter download queue and progress.
+/// Thin presentation-layer wrapper around the global [DownloadManager].
+///
+/// This cubit no longer owns a download queue itself — it forwards
+/// `downloadChapter`/`downloadMultiple`/`cancelDownload` calls to the
+/// injected [DownloadManager] and projects the manager's task list into a
+/// per-chapter [ChapterDownloadStatus] map scoped to this [sourceId]/
+/// [mangaId] pair, so existing UI code (`detail_screen.dart`) keeps working
+/// unchanged.
 class DownloadCubit extends Cubit<DownloadState> {
   final ChapterCacheService _cacheService;
-  final MangaRepository _repository;
+  final DownloadManager _downloadManager;
   final String sourceId;
   final String mangaId;
 
-  CancelToken? _cancelToken;
-  bool _isProcessing = false;
-
+  /// [repository] is accepted for backward compatibility with existing call
+  /// sites (`detail_screen.dart`) but is unused: chapter fetching now
+  /// happens inside [DownloadManager] itself, so this cubit no longer needs
+  /// direct repository access.
   DownloadCubit({
     required ChapterCacheService cacheService,
     required MangaRepository repository,
+    required DownloadManager downloadManager,
     required this.sourceId,
     required this.mangaId,
   })  : _cacheService = cacheService,
-        _repository = repository,
-        super(const DownloadState());
+        _downloadManager = downloadManager,
+        super(const DownloadState()) {
+    _downloadManager.addListener(_onManagerChanged);
+    // Sync with whatever tasks already exist (e.g. this cubit was rebuilt
+    // after navigating back into the detail screen while a download was
+    // still in progress/paused in the background).
+    _onManagerChanged();
+  }
 
-  /// Check which chapters are already cached.
+  String _keyFor(String chapterId) => '${sourceId}_${mangaId}_$chapterId';
+
+  void _onManagerChanged() {
+    final chapters = <String, ChapterDownloadStatus>{...state.chapters};
+    String? activeChapterId;
+    int activeProgress = 0;
+    int activeTotal = 0;
+    for (final task in _downloadManager.tasks) {
+      if (task.sourceId != sourceId || task.mangaId != mangaId) continue;
+      chapters[task.chapterId] = switch (task.status) {
+        DownloadTaskStatus.pending => ChapterDownloadStatus.queued,
+        DownloadTaskStatus.downloading => ChapterDownloadStatus.downloading,
+        DownloadTaskStatus.completed => ChapterDownloadStatus.cached,
+        DownloadTaskStatus.failed => ChapterDownloadStatus.failed,
+        DownloadTaskStatus.paused => ChapterDownloadStatus.paused,
+        DownloadTaskStatus.partiallyFailed =>
+          ChapterDownloadStatus.partiallyFailed,
+      };
+      if (task.status == DownloadTaskStatus.downloading) {
+        activeChapterId = task.chapterId;
+        activeProgress = task.completedImages;
+        activeTotal = task.totalImages;
+      }
+    }
+    emit(state.copyWith(
+      chapters: chapters,
+      activeChapterId: activeChapterId,
+      activeProgress: activeProgress,
+      activeTotal: activeTotal,
+      clearActive: activeChapterId == null,
+    ));
+  }
+
+  /// Check which chapters are already cached on disk.
   /// Call this with the chapter list after loading detail.
   Future<void> checkCachedChapters(List<ChapterItem> chapters) async {
-    final Map<String, ChapterDownloadStatus> statuses = {};
+    final result = <String, ChapterDownloadStatus>{};
     for (final chapter in chapters) {
-      // We don't know totalImages yet without loading the chapter,
-      // so we check if the directory exists and has any files.
       final cached = await _cacheService.isChapterCached(
         sourceId,
         mangaId,
         chapter.id,
         1, // At minimum 1 image means something is cached
       );
-      statuses[chapter.id] = cached
-          ? ChapterDownloadStatus.cached
-          : ChapterDownloadStatus.none;
+      result[chapter.id] =
+          cached ? ChapterDownloadStatus.cached : ChapterDownloadStatus.none;
     }
-    emit(state.copyWith(chapters: statuses));
+    emit(state.copyWith(chapters: {...state.chapters, ...result}));
   }
 
-  /// Add a single chapter to download queue.
-  Future<void> downloadChapter(ChapterItem chapter) async {
-    final chapters = Map<String, ChapterDownloadStatus>.from(state.chapters);
-    chapters[chapter.id] = ChapterDownloadStatus.queued;
-    final queue = [...state.queue, chapter.id];
-    emit(state.copyWith(chapters: chapters, queue: queue));
-    _processQueue();
+  /// Queue a single chapter for download via the global [DownloadManager].
+  void downloadChapter(ChapterItem chapter) {
+    _downloadManager.addTask(
+      sourceId: sourceId,
+      mangaId: mangaId,
+      chapterId: chapter.id,
+      // The cubit itself has no manga title available; DownloadDrawer's
+      // display for tasks queued from the detail screen will show mangaId
+      // instead. Acceptable known limitation for this task (see plan notes).
+      mangaTitle: mangaId,
+      chapterTitle: chapter.title,
+    );
   }
 
-  /// Add multiple chapters to download queue.
-  Future<void> downloadMultiple(List<ChapterItem> chapterItems) async {
-    final chapters = Map<String, ChapterDownloadStatus>.from(state.chapters);
-    final queue = [...state.queue];
-    for (final ch in chapterItems) {
-      if (chapters[ch.id] != ChapterDownloadStatus.cached &&
-          chapters[ch.id] != ChapterDownloadStatus.downloading &&
-          !queue.contains(ch.id)) {
-        chapters[ch.id] = ChapterDownloadStatus.queued;
-        queue.add(ch.id);
+  /// Queue multiple chapters, skipping ones already cached/queued/active.
+  void downloadMultiple(List<ChapterItem> chapterItems) {
+    for (final chapter in chapterItems) {
+      final current = state.chapters[chapter.id] ?? ChapterDownloadStatus.none;
+      if (current == ChapterDownloadStatus.cached ||
+          current == ChapterDownloadStatus.downloading ||
+          current == ChapterDownloadStatus.queued) {
+        continue;
       }
+      downloadChapter(chapter);
     }
-    emit(state.copyWith(chapters: chapters, queue: queue));
-    _processQueue();
   }
 
-  /// Cancel the current download.
+  /// Pause the currently active download for this manga.
   void cancelDownload() {
-    _cancelToken?.cancel('User cancelled');
-    _cancelToken = null;
-    if (state.activeChapterId != null) {
-      final chapters = Map<String, ChapterDownloadStatus>.from(state.chapters);
-      chapters[state.activeChapterId!] = ChapterDownloadStatus.none;
-      emit(state.copyWith(
-        chapters: chapters,
-        queue: [],
-        clearActive: true,
-        activeProgress: 0,
-        activeTotal: 0,
-      ));
-    }
-    _isProcessing = false;
-  }
-
-  /// Process the download queue sequentially.
-  Future<void> _processQueue() async {
-    if (_isProcessing) return;
-    if (state.queue.isEmpty) return;
-    _isProcessing = true;
-
-    while (state.queue.isNotEmpty) {
-      final chapterId = state.queue.first;
-      final remainingQueue = state.queue.sublist(1);
-
-      final chapters = Map<String, ChapterDownloadStatus>.from(state.chapters);
-      chapters[chapterId] = ChapterDownloadStatus.downloading;
-      emit(state.copyWith(
-        chapters: chapters,
-        activeChapterId: chapterId,
-        activeProgress: 0,
-        activeTotal: 0,
-        queue: remainingQueue,
-      ));
-
-      // First, fetch chapter images from the source
-      try {
-        final result = await _repository.getChapter(sourceId, mangaId, chapterId, 1);
-        final images = result.chapter.images;
-
-        emit(state.copyWith(activeTotal: images.length));
-
-        // Download all images
-        _cancelToken = CancelToken();
-        final success = await _cacheService.downloadChapter(
-          sourceId: sourceId,
-          mangaId: mangaId,
-          chapterId: chapterId,
-          images: images,
-          cancelToken: _cancelToken,
-          onProgress: (completed, total) {
-            if (!isClosed) {
-              emit(state.copyWith(
-                activeProgress: completed,
-                activeTotal: total,
-              ));
-            }
-          },
-        );
-
-        if (isClosed) return;
-
-        final updatedChapters = Map<String, ChapterDownloadStatus>.from(state.chapters);
-        updatedChapters[chapterId] = success
-            ? ChapterDownloadStatus.cached
-            : ChapterDownloadStatus.failed;
-        emit(state.copyWith(
-          chapters: updatedChapters,
-          clearActive: true,
-          activeProgress: 0,
-          activeTotal: 0,
-        ));
-      } catch (_) {
-        if (isClosed) return;
-        final updatedChapters = Map<String, ChapterDownloadStatus>.from(state.chapters);
-        updatedChapters[chapterId] = ChapterDownloadStatus.failed;
-        emit(state.copyWith(
-          chapters: updatedChapters,
-          clearActive: true,
-          activeProgress: 0,
-          activeTotal: 0,
-        ));
-      }
-    }
-
-    _isProcessing = false;
+    final activeChapterId = state.activeChapterId;
+    if (activeChapterId == null) return;
+    _downloadManager.pauseTask(_keyFor(activeChapterId));
   }
 
   @override
   Future<void> close() {
-    _cancelToken?.cancel('Cubit closed');
+    _downloadManager.removeListener(_onManagerChanged);
     return super.close();
   }
 }

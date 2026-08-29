@@ -7,6 +7,8 @@ enum ChapterDownloadStatus {
   downloading, // Currently being downloaded
   cached,      // Fully cached/downloaded
   failed,      // Download failed
+  paused,      // Download paused (user or app initiated)
+  partiallyFailed, // Some images failed, some succeeded
 }
 
 /// State for the download/cache manager on the detail screen.

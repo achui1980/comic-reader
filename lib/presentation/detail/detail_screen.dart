@@ -7,6 +7,7 @@ import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
+import 'package:comic_reader/data/local/download_manager.dart';
 import 'package:comic_reader/data/local/ai_metadata_store.dart';
 import 'package:comic_reader/data/local/work_group_store.dart';
 import 'package:comic_reader/core/ai/ai_service.dart';
@@ -42,6 +43,7 @@ class DetailScreen extends StatelessWidget {
           create: (_) => DownloadCubit(
             cacheService: GetIt.instance<ChapterCacheService>(),
             repository: GetIt.instance<MangaRepository>(),
+            downloadManager: GetIt.instance<DownloadManager>(),
             sourceId: sourceId,
             mangaId: mangaId,
           ),
@@ -514,6 +516,10 @@ class _ChapterTile extends StatelessWidget {
         );
       case ChapterDownloadStatus.cached:
         return const Icon(Icons.check_circle, size: 14, color: Colors.green);
+      case ChapterDownloadStatus.paused:
+        return const Icon(Icons.pause_circle_outline, size: 14, color: Colors.grey);
+      case ChapterDownloadStatus.partiallyFailed:
+        return const Icon(Icons.error_outline, size: 14, color: Colors.orange);
     }
   }
 }
