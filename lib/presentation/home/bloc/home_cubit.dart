@@ -1,8 +1,13 @@
+import 'package:collection/collection.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:comic_reader/data/local/favorites_store.dart';
 import 'package:comic_reader/data/local/update_store.dart';
 import 'package:comic_reader/data/local/category_store.dart';
 import 'package:comic_reader/data/local/library_update_service.dart';
+import 'package:comic_reader/data/local/download_manager.dart';
+import 'package:comic_reader/data/local/reading_history_store.dart';
+import 'package:comic_reader/domain/entities/entities.dart';
+import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'home_state.dart';
 
 class HomeCubit extends Cubit<HomeState> {
@@ -10,16 +15,25 @@ class HomeCubit extends Cubit<HomeState> {
   final UpdateStore _updateStore;
   final CategoryStore _categoryStore;
   final LibraryUpdateService _libraryUpdateService;
+  final MangaRepository _repository;
+  final ReadingHistoryStore _historyStore;
+  final DownloadManager _downloadManager;
 
   HomeCubit({
     required FavoritesStore favoritesStore,
     required UpdateStore updateStore,
     required CategoryStore categoryStore,
     required LibraryUpdateService libraryUpdateService,
+    required MangaRepository repository,
+    required ReadingHistoryStore historyStore,
+    required DownloadManager downloadManager,
   })  : _favoritesStore = favoritesStore,
         _updateStore = updateStore,
         _categoryStore = categoryStore,
         _libraryUpdateService = libraryUpdateService,
+        _repository = repository,
+        _historyStore = historyStore,
+        _downloadManager = downloadManager,
         super(const HomeState());
 
   Future<void> loadFavorites() async {
@@ -184,5 +198,41 @@ class HomeCubit extends Cubit<HomeState> {
     }
     emit(state.copyWith(isSelecting: false, selectedKeys: {}));
     await loadFavorites();
+  }
+
+  // ─── Downloads ────────────────────────────────────────────────────────
+
+  /// Download every chapter of [manga] that has not been read yet.
+  Future<void> downloadUnread(MangaSummary manga) async {
+    final result =
+        await _repository.getChapterList(manga.sourceId, manga.id, 1);
+    final readSet =
+        await _historyStore.getReadChapters(manga.sourceId, manga.id);
+    final unread = result.chapters.where((c) => !readSet.contains(c.id));
+    for (final chapter in unread) {
+      _downloadManager.addTask(
+        sourceId: manga.sourceId,
+        mangaId: manga.id,
+        chapterId: chapter.id,
+        mangaTitle: manga.title,
+        chapterTitle: chapter.title,
+      );
+    }
+  }
+
+  /// Download unread chapters for every currently selected manga.
+  Future<void> downloadSelected() async {
+    for (final key in state.selectedKeys) {
+      final parts = key.split('_');
+      if (parts.length < 2) continue;
+      final sourceId = parts.first;
+      final mangaId = parts.sublist(1).join('_');
+      final manga = state.favorites.firstWhereOrNull(
+        (m) => m.sourceId == sourceId && m.id == mangaId,
+      );
+      if (manga != null) {
+        await downloadUnread(manga);
+      }
+    }
   }
 }

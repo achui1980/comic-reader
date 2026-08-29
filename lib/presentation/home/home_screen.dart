@@ -10,8 +10,10 @@ import 'package:comic_reader/data/local/update_store.dart';
 import 'package:comic_reader/data/local/category_store.dart';
 import 'package:comic_reader/data/local/download_manager.dart';
 import 'package:comic_reader/data/local/library_update_service.dart';
+import 'package:comic_reader/data/local/reading_history_store.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
+import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/presentation/downloads/download_drawer.dart';
 import 'bloc/home_cubit.dart';
 import 'bloc/home_state.dart';
@@ -28,6 +30,9 @@ class HomeScreen extends StatelessWidget {
         updateStore: GetIt.instance<UpdateStore>(),
         categoryStore: GetIt.instance<CategoryStore>(),
         libraryUpdateService: GetIt.instance<LibraryUpdateService>(),
+        repository: GetIt.instance<MangaRepository>(),
+        historyStore: GetIt.instance<ReadingHistoryStore>(),
+        downloadManager: GetIt.instance<DownloadManager>(),
       )..loadFavorites(),
       child: const _HomeView(),
     );
@@ -360,6 +365,28 @@ class _HomeViewState extends State<_HomeView> {
                       child: isSelected
                           ? const Icon(Icons.check, size: 14, color: Colors.white)
                           : null,
+                    ),
+                  ),
+                if (!state.isSelecting)
+                  Positioned(
+                    bottom: 4,
+                    right: 4,
+                    child: Material(
+                      color: Colors.black54,
+                      shape: const CircleBorder(),
+                      child: InkWell(
+                        customBorder: const CircleBorder(),
+                        onTap: () {
+                          context.read<HomeCubit>().downloadUnread(manga);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('已加入下载队列')),
+                          );
+                        },
+                        child: const Padding(
+                          padding: EdgeInsets.all(4),
+                          child: Icon(Icons.download, size: 18, color: Colors.white),
+                        ),
+                      ),
                     ),
                   ),
               ],
