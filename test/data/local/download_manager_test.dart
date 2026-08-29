@@ -281,4 +281,220 @@ void main() {
 
     expect(task.progress, 0);
   });
+
+  test('pauseTask cancels an in-flight download and marks it paused', () async {
+    when(
+      () => repository.getChapter(any(), any(), any(), any()),
+    ).thenAnswer((_) async => buildChapterResult());
+    when(
+      () => cacheService.downloadChapter(
+        sourceId: any(named: 'sourceId'),
+        mangaId: any(named: 'mangaId'),
+        chapterId: any(named: 'chapterId'),
+        images: any(named: 'images'),
+        onProgress: any(named: 'onProgress'),
+        cancelToken: any(named: 'cancelToken'),
+      ),
+    ).thenAnswer((_) async {
+      await Future.delayed(const Duration(seconds: 1));
+      return const ChapterDownloadResult(
+        cancelled: true,
+        completedImages: 0,
+        failedImageIndexes: [],
+      );
+    });
+
+    await manager.addTask(
+      sourceId: 's1',
+      mangaId: 'm1',
+      chapterId: 'c1',
+      mangaTitle: 'Manga',
+      chapterTitle: 'c1',
+    );
+    await Future.delayed(const Duration(milliseconds: 50));
+
+    final key = manager.tasks.first.key;
+    manager.pauseTask(key);
+    await Future.delayed(const Duration(seconds: 1));
+
+    expect(manager.tasks.first.status, DownloadTaskStatus.paused);
+  });
+
+  test('resumeTask re-queues a paused task', () async {
+    // Intentionally not awaited: pauseTask must run before addTask's
+    // internal _processQueue() (which fires after an `await _persist()`)
+    // flips the task to `downloading`, so it hits the `pending` branch.
+    manager.addTask(
+      sourceId: 's1',
+      mangaId: 'm1',
+      chapterId: 'c1',
+      mangaTitle: 'Manga',
+      chapterTitle: 'c1',
+    );
+    final key = manager.tasks.first.key;
+    manager.pauseTask(key);
+    await Future.delayed(const Duration(milliseconds: 50));
+    expect(manager.tasks.first.status, DownloadTaskStatus.paused);
+
+    when(
+      () => repository.getChapter(any(), any(), any(), any()),
+    ).thenAnswer((_) async => buildChapterResult());
+    when(
+      () => cacheService.downloadChapter(
+        sourceId: any(named: 'sourceId'),
+        mangaId: any(named: 'mangaId'),
+        chapterId: any(named: 'chapterId'),
+        images: any(named: 'images'),
+        onProgress: any(named: 'onProgress'),
+        cancelToken: any(named: 'cancelToken'),
+      ),
+    ).thenAnswer(
+      (_) async => const ChapterDownloadResult(
+        cancelled: false,
+        completedImages: 1,
+        failedImageIndexes: [],
+      ),
+    );
+
+    manager.resumeTask(key);
+    await Future.delayed(const Duration(milliseconds: 50));
+
+    expect(manager.tasks.first.status, DownloadTaskStatus.completed);
+  });
+
+  test('pauseAll pauses a pending task without cancelling anything', () async {
+    when(
+      () => repository.getChapter(any(), any(), any(), any()),
+    ).thenAnswer((_) async => buildChapterResult());
+    when(
+      () => cacheService.downloadChapter(
+        sourceId: any(named: 'sourceId'),
+        mangaId: any(named: 'mangaId'),
+        chapterId: any(named: 'chapterId'),
+        images: any(named: 'images'),
+        onProgress: any(named: 'onProgress'),
+        cancelToken: any(named: 'cancelToken'),
+      ),
+    ).thenAnswer((_) => Completer<ChapterDownloadResult>().future);
+
+    for (final id in ['c1', 'c2', 'c3']) {
+      manager.addTask(
+        sourceId: 's1',
+        mangaId: 'm1',
+        chapterId: id,
+        mangaTitle: 'Manga',
+        chapterTitle: id,
+      );
+    }
+    await Future.delayed(Duration.zero);
+    // c1/c2 are already downloading (concurrency 2); c3 stays pending.
+    final c3 = manager.tasks.firstWhere((t) => t.chapterId == 'c3');
+    expect(c3.status, DownloadTaskStatus.pending);
+
+    manager.pauseAll();
+
+    final c3After = manager.tasks.firstWhere((t) => t.chapterId == 'c3');
+    expect(c3After.status, DownloadTaskStatus.paused);
+    expect(c3After.pausedAt, isNotNull);
+  });
+
+  test('resumeAll re-queues every paused task', () async {
+    manager.addTask(
+      sourceId: 's1',
+      mangaId: 'm1',
+      chapterId: 'c1',
+      mangaTitle: 'Manga',
+      chapterTitle: 'c1',
+    );
+    manager.pauseTask(manager.tasks.first.key);
+    await Future.delayed(const Duration(milliseconds: 50));
+    expect(manager.tasks.first.status, DownloadTaskStatus.paused);
+
+    when(
+      () => repository.getChapter(any(), any(), any(), any()),
+    ).thenAnswer((_) async => buildChapterResult());
+    when(
+      () => cacheService.downloadChapter(
+        sourceId: any(named: 'sourceId'),
+        mangaId: any(named: 'mangaId'),
+        chapterId: any(named: 'chapterId'),
+        images: any(named: 'images'),
+        onProgress: any(named: 'onProgress'),
+        cancelToken: any(named: 'cancelToken'),
+      ),
+    ).thenAnswer(
+      (_) async => const ChapterDownloadResult(
+        cancelled: false,
+        completedImages: 1,
+        failedImageIndexes: [],
+      ),
+    );
+
+    manager.resumeAll();
+    await Future.delayed(const Duration(milliseconds: 50));
+
+    expect(manager.tasks.first.status, DownloadTaskStatus.completed);
+  });
+
+  test(
+    'init preserves completedImages/totalImages when resuming a downloading task, and leaves paused tasks untouched',
+    () async {
+      final downloadingJson = DownloadTask(
+        sourceId: 's1',
+        mangaId: 'm1',
+        chapterId: 'c1',
+        mangaTitle: 'Manga',
+        chapterTitle: 'c1',
+        status: DownloadTaskStatus.downloading,
+        progress: 40,
+        totalImages: 10,
+        completedImages: 4,
+      ).toJson();
+      final pausedJson = DownloadTask(
+        sourceId: 's1',
+        mangaId: 'm1',
+        chapterId: 'c2',
+        mangaTitle: 'Manga',
+        chapterTitle: 'c2',
+        status: DownloadTaskStatus.paused,
+        progress: 60,
+        totalImages: 10,
+        completedImages: 6,
+      ).toJson();
+      when(() => storage.read(any())).thenAnswer(
+        (_) async => {
+          'tasks': [downloadingJson, pausedJson],
+        },
+      );
+      when(
+        () => repository.getChapter(any(), any(), any(), any()),
+      ).thenAnswer((_) => Completer<ChapterResult>().future);
+
+      final freshManager = DownloadManager(
+        repository: repository,
+        cacheService: cacheService,
+        storage: storage,
+      );
+      await freshManager.init();
+
+      final resumed = freshManager.tasks.firstWhere(
+        (t) => t.chapterId == 'c1',
+      );
+      // init() resets `downloading` -> `pending` and then immediately runs
+      // _processQueue(), which synchronously dispatches the now-pending
+      // task back to `downloading` (repository.getChapter is stubbed to
+      // never resolve here, so it stays parked there for this assertion).
+      // The important behavior under test is that completedImages/
+      // totalImages survive the reset instead of being zeroed out.
+      expect(resumed.status, DownloadTaskStatus.downloading);
+      expect(resumed.completedImages, 4);
+      expect(resumed.totalImages, 10);
+
+      final stillPaused = freshManager.tasks.firstWhere(
+        (t) => t.chapterId == 'c2',
+      );
+      expect(stillPaused.status, DownloadTaskStatus.paused);
+      expect(stillPaused.completedImages, 6);
+    },
+  );
 }

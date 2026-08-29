@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:collection/collection.dart';
+import 'package:dio/dio.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
 import 'local_storage.dart';
@@ -95,6 +97,7 @@ class DownloadManager extends ChangeNotifier {
   static const _key = 'download_tasks';
 
   final List<DownloadTask> _tasks = [];
+  final Map<String, CancelToken> _activeCancelTokens = {};
   final int _maxConcurrentChapters = 2;
   int _activeCount = 0;
   bool _initialized = false;
@@ -121,9 +124,13 @@ class DownloadManager extends ChangeNotifier {
       for (final json in (data['tasks'] as List)) {
         final task = DownloadTask.fromJson(json as Map<String, dynamic>);
         if (task.status == DownloadTaskStatus.downloading) {
+          // 重启接续：保留 completedImages/totalImages/failedImageIndexes，
+          // 只把状态改回 pending。ChapterCacheService 的按 index 跳过逻辑
+          // 会自动跳过已下载的图片，不会重新下载，因此这里不重置进度字段。
           task.status = DownloadTaskStatus.pending;
-          task.progress = 0;
         }
+        // status == paused 的任务保持原样，不自动恢复（需用户手动
+        // resumeTask/resumeAll）。
         if (task.status != DownloadTaskStatus.completed) {
           _tasks.add(task);
         }
@@ -185,6 +192,51 @@ class DownloadManager extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Pause a single task by [key]. A `pending` task is paused immediately;
+  /// a `downloading` task has its [CancelToken] cancelled and transitions
+  /// to `paused` once `_downloadTask` observes the cancellation.
+  void pauseTask(String key) {
+    final task = _tasks.firstWhereOrNull((t) => t.key == key);
+    if (task == null) return;
+    if (task.status == DownloadTaskStatus.pending) {
+      task.status = DownloadTaskStatus.paused;
+      task.pausedAt = DateTime.now();
+      _persist();
+      notifyListeners();
+      return;
+    }
+    if (task.status == DownloadTaskStatus.downloading) {
+      _activeCancelTokens[key]?.cancel();
+      // 状态转换在 _downloadTask 的 cancelled 分支里完成。
+    }
+  }
+
+  /// Resume a single paused task by [key], re-queueing it as `pending`.
+  void resumeTask(String key) {
+    final task = _tasks.firstWhereOrNull((t) => t.key == key);
+    if (task == null || task.status != DownloadTaskStatus.paused) return;
+    task.status = DownloadTaskStatus.pending;
+    task.pausedAt = null;
+    _persist();
+    notifyListeners();
+    _processQueue();
+  }
+
+  /// Pause every task currently pending or downloading.
+  void pauseAll() {
+    for (final task in _tasks.toList()) {
+      pauseTask(task.key);
+    }
+  }
+
+  /// Resume every paused task.
+  void resumeAll() {
+    for (final task
+        in _tasks.where((t) => t.status == DownloadTaskStatus.paused).toList()) {
+      resumeTask(task.key);
+    }
+  }
+
   void _processQueue() {
     while (_activeCount < _maxConcurrentChapters) {
       final pending = _tasks
@@ -201,6 +253,8 @@ class DownloadManager extends ChangeNotifier {
   }
 
   Future<void> _downloadTask(DownloadTask task) async {
+    final cancelToken = CancelToken();
+    _activeCancelTokens[task.key] = cancelToken;
     try {
       // First get chapter images from API
       final result = await _repository.getChapter(
@@ -223,11 +277,17 @@ class DownloadManager extends ChangeNotifier {
           task.progress = total > 0 ? (completed * 100 ~/ total) : 0;
           notifyListeners();
         },
+        cancelToken: cancelToken,
       );
 
       task.completedImages = downloadResult.completedImages;
       task.failedImageIndexes = downloadResult.failedImageIndexes;
-      if (downloadResult.failedImageIndexes.isEmpty) {
+      if (downloadResult.cancelled) {
+        // 只要 cancelled == true 就统一置为 paused（不区分具体取消原因），
+        // 并保留已完成的 completedImages 供断点续传展示进度。
+        task.status = DownloadTaskStatus.paused;
+        task.pausedAt = DateTime.now();
+      } else if (downloadResult.failedImageIndexes.isEmpty) {
         task.status = DownloadTaskStatus.completed;
         task.progress = 100;
       } else {
@@ -239,6 +299,7 @@ class DownloadManager extends ChangeNotifier {
       task.error = e.toString();
     }
 
+    _activeCancelTokens.remove(task.key);
     _activeCount--;
     await _persist();
     notifyListeners();
