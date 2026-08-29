@@ -40,15 +40,26 @@ class DownloadCubit extends Cubit<DownloadState> {
     _onManagerChanged();
   }
 
-  String _keyFor(String chapterId) => '${sourceId}_${mangaId}_$chapterId';
+  String _keyFor(String chapterId) =>
+      DownloadManager.keyFor(sourceId, mangaId, chapterId);
+
+  /// Chapter IDs (for this cubit's [sourceId]/[mangaId]) that had a live
+  /// [DownloadManager] task as of the last [_onManagerChanged] run. Needed
+  /// because [DownloadState.chapters] alone doesn't record which manga a
+  /// chapter entry belongs to (it may also hold disk-only statuses set by
+  /// [checkCachedChapters]) — this set lets us tell "a task we used to
+  /// track disappeared" apart from "a chapter that was never task-backed".
+  final Set<String> _knownTaskChapterIds = {};
 
   void _onManagerChanged() {
     final chapters = <String, ChapterDownloadStatus>{...state.chapters};
+    final currentTaskChapterIds = <String>{};
     String? activeChapterId;
     int activeProgress = 0;
     int activeTotal = 0;
     for (final task in _downloadManager.tasks) {
       if (task.sourceId != sourceId || task.mangaId != mangaId) continue;
+      currentTaskChapterIds.add(task.chapterId);
       chapters[task.chapterId] = switch (task.status) {
         DownloadTaskStatus.pending => ChapterDownloadStatus.queued,
         DownloadTaskStatus.downloading => ChapterDownloadStatus.downloading,
@@ -64,6 +75,18 @@ class DownloadCubit extends Cubit<DownloadState> {
         activeTotal = task.totalImages;
       }
     }
+    // Clear statuses for chapters that had a task last time but no longer
+    // do (e.g. DownloadManager.removeTask() was called from the download
+    // drawer while this cubit is still alive) — otherwise their stale
+    // queued/downloading/paused icon would show indefinitely.
+    for (final staleChapterId in _knownTaskChapterIds) {
+      if (!currentTaskChapterIds.contains(staleChapterId)) {
+        chapters[staleChapterId] = ChapterDownloadStatus.none;
+      }
+    }
+    _knownTaskChapterIds
+      ..clear()
+      ..addAll(currentTaskChapterIds);
     emit(state.copyWith(
       chapters: chapters,
       activeChapterId: activeChapterId,
@@ -75,9 +98,22 @@ class DownloadCubit extends Cubit<DownloadState> {
 
   /// Check which chapters are already cached on disk.
   /// Call this with the chapter list after loading detail.
+  ///
+  /// Any chapter whose current status already reflects a live
+  /// [DownloadManager] task (`queued`/`downloading`/`paused`/
+  /// `partiallyFailed`/`failed`) is left untouched — that status is
+  /// authoritative and must not be clobbered by the on-disk heuristic
+  /// (which only checks "at least 1 file exists" and can't distinguish a
+  /// fully cached chapter from a paused/partially-failed one).
   Future<void> checkCachedChapters(List<ChapterItem> chapters) async {
     final result = <String, ChapterDownloadStatus>{};
     for (final chapter in chapters) {
+      final existing = state.chapters[chapter.id];
+      if (existing != null &&
+          existing != ChapterDownloadStatus.none &&
+          existing != ChapterDownloadStatus.cached) {
+        continue; // DownloadManager task state is authoritative, don't clobber it.
+      }
       final cached = await _cacheService.isChapterCached(
         sourceId,
         mangaId,

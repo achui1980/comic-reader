@@ -149,6 +149,49 @@ void main() {
     expect(cubit.state.chapters['c2'], ChapterDownloadStatus.none);
   });
 
+  blocTest<DownloadCubit, DownloadState>(
+    'checkCachedChapters does not clobber paused/partiallyFailed/queued/'
+    'downloading/failed statuses that reflect a live DownloadManager task',
+    setUp: () {
+      // Disk heuristic says "cached" (>=1 file present) for every chapter,
+      // simulating partiallyFailed/paused tasks which do have some files on
+      // disk already.
+      when(() => mockCacheService.isChapterCached(any(), any(), any(), any()))
+          .thenAnswer((_) async => true);
+    },
+    build: build,
+    seed: () => const DownloadState(chapters: {
+      'c1': ChapterDownloadStatus.paused,
+      'c2': ChapterDownloadStatus.partiallyFailed,
+      'c3': ChapterDownloadStatus.queued,
+      'c4': ChapterDownloadStatus.downloading,
+      'c5': ChapterDownloadStatus.failed,
+      'c6': ChapterDownloadStatus.none,
+      // c7 has no entry at all yet.
+    }),
+    act: (cubit) => cubit.checkCachedChapters([
+      ChapterItem(id: 'c1', mangaId: 'm1', title: 'Ch1'),
+      ChapterItem(id: 'c2', mangaId: 'm1', title: 'Ch2'),
+      ChapterItem(id: 'c3', mangaId: 'm1', title: 'Ch3'),
+      ChapterItem(id: 'c4', mangaId: 'm1', title: 'Ch4'),
+      ChapterItem(id: 'c5', mangaId: 'm1', title: 'Ch5'),
+      ChapterItem(id: 'c6', mangaId: 'm1', title: 'Ch6'),
+      ChapterItem(id: 'c7', mangaId: 'm1', title: 'Ch7'),
+    ]),
+    verify: (cubit) {
+      // Live-task statuses must be preserved untouched.
+      expect(cubit.state.chapters['c1'], ChapterDownloadStatus.paused);
+      expect(
+          cubit.state.chapters['c2'], ChapterDownloadStatus.partiallyFailed);
+      expect(cubit.state.chapters['c3'], ChapterDownloadStatus.queued);
+      expect(cubit.state.chapters['c4'], ChapterDownloadStatus.downloading);
+      expect(cubit.state.chapters['c5'], ChapterDownloadStatus.failed);
+      // none/no-entry chapters are still subject to the disk heuristic.
+      expect(cubit.state.chapters['c6'], ChapterDownloadStatus.cached);
+      expect(cubit.state.chapters['c7'], ChapterDownloadStatus.cached);
+    },
+  );
+
   test('maps DownloadTaskStatus to ChapterDownloadStatus, including paused '
       'and partiallyFailed', () {
     final cubit = build();
@@ -176,6 +219,64 @@ void main() {
 
     cubit.close();
   });
+
+  test('constructor synchronously syncs state from already-in-flight tasks '
+      'without waiting for a listener callback', () {
+    // Tasks already exist in DownloadManager *before* the cubit is built,
+    // simulating navigating back into the detail screen while a download
+    // was already running in the background.
+    when(() => mockManager.tasks).thenReturn([
+      _task(chapterId: 'c1', status: DownloadTaskStatus.downloading),
+    ]);
+
+    final cubit = build();
+
+    // This assertion must hold immediately after construction, without
+    // ever invoking the captured listener callback.
+    expect(cubit.state.chapters['c1'], ChapterDownloadStatus.downloading);
+    expect(cubit.state.activeChapterId, 'c1');
+
+    cubit.close();
+  });
+
+  test('_onManagerChanged clears stale statuses when a task disappears from '
+      'DownloadManager.tasks (e.g. removed via the download drawer)', () {
+    when(() => mockManager.tasks).thenReturn([
+      _task(chapterId: 'c1', status: DownloadTaskStatus.paused),
+      _task(chapterId: 'c2', status: DownloadTaskStatus.pending),
+    ]);
+    final cubit = build();
+    expect(cubit.state.chapters['c1'], ChapterDownloadStatus.paused);
+    expect(cubit.state.chapters['c2'], ChapterDownloadStatus.queued);
+
+    // c1's task is removed from the manager (e.g. via
+    // DownloadManager.removeTask() from the download drawer) while this
+    // cubit is still alive; c2's task remains.
+    when(() => mockManager.tasks).thenReturn([
+      _task(chapterId: 'c2', status: DownloadTaskStatus.pending),
+    ]);
+    capturedListener();
+
+    expect(cubit.state.chapters['c1'], ChapterDownloadStatus.none);
+    expect(cubit.state.chapters['c2'], ChapterDownloadStatus.queued);
+
+    cubit.close();
+  });
+
+  blocTest<DownloadCubit, DownloadState>(
+    '_onManagerChanged does not clear disk-based statuses set by '
+    'checkCachedChapters that never had a corresponding task',
+    build: build,
+    seed: () =>
+        const DownloadState(chapters: {'c1': ChapterDownloadStatus.cached}),
+    act: (cubit) {
+      when(() => mockManager.tasks).thenReturn(<DownloadTask>[]);
+      capturedListener();
+    },
+    verify: (cubit) {
+      expect(cubit.state.chapters['c1'], ChapterDownloadStatus.cached);
+    },
+  );
 
   test('close() removes the DownloadManager listener', () async {
     final cubit = build();

@@ -48,7 +48,7 @@ class DownloadTask {
     this.priority = 0,
   }) : failedImageIndexes = failedImageIndexes ?? [];
 
-  String get key => '${sourceId}_${mangaId}_$chapterId';
+  String get key => DownloadManager.keyFor(sourceId, mangaId, chapterId);
 
   Map<String, dynamic> toJson() => {
     'sourceId': sourceId,
@@ -107,6 +107,14 @@ class DownloadManager extends ChangeNotifier {
   int get pendingCount =>
       _tasks.where((t) => t.status == DownloadTaskStatus.pending).length;
 
+  /// Single source of truth for the task-key format used to identify a
+  /// [DownloadTask] (`sourceId_mangaId_chapterId`). [DownloadTask.key] and
+  /// any other call site that needs to derive a task key (e.g.
+  /// `DownloadCubit`) must delegate to this instead of hardcoding the
+  /// format, to avoid the two drifting apart.
+  static String keyFor(String sourceId, String mangaId, String chapterId) =>
+      '${sourceId}_${mangaId}_$chapterId';
+
   DownloadManager({
     required MangaRepository repository,
     required ChapterCacheService cacheService,
@@ -148,7 +156,7 @@ class DownloadManager extends ChangeNotifier {
     required String chapterTitle,
     int priority = 0,
   }) async {
-    final key = '${sourceId}_${mangaId}_$chapterId';
+    final key = DownloadManager.keyFor(sourceId, mangaId, chapterId);
     if (_tasks.any((t) => t.key == key && t.status != DownloadTaskStatus.failed)) {
       return;
     }

@@ -69,5 +69,17 @@ void main() {
         contains(DownloadTaskStatus.partiallyFailed),
       );
     });
+
+    test('key getter delegates to the single source of truth '
+        'DownloadManager.keyFor', () {
+      final task = DownloadTask(
+        sourceId: 's1',
+        mangaId: 'm1',
+        chapterId: 'c1',
+        mangaTitle: 'Title',
+        chapterTitle: 'Chapter 1',
+      );
+      expect(task.key, DownloadManager.keyFor('s1', 'm1', 'c1'));
+    });
   });
 }
