@@ -40,25 +40,40 @@ class ChapterCacheService {
   static const int _maxConcurrentImagesPerChapter = 4;
   static const int _maxImageRetries = 2;
 
-  String? _basePath;
   final Dio _dio;
+  final bool _forceAndroidPathForTest;
 
-  ChapterCacheService({Dio? dio}) : _dio = dio ?? Dio() {
+  /// Optional override for the base cache directory, settable at runtime
+  /// (e.g. by a user-facing "change download location" setting). When set,
+  /// it takes priority over both the Android external-storage path and the
+  /// default application-documents path. Declared here for Task 9's
+  /// `_cachePath` ordering; consumed by a later settings feature.
+  static String? customDownloadDirectory;
+
+  ChapterCacheService({Dio? dio, bool forceAndroidPathForTest = false})
+    : _dio = dio ?? Dio(),
+      _forceAndroidPathForTest = forceAndroidPathForTest {
     _dio.options.connectTimeout = const Duration(seconds: 30);
     _dio.options.receiveTimeout = const Duration(seconds: 60);
     _dio.options.responseType = ResponseType.bytes;
   }
 
   /// Get the base cache directory path.
+  ///
+  /// Not memoized: re-resolved on every call so that a runtime change to
+  /// [customDownloadDirectory] takes effect immediately instead of
+  /// returning a stale cached value.
   Future<String> get _cachePath async {
-    if (_basePath != null) return _basePath!;
-    if (kIsWeb) {
-      _basePath = '';
-      return '';
+    if (kIsWeb) return '';
+    if (customDownloadDirectory != null) return customDownloadDirectory!;
+    if (Platform.isAndroid || _forceAndroidPathForTest) {
+      final externalDir = await getExternalStorageDirectory();
+      if (externalDir != null) {
+        return '${externalDir.path}/chapter_cache';
+      }
     }
     final dir = await getApplicationDocumentsDirectory();
-    _basePath = '${dir.path}/chapter_cache';
-    return _basePath!;
+    return '${dir.path}/chapter_cache';
   }
 
   /// Get the directory path for a specific chapter.

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -12,8 +13,18 @@ class FakePathProviderPlatform extends PathProviderPlatform
   FakePathProviderPlatform(this.tempPath);
   final String tempPath;
 
+  /// Set by tests that want to simulate Android's external storage
+  /// directory being available. `null` (the default) simulates it being
+  /// unavailable, matching real-world Android configurations where
+  /// `getExternalStorageDirectory()` can return null.
+  Directory? externalStorageDirectory;
+
   @override
   Future<String?> getApplicationDocumentsPath() async => tempPath;
+
+  @override
+  Future<String?> getExternalStoragePath() async =>
+      externalStorageDirectory?.path;
 }
 
 class MockDio extends Mock implements Dio {}
@@ -44,6 +55,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory tempDir;
   late MockDio mockDio;
+  late FakePathProviderPlatform fakePathProvider;
 
   setUpAll(() {
     registerFallbackValue(Options());
@@ -52,7 +64,8 @@ void main() {
 
   setUp(() async {
     tempDir = await Directory.systemTemp.createTemp('chapter_cache_test');
-    PathProviderPlatform.instance = FakePathProviderPlatform(tempDir.path);
+    fakePathProvider = FakePathProviderPlatform(tempDir.path);
+    PathProviderPlatform.instance = fakePathProvider;
     mockDio = MockDio();
     when(() => mockDio.options).thenReturn(BaseOptions());
   });
@@ -263,6 +276,88 @@ void main() {
         );
 
         expect(result.cancelled, isTrue);
+      },
+    );
+  });
+
+  group('ChapterCacheService Android external storage path', () {
+    late Directory tempExternal;
+
+    setUp(() async {
+      tempExternal = await Directory.systemTemp.createTemp('external_');
+    });
+
+    tearDown(() async {
+      if (await tempExternal.exists()) {
+        await tempExternal.delete(recursive: true);
+      }
+    });
+
+    test(
+      'forceAndroidPathForTest + non-null getExternalStorageDirectory: '
+      'files are saved under the external dir, not the documents dir',
+      () async {
+        fakePathProvider.externalStorageDirectory = tempExternal;
+        final service = ChapterCacheService(forceAndroidPathForTest: true);
+
+        await service.saveImage(
+          's',
+          'm',
+          'c',
+          0,
+          Uint8List.fromList([1, 2, 3]),
+          contentType: 'image/jpeg',
+        );
+
+        final expectedDir = Directory('${tempExternal.path}/chapter_cache/s/m/c');
+        expect(await expectedDir.exists(), isTrue);
+
+        final expectedFileInDocsDir = Directory(
+          '${tempDir.path}/chapter_cache/s/m/c',
+        );
+        expect(await expectedFileInDocsDir.exists(), isFalse);
+      },
+    );
+
+    test(
+      'forceAndroidPathForTest but getExternalStorageDirectory returns null: '
+      'falls back to the documents dir (unchanged behavior)',
+      () async {
+        fakePathProvider.externalStorageDirectory = null;
+        final service = ChapterCacheService(forceAndroidPathForTest: true);
+
+        await service.saveImage(
+          's',
+          'm',
+          'c',
+          0,
+          Uint8List.fromList([1, 2, 3]),
+          contentType: 'image/jpeg',
+        );
+
+        final expectedDir = Directory('${tempDir.path}/chapter_cache/s/m/c');
+        expect(await expectedDir.exists(), isTrue);
+      },
+    );
+
+    test(
+      'without forceAndroidPathForTest, getExternalStorageDirectory is not '
+      'consulted even if set (non-Android platforms keep existing behavior)',
+      () async {
+        fakePathProvider.externalStorageDirectory = tempExternal;
+        final service = ChapterCacheService();
+
+        await service.saveImage(
+          's',
+          'm',
+          'c',
+          0,
+          Uint8List.fromList([1, 2, 3]),
+          contentType: 'image/jpeg',
+        );
+
+        final expectedDir = Directory('${tempDir.path}/chapter_cache/s/m/c');
+        expect(await expectedDir.exists(), isTrue);
       },
     );
   });
