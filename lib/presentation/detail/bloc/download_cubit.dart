@@ -19,19 +19,32 @@ class DownloadCubit extends Cubit<DownloadState> {
   final DownloadManager _downloadManager;
   final String sourceId;
   final String mangaId;
+  final String? Function()? _mangaTitleProvider;
 
   /// [repository] is accepted for backward compatibility with existing call
   /// sites (`detail_screen.dart`) but is unused: chapter fetching now
   /// happens inside [DownloadManager] itself, so this cubit no longer needs
   /// direct repository access.
+  ///
+  /// [mangaTitleProvider], if given, is consulted (lazily, at
+  /// `downloadChapter` call time) for the real manga title to pass to
+  /// [DownloadManager.addTask]. This cubit is constructed before
+  /// `DetailCubit` has finished loading the manga, so the title isn't
+  /// available synchronously at construction time — a provider function
+  /// lets the caller supply whatever `DetailCubit.state.manga?.title` is
+  /// *by the time the user actually taps download*. When omitted (or it
+  /// returns null), falls back to [mangaId] as before, so
+  /// `DownloadDrawer`'s task list shows the raw id instead of a real title.
   DownloadCubit({
     required ChapterCacheService cacheService,
     required MangaRepository repository,
     required DownloadManager downloadManager,
     required this.sourceId,
     required this.mangaId,
+    String? Function()? mangaTitleProvider,
   })  : _cacheService = cacheService,
         _downloadManager = downloadManager,
+        _mangaTitleProvider = mangaTitleProvider,
         super(const DownloadState()) {
     _downloadManager.addListener(_onManagerChanged);
     // Sync with whatever tasks already exist (e.g. this cubit was rebuilt
@@ -145,10 +158,12 @@ class DownloadCubit extends Cubit<DownloadState> {
       sourceId: sourceId,
       mangaId: mangaId,
       chapterId: chapter.id,
-      // The cubit itself has no manga title available; DownloadDrawer's
-      // display for tasks queued from the detail screen will show mangaId
-      // instead. Acceptable known limitation for this task (see plan notes).
-      mangaTitle: mangaId,
+      // Prefer the real manga title from [_mangaTitleProvider] (supplied by
+      // detail_screen.dart from DetailCubit's loaded state) so
+      // DownloadDrawer's task list shows a human-readable title instead of
+      // the raw mangaId. Falls back to mangaId when no provider was given
+      // or it hasn't resolved a title yet.
+      mangaTitle: _mangaTitleProvider?.call() ?? mangaId,
       chapterTitle: chapter.title,
     );
   }
@@ -171,6 +186,24 @@ class DownloadCubit extends Cubit<DownloadState> {
     final activeChapterId = state.activeChapterId;
     if (activeChapterId == null) return;
     _downloadManager.pauseTask(_keyFor(activeChapterId));
+  }
+
+  /// Resume a paused chapter download via the global [DownloadManager].
+  ///
+  /// Thin wrapper matching the existing pattern used by [cancelDownload]
+  /// (which forwards to `_downloadManager.pauseTask`) — the detail screen's
+  /// "下载此章节" long-press action needs this for `paused` chapters instead
+  /// of calling [downloadChapter]/`addTask`, which would silently no-op
+  /// (see [DownloadManager.addTask]'s doc comment).
+  void resumeChapter(String chapterId) {
+    _downloadManager.resumeTask(_keyFor(chapterId));
+  }
+
+  /// Retry a `partiallyFailed`/`failed` chapter download via the global
+  /// [DownloadManager]. See [resumeChapter] for why this is needed instead
+  /// of [downloadChapter].
+  void retryChapter(String chapterId) {
+    _downloadManager.retryTask(_keyFor(chapterId));
   }
 
   @override

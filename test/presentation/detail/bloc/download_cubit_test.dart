@@ -55,8 +55,10 @@ void main() {
           chapterId: any(named: 'chapterId'),
           mangaTitle: any(named: 'mangaTitle'),
           chapterTitle: any(named: 'chapterTitle'),
-        )).thenAnswer((_) async {});
+        )).thenAnswer((_) async => true);
     when(() => mockManager.pauseTask(any())).thenReturn(null);
+    when(() => mockManager.resumeTask(any())).thenReturn(null);
+    when(() => mockManager.retryTask(any())).thenReturn(null);
   });
 
   DownloadCubit build() => DownloadCubit(
@@ -84,6 +86,46 @@ void main() {
   );
 
   blocTest<DownloadCubit, DownloadState>(
+    'downloadChapter falls back to mangaId when no mangaTitleProvider is given',
+    build: build,
+    act: (cubit) => cubit
+        .downloadChapter(ChapterItem(id: 'c1', mangaId: 'm1', title: '第1章')),
+    verify: (_) {
+      verify(() => mockManager.addTask(
+            sourceId: 's1',
+            mangaId: 'm1',
+            chapterId: 'c1',
+            mangaTitle: 'm1',
+            chapterTitle: '第1章',
+          )).called(1);
+    },
+  );
+
+  blocTest<DownloadCubit, DownloadState>(
+    'downloadChapter uses mangaTitleProvider for the real manga title '
+    'instead of the mangaId placeholder, when provided',
+    build: () => DownloadCubit(
+      cacheService: mockCacheService,
+      repository: mockRepository,
+      downloadManager: mockManager,
+      sourceId: 's1',
+      mangaId: 'm1',
+      mangaTitleProvider: () => '真实漫画标题',
+    ),
+    act: (cubit) => cubit
+        .downloadChapter(ChapterItem(id: 'c1', mangaId: 'm1', title: '第1章')),
+    verify: (_) {
+      verify(() => mockManager.addTask(
+            sourceId: 's1',
+            mangaId: 'm1',
+            chapterId: 'c1',
+            mangaTitle: '真实漫画标题',
+            chapterTitle: '第1章',
+          )).called(1);
+    },
+  );
+
+  blocTest<DownloadCubit, DownloadState>(
     'cancelDownload calls pauseTask on the active chapter',
     build: build,
     seed: () => const DownloadState(
@@ -102,6 +144,24 @@ void main() {
     act: (cubit) => cubit.cancelDownload(),
     verify: (_) {
       verifyNever(() => mockManager.pauseTask(any()));
+    },
+  );
+
+  blocTest<DownloadCubit, DownloadState>(
+    'resumeChapter forwards to DownloadManager.resumeTask with the correct key',
+    build: build,
+    act: (cubit) => cubit.resumeChapter('c1'),
+    verify: (_) {
+      verify(() => mockManager.resumeTask('s1_m1_c1')).called(1);
+    },
+  );
+
+  blocTest<DownloadCubit, DownloadState>(
+    'retryChapter forwards to DownloadManager.retryTask with the correct key',
+    build: build,
+    act: (cubit) => cubit.retryChapter('c1'),
+    verify: (_) {
+      verify(() => mockManager.retryTask('s1_m1_c1')).called(1);
     },
   );
 

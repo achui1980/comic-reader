@@ -40,12 +40,19 @@ class DetailScreen extends StatelessWidget {
           )..loadDetail(),
         ),
         BlocProvider(
-          create: (_) => DownloadCubit(
+          create: (context) => DownloadCubit(
             cacheService: GetIt.instance<ChapterCacheService>(),
             repository: GetIt.instance<MangaRepository>(),
             downloadManager: GetIt.instance<DownloadManager>(),
             sourceId: sourceId,
             mangaId: mangaId,
+            // Lazily reads DetailCubit's loaded manga title at download-tap
+            // time (this cubit is built before DetailCubit finishes loading,
+            // so the title isn't available synchronously here). DetailCubit
+            // is provided earlier in this same MultiBlocProvider list, so it
+            // is already reachable from this create() callback's context.
+            mangaTitleProvider: () =>
+                context.read<DetailCubit>().state.manga?.title,
           ),
         ),
       ],
@@ -374,6 +381,12 @@ class _DetailView extends StatelessWidget {
     ChapterItem chapter,
     ChapterDownloadStatus status,
   ) {
+    // For a paused/partiallyFailed chapter, the primary download tile must
+    // resume/retry the existing DownloadManager task instead of calling
+    // downloadChapter() -> addTask(), which silently no-ops (returns false)
+    // for a task that already exists in a non-failed status, giving the
+    // user zero feedback on tap. The DownloadDrawer already exposes
+    // resume/retry, but users may not think to open it from here.
     showModalBottomSheet(
       context: context,
       builder: (sheetContext) => SafeArea(
@@ -382,12 +395,24 @@ class _DetailView extends StatelessWidget {
           children: [
             ListTile(
               leading: const Icon(Icons.download),
-              title: const Text('下载此章节'),
+              title: Text(switch (status) {
+                ChapterDownloadStatus.paused => '恢复下载',
+                ChapterDownloadStatus.partiallyFailed => '重试',
+                _ => '下载此章节',
+              }),
               enabled: status != ChapterDownloadStatus.cached &&
                   status != ChapterDownloadStatus.downloading,
               onTap: () {
                 Navigator.pop(sheetContext);
-                context.read<DownloadCubit>().downloadChapter(chapter);
+                final downloadCubit = context.read<DownloadCubit>();
+                switch (status) {
+                  case ChapterDownloadStatus.paused:
+                    downloadCubit.resumeChapter(chapter.id);
+                  case ChapterDownloadStatus.partiallyFailed:
+                    downloadCubit.retryChapter(chapter.id);
+                  default:
+                    downloadCubit.downloadChapter(chapter);
+                }
               },
             ),
             if (status == ChapterDownloadStatus.cached)
