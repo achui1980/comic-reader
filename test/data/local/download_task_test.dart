@@ -32,6 +32,7 @@ void main() {
         failedImageIndexes: [3, 8],
         retryCount: 2,
         priority: 5,
+        pausedAt: DateTime.utc(2026, 1, 1, 12, 0, 0),
       );
       final restored = DownloadTask.fromJson(task.toJson());
       expect(restored.totalImages, 10);
@@ -40,6 +41,7 @@ void main() {
       expect(restored.retryCount, 2);
       expect(restored.priority, 5);
       expect(restored.status, DownloadTaskStatus.partiallyFailed);
+      expect(restored.pausedAt, task.pausedAt);
     });
 
     test('fromJson tolerates legacy JSON missing new fields', () {
