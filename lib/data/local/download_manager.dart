@@ -187,6 +187,7 @@ class DownloadManager extends ChangeNotifier {
 
   /// Remove a task from the queue.
   void removeTask(String key) {
+    _activeCancelTokens[key]?.cancel();
     _tasks.removeWhere((t) => t.key == key);
     _persist();
     notifyListeners();
@@ -297,13 +298,13 @@ class DownloadManager extends ChangeNotifier {
     } catch (e) {
       task.status = DownloadTaskStatus.failed;
       task.error = e.toString();
+    } finally {
+      _activeCancelTokens.remove(task.key);
+      _activeCount--;
+      await _persist();
+      notifyListeners();
+      _processQueue();
     }
-
-    _activeCancelTokens.remove(task.key);
-    _activeCount--;
-    await _persist();
-    notifyListeners();
-    _processQueue();
   }
 
   Future<void> _persist() async {

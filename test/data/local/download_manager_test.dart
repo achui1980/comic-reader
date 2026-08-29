@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:dio/dio.dart';
 import 'package:comic_reader/data/local/download_manager.dart';
 import 'package:comic_reader/data/local/chapter_cache_service.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
@@ -495,6 +496,134 @@ void main() {
       );
       expect(stillPaused.status, DownloadTaskStatus.paused);
       expect(stillPaused.completedImages, 6);
+    },
+  );
+
+  test(
+    'pauseTask still fully cleans up (token removed, activeCount decremented, '
+    'queue reprocessed) after the finally refactor',
+    () async {
+      when(
+        () => repository.getChapter(any(), any(), any(), any()),
+      ).thenAnswer((_) async => buildChapterResult());
+      when(
+        () => cacheService.downloadChapter(
+          sourceId: any(named: 'sourceId'),
+          mangaId: any(named: 'mangaId'),
+          chapterId: any(named: 'chapterId'),
+          images: any(named: 'images'),
+          onProgress: any(named: 'onProgress'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((invocation) async {
+        final chapterId =
+            invocation.namedArguments[const Symbol('chapterId')] as String;
+        if (chapterId == 'c2') {
+          // Never resolves: c2 stays parked in `downloading` for the
+          // whole test so it doesn't interfere with the activeCount
+          // assertion below (which is only about c1's cleanup).
+          return Completer<ChapterDownloadResult>().future;
+        }
+        await Future.delayed(const Duration(seconds: 1));
+        return const ChapterDownloadResult(
+          cancelled: true,
+          completedImages: 0,
+          failedImageIndexes: [],
+        );
+      });
+
+      await manager.addTask(
+        sourceId: 's1',
+        mangaId: 'm1',
+        chapterId: 'c1',
+        mangaTitle: 'Manga',
+        chapterTitle: 'c1',
+      );
+      // A second task takes the other of the 2 concurrent slots so we
+      // can observe activeCount go from 2 down to 1 once c1's cleanup
+      // (inside the new `finally` block) runs.
+      await manager.addTask(
+        sourceId: 's1',
+        mangaId: 'm1',
+        chapterId: 'c2',
+        mangaTitle: 'Manga',
+        chapterTitle: 'c2',
+      );
+      await Future.delayed(const Duration(milliseconds: 50));
+      expect(manager.activeCount, 2);
+
+      final c1 = manager.tasks.firstWhere((t) => t.chapterId == 'c1');
+      manager.pauseTask(c1.key);
+      await Future.delayed(const Duration(seconds: 1));
+
+      // Cleanup ran inside `finally`: status transitioned to `paused`,
+      // and `_activeCount` was decremented back down (proving
+      // `_activeCancelTokens.remove`/`_activeCount--`/`_processQueue()`
+      // all still ran after the try/catch->finally restructuring).
+      // c2 is still parked in `downloading`, so activeCount settles at
+      // 1, not 0.
+      expect(
+        manager.tasks.firstWhere((t) => t.chapterId == 'c1').status,
+        DownloadTaskStatus.paused,
+      );
+      expect(manager.activeCount, 1);
+    },
+  );
+
+  test(
+    'removeTask cancels the in-flight CancelToken for a downloading task',
+    () async {
+      when(
+        () => repository.getChapter(any(), any(), any(), any()),
+      ).thenAnswer((_) async => buildChapterResult());
+
+      CancelToken? capturedToken;
+      final downloadCompleter = Completer<ChapterDownloadResult>();
+      when(
+        () => cacheService.downloadChapter(
+          sourceId: any(named: 'sourceId'),
+          mangaId: any(named: 'mangaId'),
+          chapterId: any(named: 'chapterId'),
+          images: any(named: 'images'),
+          onProgress: any(named: 'onProgress'),
+          cancelToken: any(named: 'cancelToken'),
+        ),
+      ).thenAnswer((invocation) {
+        capturedToken =
+            invocation.namedArguments[const Symbol('cancelToken')]
+                as CancelToken;
+        return downloadCompleter.future;
+      });
+
+      await manager.addTask(
+        sourceId: 's1',
+        mangaId: 'm1',
+        chapterId: 'c1',
+        mangaTitle: 'Manga',
+        chapterTitle: 'c1',
+      );
+      await Future.delayed(const Duration(milliseconds: 10));
+
+      final task = manager.tasks.firstWhere((t) => t.chapterId == 'c1');
+      expect(task.status, DownloadTaskStatus.downloading);
+      expect(capturedToken, isNotNull);
+      expect(capturedToken!.isCancelled, isFalse);
+
+      manager.removeTask(task.key);
+
+      expect(capturedToken!.isCancelled, isTrue);
+      expect(manager.tasks.any((t) => t.chapterId == 'c1'), isFalse);
+
+      // Cleanup: let the pending download future resolve so it doesn't
+      // leak across tests.
+      downloadCompleter.complete(
+        const ChapterDownloadResult(
+          cancelled: true,
+          completedImages: 0,
+          failedImageIndexes: [],
+        ),
+      );
+      await Future.delayed(Duration.zero);
     },
   );
 }
