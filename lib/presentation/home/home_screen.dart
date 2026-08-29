@@ -376,10 +376,25 @@ class _HomeViewState extends State<_HomeView> {
                       shape: const CircleBorder(),
                       child: InkWell(
                         customBorder: const CircleBorder(),
-                        onTap: () {
-                          context.read<HomeCubit>().downloadUnread(manga);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('已加入下载队列')),
+                        onTap: () async {
+                          final cubit = context.read<HomeCubit>();
+                          final messenger = ScaffoldMessenger.of(context);
+                          int count;
+                          String? errorMessage;
+                          try {
+                            count = await cubit.downloadUnread(manga);
+                          } catch (e) {
+                            count = 0;
+                            errorMessage = e.toString();
+                          }
+                          if (!context.mounted) return;
+                          final message = errorMessage != null
+                              ? '加入下载队列失败：$errorMessage'
+                              : count > 0
+                                  ? '已加入下载队列 ($count章)'
+                                  : '本漫画暂无未读章节';
+                          messenger.showSnackBar(
+                            SnackBar(content: Text(message)),
                           );
                         },
                         child: const Padding(

@@ -67,7 +67,7 @@ void main() {
   ];
 
   blocTest<HomeCubit, dynamic>(
-    'downloadUnread 只为未读章节调用 addTask',
+    'downloadUnread 只为未读章节调用 addTask，并返回加入队列的章节数',
     build: () {
       when(() => repository.getChapterList('s1', 'm1', 1)).thenAnswer(
           (_) async => ChapterListResult(chapters: chapters, canLoadMore: false));
@@ -100,6 +100,112 @@ void main() {
           ));
     },
   );
+
+  test('downloadUnread 返回实际加入队列的章节数', () async {
+    when(() => repository.getChapterList('s1', 'm1', 1)).thenAnswer(
+        (_) async => ChapterListResult(chapters: chapters, canLoadMore: false));
+    when(() => historyStore.getReadChapters('s1', 'm1'))
+        .thenAnswer((_) async => {'c1'});
+    when(() => downloadManager.addTask(
+          sourceId: any(named: 'sourceId'),
+          mangaId: any(named: 'mangaId'),
+          chapterId: any(named: 'chapterId'),
+          mangaTitle: any(named: 'mangaTitle'),
+          chapterTitle: any(named: 'chapterTitle'),
+        )).thenAnswer((_) async {});
+    final cubit = buildCubit();
+    final count = await cubit.downloadUnread(manga);
+    expect(count, 1);
+  });
+
+  test('downloadUnread 会翻页拉取全部章节列表，并正确对比完整已读集合', () async {
+    // Page 1 reports canLoadMore=true with one chapter; page 2 is the last
+    // page (canLoadMore=false) with a second, unread chapter. downloadUnread
+    // must keep paging (mirroring DetailCubit.loadChapters) instead of only
+    // reading page 1, otherwise chapters that only exist on later pages
+    // (e.g. paginated sources like MangaDex) would never be queued.
+    final page1Chapters = [
+      const ChapterItem(id: 'p1c1', mangaId: 'm1', title: 'Page1-Ch1'),
+    ];
+    final page2Chapters = [
+      const ChapterItem(id: 'p2c1', mangaId: 'm1', title: 'Page2-Ch1'),
+    ];
+    when(() => repository.getChapterList('s1', 'm1', 1)).thenAnswer(
+        (_) async =>
+            ChapterListResult(chapters: page1Chapters, canLoadMore: true));
+    when(() => repository.getChapterList('s1', 'm1', 2)).thenAnswer(
+        (_) async =>
+            ChapterListResult(chapters: page2Chapters, canLoadMore: false));
+    // Nothing read yet, so both pages' chapters are unread.
+    when(() => historyStore.getReadChapters('s1', 'm1'))
+        .thenAnswer((_) async => <String>{});
+    when(() => downloadManager.addTask(
+          sourceId: any(named: 'sourceId'),
+          mangaId: any(named: 'mangaId'),
+          chapterId: any(named: 'chapterId'),
+          mangaTitle: any(named: 'mangaTitle'),
+          chapterTitle: any(named: 'chapterTitle'),
+        )).thenAnswer((_) async {});
+
+    final cubit = buildCubit();
+    final count = await cubit.downloadUnread(manga);
+
+    // Both pages must have been fetched.
+    verify(() => repository.getChapterList('s1', 'm1', 1)).called(1);
+    verify(() => repository.getChapterList('s1', 'm1', 2)).called(1);
+    // The chapter that only exists on page 2 must still be queued.
+    verify(() => downloadManager.addTask(
+          sourceId: 's1',
+          mangaId: 'm1',
+          chapterId: 'p2c1',
+          mangaTitle: 'T',
+          chapterTitle: 'Page2-Ch1',
+        )).called(1);
+    verify(() => downloadManager.addTask(
+          sourceId: 's1',
+          mangaId: 'm1',
+          chapterId: 'p1c1',
+          mangaTitle: 'T',
+          chapterTitle: 'Page1-Ch1',
+        )).called(1);
+    expect(count, 2);
+  });
+
+  test('downloadUnread 在 getChapterList 抛出异常时不崩溃，返回0', () async {
+    when(() => repository.getChapterList('s1', 'm1', 1))
+        .thenThrow(Exception('network error'));
+
+    final cubit = buildCubit();
+    final count = await cubit.downloadUnread(manga);
+
+    expect(count, 0);
+    verifyNever(() => downloadManager.addTask(
+          sourceId: any(named: 'sourceId'),
+          mangaId: any(named: 'mangaId'),
+          chapterId: any(named: 'chapterId'),
+          mangaTitle: any(named: 'mangaTitle'),
+          chapterTitle: any(named: 'chapterTitle'),
+        ));
+  });
+
+  test('downloadUnread 在 getReadChapters 抛出异常时不崩溃，返回0', () async {
+    when(() => repository.getChapterList('s1', 'm1', 1)).thenAnswer(
+        (_) async => ChapterListResult(chapters: chapters, canLoadMore: false));
+    when(() => historyStore.getReadChapters('s1', 'm1'))
+        .thenThrow(Exception('storage error'));
+
+    final cubit = buildCubit();
+    final count = await cubit.downloadUnread(manga);
+
+    expect(count, 0);
+    verifyNever(() => downloadManager.addTask(
+          sourceId: any(named: 'sourceId'),
+          mangaId: any(named: 'mangaId'),
+          chapterId: any(named: 'chapterId'),
+          mangaTitle: any(named: 'mangaTitle'),
+          chapterTitle: any(named: 'chapterTitle'),
+        ));
+  });
 
   // Two mangas from different sources. mangaA's id deliberately contains an
   // underscore ('m_1') to stress-test the `key.split('_')` parsing in
@@ -174,6 +280,43 @@ void main() {
           ));
       // mangaB's unread chapter downloaded exactly once — proves the second
       // selected manga is also processed, not just the first.
+      verify(() => downloadManager.addTask(
+            sourceId: 's2',
+            mangaId: 'm2',
+            chapterId: 'cb1',
+            mangaTitle: 'MangaB',
+            chapterTitle: 'B-Ch1',
+          )).called(1);
+    },
+  );
+
+  blocTest<HomeCubit, dynamic>(
+    'downloadSelected 中一个漫画拉取章节失败时，不影响其它漫画继续下载',
+    build: () {
+      // mangaA's chapter fetch fails entirely.
+      when(() => repository.getChapterList('s1', 'm_1', 1))
+          .thenThrow(Exception('network error'));
+      when(() => repository.getChapterList('s2', 'm2', 1)).thenAnswer(
+          (_) async =>
+              ChapterListResult(chapters: chaptersB, canLoadMore: false));
+      when(() => historyStore.getReadChapters('s2', 'm2'))
+          .thenAnswer((_) async => <String>{});
+      when(() => downloadManager.addTask(
+            sourceId: any(named: 'sourceId'),
+            mangaId: any(named: 'mangaId'),
+            chapterId: any(named: 'chapterId'),
+            mangaTitle: any(named: 'mangaTitle'),
+            chapterTitle: any(named: 'chapterTitle'),
+          )).thenAnswer((_) async {});
+      return buildCubit();
+    },
+    seed: () => const HomeState(
+      favorites: [mangaA, mangaB],
+      selectedKeys: {'s1_m_1', 's2_m2'},
+    ),
+    act: (cubit) => cubit.downloadSelected(),
+    verify: (_) {
+      // mangaB must still be processed despite mangaA's failure.
       verify(() => downloadManager.addTask(
             sourceId: 's2',
             mangaId: 'm2',

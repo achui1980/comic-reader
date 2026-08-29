@@ -203,24 +203,60 @@ class HomeCubit extends Cubit<HomeState> {
   // ─── Downloads ────────────────────────────────────────────────────────
 
   /// Download every chapter of [manga] that has not been read yet.
-  Future<void> downloadUnread(MangaSummary manga) async {
-    final result =
-        await _repository.getChapterList(manga.sourceId, manga.id, 1);
-    final readSet =
-        await _historyStore.getReadChapters(manga.sourceId, manga.id);
-    final unread = result.chapters.where((c) => !readSet.contains(c.id));
-    for (final chapter in unread) {
-      _downloadManager.addTask(
-        sourceId: manga.sourceId,
-        mangaId: manga.id,
-        chapterId: chapter.id,
-        mangaTitle: manga.title,
-        chapterTitle: chapter.title,
-      );
+  ///
+  /// Fetches the *entire* chapter list first — paginating through every page
+  /// the source reports via [ChapterListResult.canLoadMore] (mirroring
+  /// `DetailCubit.loadChapters`'s loop) — before diffing against the read
+  /// set, so paginated sources (e.g. MangaDex) don't silently lose chapters
+  /// that only live on page 2+.
+  ///
+  /// Never throws: any failure fetching the chapter list or read history is
+  /// caught and treated as "nothing to queue" for this manga, so a single
+  /// manga's failure doesn't take down a batch download (see
+  /// [downloadSelected]).
+  ///
+  /// Returns the number of chapters actually queued for download (0 if none
+  /// were unread, or if an error occurred).
+  Future<int> downloadUnread(MangaSummary manga) async {
+    try {
+      var page = 1;
+      var result =
+          await _repository.getChapterList(manga.sourceId, manga.id, page);
+      var allChapters = result.chapters;
+      var canLoadMore = result.canLoadMore;
+      const maxPages = 200; // safety cap to avoid infinite loops
+      while (canLoadMore && page < maxPages) {
+        page++;
+        result =
+            await _repository.getChapterList(manga.sourceId, manga.id, page);
+        allChapters = [...allChapters, ...result.chapters];
+        canLoadMore = result.canLoadMore;
+      }
+
+      final readSet =
+          await _historyStore.getReadChapters(manga.sourceId, manga.id);
+      final unread = allChapters.where((c) => !readSet.contains(c.id));
+      var queued = 0;
+      for (final chapter in unread) {
+        await _downloadManager.addTask(
+          sourceId: manga.sourceId,
+          mangaId: manga.id,
+          chapterId: chapter.id,
+          mangaTitle: manga.title,
+          chapterTitle: chapter.title,
+        );
+        queued++;
+      }
+      return queued;
+    } catch (e) {
+      return 0;
     }
   }
 
   /// Download unread chapters for every currently selected manga.
+  ///
+  /// [downloadUnread] never throws, so one manga's failure never aborts the
+  /// rest of the batch.
   Future<void> downloadSelected() async {
     for (final key in state.selectedKeys) {
       final parts = key.split('_');
