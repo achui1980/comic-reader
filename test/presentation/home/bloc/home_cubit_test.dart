@@ -79,7 +79,7 @@ void main() {
             chapterId: any(named: 'chapterId'),
             mangaTitle: any(named: 'mangaTitle'),
             chapterTitle: any(named: 'chapterTitle'),
-          )).thenAnswer((_) async {});
+          )).thenAnswer((_) async => true);
       return buildCubit();
     },
     act: (cubit) => cubit.downloadUnread(manga),
@@ -112,11 +112,46 @@ void main() {
           chapterId: any(named: 'chapterId'),
           mangaTitle: any(named: 'mangaTitle'),
           chapterTitle: any(named: 'chapterTitle'),
-        )).thenAnswer((_) async {});
+        )).thenAnswer((_) async => true);
     final cubit = buildCubit();
     final count = await cubit.downloadUnread(manga);
     expect(count, 1);
   });
+
+  test(
+    'downloadUnread 只统计 addTask 真正返回true(新入队)的章节数，'
+    '已存在非failed任务(addTask返回false)的未读章节不计入',
+    () async {
+      // Both c1 and c2 are unread, but c1 already has a live non-failed
+      // task in DownloadManager (e.g. paused) so addTask silently no-ops
+      // and returns false for it. Only c2's addTask call returns true.
+      when(() => repository.getChapterList('s1', 'm1', 1)).thenAnswer(
+          (_) async =>
+              ChapterListResult(chapters: chapters, canLoadMore: false));
+      when(() => historyStore.getReadChapters('s1', 'm1'))
+          .thenAnswer((_) async => <String>{});
+      when(() => downloadManager.addTask(
+            sourceId: 's1',
+            mangaId: 'm1',
+            chapterId: 'c1',
+            mangaTitle: 'T',
+            chapterTitle: 'Ch1',
+          )).thenAnswer((_) async => false);
+      when(() => downloadManager.addTask(
+            sourceId: 's1',
+            mangaId: 'm1',
+            chapterId: 'c2',
+            mangaTitle: 'T',
+            chapterTitle: 'Ch2',
+          )).thenAnswer((_) async => true);
+
+      final cubit = buildCubit();
+      final count = await cubit.downloadUnread(manga);
+
+      // 2 chapters are unread, but only 1 was actually newly queued.
+      expect(count, 1);
+    },
+  );
 
   test('downloadUnread 会翻页拉取全部章节列表，并正确对比完整已读集合', () async {
     // Page 1 reports canLoadMore=true with one chapter; page 2 is the last
@@ -145,7 +180,7 @@ void main() {
           chapterId: any(named: 'chapterId'),
           mangaTitle: any(named: 'mangaTitle'),
           chapterTitle: any(named: 'chapterTitle'),
-        )).thenAnswer((_) async {});
+        )).thenAnswer((_) async => true);
 
     final cubit = buildCubit();
     final count = await cubit.downloadUnread(manga);
@@ -253,7 +288,7 @@ void main() {
             chapterId: any(named: 'chapterId'),
             mangaTitle: any(named: 'mangaTitle'),
             chapterTitle: any(named: 'chapterTitle'),
-          )).thenAnswer((_) async {});
+          )).thenAnswer((_) async => true);
       return buildCubit();
     },
     seed: () => const HomeState(
@@ -316,7 +351,7 @@ void main() {
           chapterId: any(named: 'chapterId'),
           mangaTitle: any(named: 'mangaTitle'),
           chapterTitle: any(named: 'chapterTitle'),
-        )).thenAnswer((_) async {});
+        )).thenAnswer((_) async => true);
 
     final cubit = buildCubit();
     await cubit.loadFavorites();
@@ -347,7 +382,7 @@ void main() {
             chapterId: any(named: 'chapterId'),
             mangaTitle: any(named: 'mangaTitle'),
             chapterTitle: any(named: 'chapterTitle'),
-          )).thenAnswer((_) async {});
+          )).thenAnswer((_) async => true);
       return buildCubit();
     },
     seed: () => const HomeState(

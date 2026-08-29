@@ -238,14 +238,14 @@ class HomeCubit extends Cubit<HomeState> {
       final unread = allChapters.where((c) => !readSet.contains(c.id));
       var queued = 0;
       for (final chapter in unread) {
-        await _downloadManager.addTask(
+        final added = await _downloadManager.addTask(
           sourceId: manga.sourceId,
           mangaId: manga.id,
           chapterId: chapter.id,
           mangaTitle: manga.title,
           chapterTitle: chapter.title,
         );
-        queued++;
+        if (added) queued++;
       }
       return queued;
     } catch (e) {

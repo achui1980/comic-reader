@@ -123,7 +123,7 @@ void main() {
           mangaTitle: any(named: 'mangaTitle'),
           chapterTitle: any(named: 'chapterTitle'),
         ),
-      ).thenAnswer((_) async {});
+      ).thenAnswer((_) async => true);
 
       await pumpHome(tester);
 

@@ -123,6 +123,85 @@ void main() {
     expect(task.failedImageIndexes, [0]);
   });
 
+  test('addTask returns true for a brand-new task', () async {
+    when(
+      () => repository.getChapter(any(), any(), any(), any()),
+    ).thenAnswer((_) => Completer<ChapterResult>().future);
+
+    final result = await manager.addTask(
+      sourceId: 's1',
+      mangaId: 'm1',
+      chapterId: 'c1',
+      mangaTitle: 'Manga',
+      chapterTitle: 'c1',
+    );
+
+    expect(result, isTrue);
+  });
+
+  test(
+    'addTask returns false and does not add a duplicate when a task with '
+    'the same key already exists in a non-failed status (e.g. paused)',
+    () async {
+      manager.addTask(
+        sourceId: 's1',
+        mangaId: 'm1',
+        chapterId: 'c1',
+        mangaTitle: 'Manga',
+        chapterTitle: 'c1',
+      );
+      final key = manager.tasks.first.key;
+      manager.pauseTask(key); // pending -> paused synchronously
+      expect(manager.tasks.first.status, DownloadTaskStatus.paused);
+
+      final result = await manager.addTask(
+        sourceId: 's1',
+        mangaId: 'm1',
+        chapterId: 'c1',
+        mangaTitle: 'Manga',
+        chapterTitle: 'c1',
+      );
+
+      expect(result, isFalse);
+      expect(manager.tasks.where((t) => t.chapterId == 'c1'), hasLength(1));
+      expect(manager.tasks.first.status, DownloadTaskStatus.paused);
+    },
+  );
+
+  test(
+    'addTask returns true and replaces an existing failed task with the same key',
+    () async {
+      when(
+        () => repository.getChapter(any(), any(), any(), any()),
+      ).thenThrow(Exception('boom'));
+
+      await manager.addTask(
+        sourceId: 's1',
+        mangaId: 'm1',
+        chapterId: 'c1',
+        mangaTitle: 'Manga',
+        chapterTitle: 'c1',
+      );
+      await Future.delayed(const Duration(milliseconds: 10));
+      expect(manager.tasks.first.status, DownloadTaskStatus.failed);
+
+      when(
+        () => repository.getChapter(any(), any(), any(), any()),
+      ).thenAnswer((_) => Completer<ChapterResult>().future);
+
+      final result = await manager.addTask(
+        sourceId: 's1',
+        mangaId: 'm1',
+        chapterId: 'c1',
+        mangaTitle: 'Manga',
+        chapterTitle: 'c1',
+      );
+
+      expect(result, isTrue);
+      expect(manager.tasks.where((t) => t.chapterId == 'c1'), hasLength(1));
+    },
+  );
+
   test('higher priority task is processed first', () async {
     // Use pending Completers (rather than an immediately-resolving mock,
     // as the plan's original snippet did) so tasks stay in `downloading`

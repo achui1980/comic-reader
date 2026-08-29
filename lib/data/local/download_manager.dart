@@ -148,7 +148,14 @@ class DownloadManager extends ChangeNotifier {
   }
 
   /// Add a download task.
-  Future<void> addTask({
+  ///
+  /// Returns `true` only when a brand-new task was actually created and
+  /// added to [_tasks]. Returns `false` when a task with the same [key]
+  /// already exists in any status other than `failed` (in which case this
+  /// call is a silent no-op) — callers that need an accurate "N chapters
+  /// queued" count (e.g. `HomeCubit.downloadUnread`) must check this
+  /// return value instead of assuming every call enqueues something new.
+  Future<bool> addTask({
     required String sourceId,
     required String mangaId,
     required String chapterId,
@@ -158,7 +165,7 @@ class DownloadManager extends ChangeNotifier {
   }) async {
     final key = DownloadManager.keyFor(sourceId, mangaId, chapterId);
     if (_tasks.any((t) => t.key == key && t.status != DownloadTaskStatus.failed)) {
-      return;
+      return false;
     }
     _tasks.removeWhere((t) => t.key == key && t.status == DownloadTaskStatus.failed);
     _tasks.add(DownloadTask(
@@ -172,6 +179,7 @@ class DownloadManager extends ChangeNotifier {
     await _persist();
     notifyListeners();
     _processQueue();
+    return true;
   }
 
   /// Retry a failed task.
