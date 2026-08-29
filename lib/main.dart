@@ -99,7 +99,22 @@ void main() async {
   final appSettings = await settingsStore.load();
   registry.setDisabledSources(appSettings.disabledSources);
   registry.setAdultUnlocked(appSettings.adultUnlocked);
-  ChapterCacheService.customDownloadDirectory = appSettings.downloadDirectory;
+  // On macOS, a stored custom download directory was originally granted
+  // via FilePicker's NSOpenPanel, which under App Sandbox only remains
+  // writable for the process lifetime. Resolve the persisted
+  // security-scoped bookmark (see DownloadDirectoryBookmark.swift) to
+  // restore write access after a full app relaunch, preferring it over the
+  // raw stored path. Only attempted when a custom directory is actually
+  // set — if the user has reset to the platform default (downloadDirectory
+  // == null), a stale bookmark from a previously-chosen directory must
+  // never resurrect that old path.
+  if (Platform.isMacOS && appSettings.downloadDirectory != null) {
+    final resolvedBookmarkPath = await resolveDownloadDirectoryBookmark();
+    ChapterCacheService.customDownloadDirectory =
+        resolvedBookmarkPath ?? appSettings.downloadDirectory;
+  } else {
+    ChapterCacheService.customDownloadDirectory = appSettings.downloadDirectory;
+  }
 
   // Apply proxy settings from persisted config
   if (!kIsWeb) {

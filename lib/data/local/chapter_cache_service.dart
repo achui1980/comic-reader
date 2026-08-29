@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
@@ -21,6 +22,52 @@ import 'package:comic_reader/core/utils/image_response_decoder.dart';
 /// - [failedImageIndexes]: sorted indexes of images that failed every
 ///   attempt (1 initial attempt + retries, up to [ChapterCacheService]'s
 ///   internal max retry count) and were given up on.
+/// MethodChannel bridging to `macos/Runner/DownloadDirectoryBookmark.swift`.
+///
+/// Used to persist/resolve a macOS App Sandbox security-scoped bookmark for
+/// a user-chosen custom download directory (see [ChapterCacheService.
+/// customDownloadDirectory]). Without this, a directory granted via
+/// `FilePicker.platform.getDirectoryPath()` is only writable for the
+/// current process lifetime; after the app is quit and relaunched, writes
+/// to that path fail with a sandbox permission error in a signed Release
+/// build.
+const MethodChannel _downloadBookmarkChannel = MethodChannel(
+  'com.comicreader.comicReader/download_bookmark',
+);
+
+/// Test-only override for the platform check used by
+/// [saveDownloadDirectoryBookmark] and [resolveDownloadDirectoryBookmark].
+/// When non-null, takes priority over the real [Platform.isMacOS], letting
+/// tests exercise both the macOS and non-macOS code paths regardless of
+/// the OS actually running the test suite. Mirrors the existing
+/// [ChapterCacheService.customDownloadDirectory] testing-override pattern
+/// in this file. Must be reset to `null` by tests (e.g. in `tearDown`).
+@visibleForTesting
+bool? debugIsMacOSOverrideForTest;
+
+bool get _isMacOSForBookmark =>
+    debugIsMacOSOverrideForTest ?? Platform.isMacOS;
+
+/// Persists a security-scoped bookmark for [path] so it remains writable
+/// (via [resolveDownloadDirectoryBookmark]) after the app is relaunched.
+///
+/// No-op on any platform other than macOS (App Sandbox / security-scoped
+/// bookmarks are a macOS-only concept; other platforms don't need this).
+Future<void> saveDownloadDirectoryBookmark(String path) async {
+  if (!_isMacOSForBookmark) return;
+  await _downloadBookmarkChannel.invokeMethod('saveBookmark', {'path': path});
+}
+
+/// Resolves the previously-saved security-scoped bookmark and starts
+/// accessing it, returning the resolved directory path, or `null` if no
+/// bookmark has been saved yet or resolution failed.
+///
+/// No-op (returns `null` immediately) on any platform other than macOS.
+Future<String?> resolveDownloadDirectoryBookmark() async {
+  if (!_isMacOSForBookmark) return null;
+  return _downloadBookmarkChannel.invokeMethod<String>('resolveBookmark');
+}
+
 class ChapterDownloadResult {
   final bool cancelled;
   final int completedImages;

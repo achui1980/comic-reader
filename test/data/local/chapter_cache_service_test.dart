@@ -1,6 +1,6 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:dio/dio.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -382,7 +382,6 @@ void main() {
     tearDown(() {
       ChapterCacheService.customDownloadDirectory = null;
     });
-
     test(
       'the resolved platform path is cached: getApplicationDocumentsPath is '
       'only queried once across multiple _cachePath-consuming calls',
@@ -505,4 +504,110 @@ void main() {
       },
     );
   });
+
+  group(
+    'saveDownloadDirectoryBookmark / resolveDownloadDirectoryBookmark',
+    () {
+      const channel = MethodChannel(
+        'com.comicreader.comicReader/download_bookmark',
+      );
+
+      tearDown(() {
+        debugIsMacOSOverrideForTest = null;
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+      });
+
+      test(
+        'saveDownloadDirectoryBookmark no-ops on non-macOS without touching '
+        'the channel',
+        () async {
+          debugIsMacOSOverrideForTest = false;
+          var invoked = false;
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, (call) async {
+            invoked = true;
+            return null;
+          });
+
+          await saveDownloadDirectoryBookmark('/tmp/whatever');
+
+          expect(invoked, isFalse);
+        },
+      );
+
+      test(
+        'resolveDownloadDirectoryBookmark no-ops (returns null) on '
+        'non-macOS without touching the channel',
+        () async {
+          debugIsMacOSOverrideForTest = false;
+          var invoked = false;
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, (call) async {
+            invoked = true;
+            return '/should/not/be/returned';
+          });
+
+          final result = await resolveDownloadDirectoryBookmark();
+
+          expect(invoked, isFalse);
+          expect(result, isNull);
+        },
+      );
+
+      test(
+        'saveDownloadDirectoryBookmark invokes saveBookmark with the given '
+        'path on macOS',
+        () async {
+          debugIsMacOSOverrideForTest = true;
+          String? capturedMethod;
+          dynamic capturedArgs;
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, (call) async {
+            capturedMethod = call.method;
+            capturedArgs = call.arguments;
+            return true;
+          });
+
+          await saveDownloadDirectoryBookmark('/Users/someone/Downloads/comics');
+
+          expect(capturedMethod, 'saveBookmark');
+          expect(capturedArgs, {'path': '/Users/someone/Downloads/comics'});
+        },
+      );
+
+      test(
+        'resolveDownloadDirectoryBookmark invokes resolveBookmark and '
+        'returns its result on macOS',
+        () async {
+          debugIsMacOSOverrideForTest = true;
+          String? capturedMethod;
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, (call) async {
+            capturedMethod = call.method;
+            return '/Users/someone/Downloads/comics';
+          });
+
+          final result = await resolveDownloadDirectoryBookmark();
+
+          expect(capturedMethod, 'resolveBookmark');
+          expect(result, '/Users/someone/Downloads/comics');
+        },
+      );
+
+      test(
+        'resolveDownloadDirectoryBookmark returns null on macOS when the '
+        'native side reports no bookmark',
+        () async {
+          debugIsMacOSOverrideForTest = true;
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+              .setMockMethodCallHandler(channel, (call) async => null);
+
+          final result = await resolveDownloadDirectoryBookmark();
+
+          expect(result, isNull);
+        },
+      );
+    },
+  );
 }

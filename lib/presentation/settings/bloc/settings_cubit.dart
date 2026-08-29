@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -199,11 +201,22 @@ class SettingsCubit extends Cubit<SettingsState> {
   ///
   /// 同步更新 [ChapterCacheService.customDownloadDirectory]，使后续下载/缓存
   /// 读写立即生效，无需重启应用。
+  ///
+  /// macOS 下额外持久化一份 security-scoped bookmark（见
+  /// [saveDownloadDirectoryBookmark]），否则 App Sandbox 授予的目录访问权限
+  /// 在应用完全退出后会失效，下次启动写入该目录会报权限错误。当 [path] 为
+  /// `null`（用户恢复默认位置）时不写入新 bookmark；旧 bookmark（如果有）
+  /// 留在 UserDefaults 中不主动清除——这是安全的，因为启动时（见
+  /// `main.dart`）只有在 `AppSettings.downloadDirectory` 非空时才会去解析
+  /// bookmark，恢复默认后不会被这份残留 bookmark 复活。
   Future<void> setDownloadDirectory(String? path) async {
     final updated = state.settings.copyWith(downloadDirectory: path);
     emit(state.copyWith(settings: updated));
     await _settingsStore.save(updated);
     ChapterCacheService.customDownloadDirectory = path;
+    if (Platform.isMacOS && path != null) {
+      await saveDownloadDirectoryBookmark(path);
+    }
   }
 
   Future<void> setProxyEnabled(bool enabled) async {
