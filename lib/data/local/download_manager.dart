@@ -172,6 +172,7 @@ class DownloadManager extends ChangeNotifier {
     }
     task.status = DownloadTaskStatus.pending;
     task.error = null;
+    task.progress = 0;
     _persist();
     notifyListeners();
     _processQueue();
@@ -193,6 +194,7 @@ class DownloadManager extends ChangeNotifier {
       if (pending.isEmpty) break;
       final task = pending.first;
       task.status = DownloadTaskStatus.downloading;
+      notifyListeners();
       _activeCount++;
       _downloadTask(task);
     }

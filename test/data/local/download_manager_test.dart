@@ -180,4 +180,105 @@ void main() {
         .map((t) => t.chapterId);
     expect(activeIds, contains('high'));
   });
+
+  test(
+    'notifies listeners synchronously when task transitions to downloading',
+    () async {
+      // Keep the chapter fetch pending so the task stays parked in
+      // `downloading` while we assert, mirroring the real-world window
+      // during which the pre-fix code failed to notify.
+      final getChapterCompleter = Completer<ChapterResult>();
+      when(
+        () => repository.getChapter(any(), any(), any(), any()),
+      ).thenAnswer((_) => getChapterCompleter.future);
+
+      var notifiedWhileDownloading = false;
+      manager.addListener(() {
+        final task = manager.tasks.firstWhere(
+          (t) => t.chapterId == 'c1',
+          orElse: () => DownloadTask(
+            sourceId: 's1',
+            mangaId: 'm1',
+            chapterId: 'c1',
+            mangaTitle: 'Manga',
+            chapterTitle: 'c1',
+          ),
+        );
+        if (task.status == DownloadTaskStatus.downloading) {
+          notifiedWhileDownloading = true;
+        }
+      });
+
+      await manager.addTask(
+        sourceId: 's1',
+        mangaId: 'm1',
+        chapterId: 'c1',
+        mangaTitle: 'Manga',
+        chapterTitle: 'c1',
+      );
+
+      // The chapter fetch is still pending here: `getChapterCompleter`
+      // has not been completed. If notifyListeners() fires when the
+      // status flips to downloading, notifiedWhileDownloading must
+      // already be true at this point.
+      final task = manager.tasks.firstWhere((t) => t.chapterId == 'c1');
+      expect(task.status, DownloadTaskStatus.downloading);
+      expect(notifiedWhileDownloading, isTrue);
+
+      // Cleanup: let the pending future resolve so it doesn't leak
+      // across tests.
+      getChapterCompleter.complete(buildChapterResult());
+      await Future.delayed(Duration.zero);
+    },
+  );
+
+  test('retryTask resets progress to 0 immediately', () async {
+    // Drive the task to `partiallyFailed` with non-zero progress via the
+    // normal addTask flow, then retry it and assert progress resets
+    // synchronously (before any new download activity can change it).
+    when(
+      () => repository.getChapter(any(), any(), any(), any()),
+    ).thenAnswer((_) async => buildChapterResult());
+    when(
+      () => cacheService.downloadChapter(
+        sourceId: any(named: 'sourceId'),
+        mangaId: any(named: 'mangaId'),
+        chapterId: any(named: 'chapterId'),
+        images: any(named: 'images'),
+        onProgress: any(named: 'onProgress'),
+        cancelToken: any(named: 'cancelToken'),
+      ),
+    ).thenAnswer(
+      (_) async => const ChapterDownloadResult(
+        cancelled: false,
+        completedImages: 0,
+        failedImageIndexes: [0],
+      ),
+    );
+
+    await manager.addTask(
+      sourceId: 's1',
+      mangaId: 'm1',
+      chapterId: 'c1',
+      mangaTitle: 'Manga',
+      chapterTitle: 'c1',
+    );
+    await Future.delayed(const Duration(milliseconds: 10));
+    final task = manager.tasks.firstWhere((t) => t.chapterId == 'c1');
+    expect(task.status, DownloadTaskStatus.partiallyFailed);
+
+    // Simulate that progress had advanced before the failure was
+    // recorded (e.g. a later image failed after earlier ones succeeded).
+    task.progress = 42;
+
+    // Freeze the next repository call so the task stays in `pending`
+    // (never re-enters `downloading`) long enough for the assertion.
+    when(
+      () => repository.getChapter(any(), any(), any(), any()),
+    ).thenAnswer((_) => Completer<ChapterResult>().future);
+
+    manager.retryTask(task.key);
+
+    expect(task.progress, 0);
+  });
 }
