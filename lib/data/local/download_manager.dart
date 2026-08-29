@@ -95,7 +95,7 @@ class DownloadManager extends ChangeNotifier {
   static const _key = 'download_tasks';
 
   final List<DownloadTask> _tasks = [];
-  final int _maxConcurrent = 3;
+  final int _maxConcurrentChapters = 2;
   int _activeCount = 0;
   bool _initialized = false;
 
@@ -139,6 +139,7 @@ class DownloadManager extends ChangeNotifier {
     required String chapterId,
     required String mangaTitle,
     required String chapterTitle,
+    int priority = 0,
   }) async {
     final key = '${sourceId}_${mangaId}_$chapterId';
     if (_tasks.any((t) => t.key == key && t.status != DownloadTaskStatus.failed)) {
@@ -151,6 +152,7 @@ class DownloadManager extends ChangeNotifier {
       chapterId: chapterId,
       mangaTitle: mangaTitle,
       chapterTitle: chapterTitle,
+      priority: priority,
     ));
     await _persist();
     notifyListeners();
@@ -163,13 +165,16 @@ class DownloadManager extends ChangeNotifier {
       (t) => t!.key == key,
       orElse: () => null,
     );
-    if (task != null && task.status == DownloadTaskStatus.failed) {
-      task.status = DownloadTaskStatus.pending;
-      task.progress = 0;
-      task.error = null;
-      notifyListeners();
-      _processQueue();
+    if (task == null) return;
+    if (task.status != DownloadTaskStatus.failed &&
+        task.status != DownloadTaskStatus.partiallyFailed) {
+      return;
     }
+    task.status = DownloadTaskStatus.pending;
+    task.error = null;
+    _persist();
+    notifyListeners();
+    _processQueue();
   }
 
   /// Remove a task from the queue.
@@ -180,21 +185,20 @@ class DownloadManager extends ChangeNotifier {
   }
 
   void _processQueue() {
-    while (_activeCount < _maxConcurrent) {
-      final nextTask = _tasks.cast<DownloadTask?>().firstWhere(
-        (t) => t!.status == DownloadTaskStatus.pending,
-        orElse: () => null,
-      );
-      if (nextTask == null) break;
+    while (_activeCount < _maxConcurrentChapters) {
+      final pending = _tasks
+          .where((t) => t.status == DownloadTaskStatus.pending)
+          .toList()
+        ..sort((a, b) => b.priority.compareTo(a.priority));
+      if (pending.isEmpty) break;
+      final task = pending.first;
+      task.status = DownloadTaskStatus.downloading;
       _activeCount++;
-      _downloadTask(nextTask);
+      _downloadTask(task);
     }
   }
 
   Future<void> _downloadTask(DownloadTask task) async {
-    task.status = DownloadTaskStatus.downloading;
-    notifyListeners();
-
     try {
       // First get chapter images from API
       final result = await _repository.getChapter(
@@ -204,21 +208,30 @@ class DownloadManager extends ChangeNotifier {
         1,
       );
       final images = result.chapter.images;
+      task.totalImages = images.length;
 
       // Download and cache images using ChapterCacheService
-      await _cacheService.downloadChapter(
+      final downloadResult = await _cacheService.downloadChapter(
         sourceId: task.sourceId,
         mangaId: task.mangaId,
         chapterId: task.chapterId,
         images: images,
         onProgress: (completed, total) {
+          task.completedImages = completed;
           task.progress = total > 0 ? (completed * 100 ~/ total) : 0;
           notifyListeners();
         },
       );
 
-      task.status = DownloadTaskStatus.completed;
-      task.progress = 100;
+      task.completedImages = downloadResult.completedImages;
+      task.failedImageIndexes = downloadResult.failedImageIndexes;
+      if (downloadResult.failedImageIndexes.isEmpty) {
+        task.status = DownloadTaskStatus.completed;
+        task.progress = 100;
+      } else {
+        task.status = DownloadTaskStatus.partiallyFailed;
+        task.error = '${downloadResult.failedImageIndexes.length} 张图片下载失败';
+      }
     } catch (e) {
       task.status = DownloadTaskStatus.failed;
       task.error = e.toString();
