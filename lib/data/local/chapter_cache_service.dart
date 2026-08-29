@@ -50,6 +50,15 @@ class ChapterCacheService {
   /// `_cachePath` ordering; consumed by a later settings feature.
   static String? customDownloadDirectory;
 
+  /// Memoized platform-resolved cache path (Android external-storage-or-
+  /// fallback, or the default application-documents path). Safe to cache
+  /// for the lifetime of this instance because the OS-level answer to
+  /// "what is my documents/external directory" never changes once the app
+  /// is running. Deliberately does NOT cache [customDownloadDirectory],
+  /// which is re-checked fresh on every `_cachePath` call so a future
+  /// runtime change to it takes effect immediately.
+  String? _resolvedPlatformPath;
+
   ChapterCacheService({Dio? dio, bool forceAndroidPathForTest = false})
     : _dio = dio ?? Dio(),
       _forceAndroidPathForTest = forceAndroidPathForTest {
@@ -60,20 +69,24 @@ class ChapterCacheService {
 
   /// Get the base cache directory path.
   ///
-  /// Not memoized: re-resolved on every call so that a runtime change to
-  /// [customDownloadDirectory] takes effect immediately instead of
-  /// returning a stale cached value.
+  /// [customDownloadDirectory] is checked fresh on every call (never
+  /// cached) so a runtime change takes effect immediately. The platform-
+  /// resolved path (everything below) IS memoized in [_resolvedPlatformPath]
+  /// since re-resolving it costs a platform-channel round-trip on every
+  /// call otherwise (e.g. once per page render via `getImageFile`), and the
+  /// underlying OS answer cannot change during the instance's lifetime.
   Future<String> get _cachePath async {
     if (kIsWeb) return '';
     if (customDownloadDirectory != null) return customDownloadDirectory!;
+    if (_resolvedPlatformPath != null) return _resolvedPlatformPath!;
     if (Platform.isAndroid || _forceAndroidPathForTest) {
       final externalDir = await getExternalStorageDirectory();
       if (externalDir != null) {
-        return '${externalDir.path}/chapter_cache';
+        return _resolvedPlatformPath = '${externalDir.path}/chapter_cache';
       }
     }
     final dir = await getApplicationDocumentsDirectory();
-    return '${dir.path}/chapter_cache';
+    return _resolvedPlatformPath = '${dir.path}/chapter_cache';
   }
 
   /// Get the directory path for a specific chapter.

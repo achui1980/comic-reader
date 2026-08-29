@@ -19,12 +19,28 @@ class FakePathProviderPlatform extends PathProviderPlatform
   /// `getExternalStorageDirectory()` can return null.
   Directory? externalStorageDirectory;
 
-  @override
-  Future<String?> getApplicationDocumentsPath() async => tempPath;
+  /// Number of times [getApplicationDocumentsPath] has been invoked. Used
+  /// by tests to verify that the resolved platform path is memoized by
+  /// [ChapterCacheService] instead of re-querying the platform channel on
+  /// every call.
+  int documentsPathCallCount = 0;
+
+  /// Number of times [getExternalStoragePath] has been invoked. Same
+  /// purpose as [documentsPathCallCount], for the Android external-storage
+  /// branch.
+  int externalStoragePathCallCount = 0;
 
   @override
-  Future<String?> getExternalStoragePath() async =>
-      externalStorageDirectory?.path;
+  Future<String?> getApplicationDocumentsPath() async {
+    documentsPathCallCount++;
+    return tempPath;
+  }
+
+  @override
+  Future<String?> getExternalStoragePath() async {
+    externalStoragePathCallCount++;
+    return externalStorageDirectory?.path;
+  }
 }
 
 class MockDio extends Mock implements Dio {}
@@ -358,6 +374,134 @@ void main() {
 
         final expectedDir = Directory('${tempDir.path}/chapter_cache/s/m/c');
         expect(await expectedDir.exists(), isTrue);
+      },
+    );
+  });
+
+  group('ChapterCacheService._cachePath caching', () {
+    tearDown(() {
+      ChapterCacheService.customDownloadDirectory = null;
+    });
+
+    test(
+      'the resolved platform path is cached: getApplicationDocumentsPath is '
+      'only queried once across multiple _cachePath-consuming calls',
+      () async {
+        final service = ChapterCacheService();
+
+        await service.getImageFile('s', 'm', 'c', 0);
+        await service.getImageFile('s', 'm', 'c', 1);
+        await service.isChapterCached('s', 'm', 'c', 1);
+
+        expect(fakePathProvider.documentsPathCallCount, 1);
+      },
+    );
+
+    test(
+      'customDownloadDirectory is checked fresh on every call and is not '
+      'masked by the platform-path cache populated by an earlier call',
+      () async {
+        final service = ChapterCacheService();
+
+        // First call (customDownloadDirectory is null) resolves and caches
+        // the platform (documents dir) path.
+        await service.saveImage(
+          's',
+          'm',
+          'c',
+          0,
+          Uint8List.fromList([1, 2, 3]),
+        );
+        final cachedPlatformFile = File(
+          '${tempDir.path}/chapter_cache/s/m/c/0000.jpg',
+        );
+        expect(await cachedPlatformFile.exists(), isTrue);
+
+        // Now set customDownloadDirectory *after* the platform path has
+        // already been cached. If customDownloadDirectory were masked by
+        // the cache, this write would still land under tempDir.path.
+        final customDir = await Directory.systemTemp.createTemp('custom_dl_');
+        ChapterCacheService.customDownloadDirectory = customDir.path;
+        try {
+          await service.saveImage(
+            's',
+            'm',
+            'c',
+            1,
+            Uint8List.fromList([4, 5, 6]),
+          );
+
+          final customFile = File('${customDir.path}/s/m/c/0001.jpg');
+          expect(await customFile.exists(), isTrue);
+
+          final leakedIntoCachedPath = File(
+            '${tempDir.path}/chapter_cache/s/m/c/0001.jpg',
+          );
+          expect(await leakedIntoCachedPath.exists(), isFalse);
+        } finally {
+          await customDir.delete(recursive: true);
+        }
+      },
+    );
+
+    test(
+      'customDownloadDirectory takes priority over the memoized Android '
+      'external-storage path, even when external storage is available (the '
+      'branch most likely to be mistakenly cached together with the '
+      'override)',
+      () async {
+        final tempExternal = await Directory.systemTemp.createTemp(
+          'external_priority_',
+        );
+        try {
+          fakePathProvider.externalStorageDirectory = tempExternal;
+          final service = ChapterCacheService(forceAndroidPathForTest: true);
+
+          // First call (customDownloadDirectory is null) resolves via the
+          // Android/forced-Android branch and memoizes the external-storage
+          // path in _resolvedPlatformPath.
+          await service.saveImage(
+            's',
+            'm',
+            'c',
+            0,
+            Uint8List.fromList([1, 2, 3]),
+          );
+          final externalFile = File(
+            '${tempExternal.path}/chapter_cache/s/m/c/0000.jpg',
+          );
+          expect(await externalFile.exists(), isTrue);
+
+          // Now set customDownloadDirectory *after* the Android
+          // external-storage path has already been memoized. The override
+          // must win immediately, not be masked by the memoized branch.
+          final customDir = await Directory.systemTemp.createTemp(
+            'custom_dl_priority_',
+          );
+          try {
+            ChapterCacheService.customDownloadDirectory = customDir.path;
+
+            await service.saveImage(
+              's',
+              'm',
+              'c',
+              1,
+              Uint8List.fromList([4, 5, 6]),
+            );
+
+            final customFile = File('${customDir.path}/s/m/c/0001.jpg');
+            expect(await customFile.exists(), isTrue);
+
+            final leakedIntoExternal = File(
+              '${tempExternal.path}/chapter_cache/s/m/c/0001.jpg',
+            );
+            expect(await leakedIntoExternal.exists(), isFalse);
+          } finally {
+            await customDir.delete(recursive: true);
+          }
+        } finally {
+          await tempExternal.delete(recursive: true);
+        }
       },
     );
   });
