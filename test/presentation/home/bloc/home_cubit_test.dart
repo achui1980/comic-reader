@@ -10,6 +10,7 @@ import 'package:comic_reader/data/local/library_update_service.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/presentation/home/bloc/home_cubit.dart';
+import 'package:comic_reader/presentation/home/bloc/home_state.dart';
 
 class MockFavoritesStore extends Mock implements FavoritesStore {}
 
@@ -97,6 +98,89 @@ void main() {
             mangaTitle: any(named: 'mangaTitle'),
             chapterTitle: any(named: 'chapterTitle'),
           ));
+    },
+  );
+
+  // Two mangas from different sources. mangaA's id deliberately contains an
+  // underscore ('m_1') to stress-test the `key.split('_')` parsing in
+  // `downloadSelected` — sourceId must come from `parts.first` and mangaId
+  // from `parts.sublist(1).join('_')`, otherwise this manga would fail to
+  // match against `state.favorites` and silently download nothing for it.
+  const mangaA = MangaSummary(
+    id: 'm_1',
+    sourceId: 's1',
+    title: 'MangaA',
+    coverUrl: 'c',
+  );
+  const mangaB = MangaSummary(
+    id: 'm2',
+    sourceId: 's2',
+    title: 'MangaB',
+    coverUrl: 'c',
+  );
+  final chaptersA = [
+    const ChapterItem(id: 'ca1', mangaId: 'm_1', title: 'A-Ch1'),
+    const ChapterItem(id: 'ca2', mangaId: 'm_1', title: 'A-Ch2'),
+  ];
+  final chaptersB = [
+    const ChapterItem(id: 'cb1', mangaId: 'm2', title: 'B-Ch1'),
+  ];
+
+  blocTest<HomeCubit, dynamic>(
+    'downloadSelected 为所有选中漫画的未读章节调用 addTask（且正确解析含下划线的mangaId）',
+    build: () {
+      when(() => repository.getChapterList('s1', 'm_1', 1)).thenAnswer(
+          (_) async =>
+              ChapterListResult(chapters: chaptersA, canLoadMore: false));
+      when(() => repository.getChapterList('s2', 'm2', 1)).thenAnswer(
+          (_) async =>
+              ChapterListResult(chapters: chaptersB, canLoadMore: false));
+      // mangaA: 'ca1' already read, 'ca2' unread.
+      when(() => historyStore.getReadChapters('s1', 'm_1'))
+          .thenAnswer((_) async => {'ca1'});
+      // mangaB: nothing read yet, 'cb1' unread.
+      when(() => historyStore.getReadChapters('s2', 'm2'))
+          .thenAnswer((_) async => <String>{});
+      when(() => downloadManager.addTask(
+            sourceId: any(named: 'sourceId'),
+            mangaId: any(named: 'mangaId'),
+            chapterId: any(named: 'chapterId'),
+            mangaTitle: any(named: 'mangaTitle'),
+            chapterTitle: any(named: 'chapterTitle'),
+          )).thenAnswer((_) async {});
+      return buildCubit();
+    },
+    seed: () => const HomeState(
+      favorites: [mangaA, mangaB],
+      selectedKeys: {'s1_m_1', 's2_m2'},
+    ),
+    act: (cubit) => cubit.downloadSelected(),
+    verify: (_) {
+      // mangaA's unread chapter downloaded exactly once.
+      verify(() => downloadManager.addTask(
+            sourceId: 's1',
+            mangaId: 'm_1',
+            chapterId: 'ca2',
+            mangaTitle: 'MangaA',
+            chapterTitle: 'A-Ch2',
+          )).called(1);
+      // mangaA's already-read chapter must never be downloaded.
+      verifyNever(() => downloadManager.addTask(
+            sourceId: 's1',
+            mangaId: 'm_1',
+            chapterId: 'ca1',
+            mangaTitle: any(named: 'mangaTitle'),
+            chapterTitle: any(named: 'chapterTitle'),
+          ));
+      // mangaB's unread chapter downloaded exactly once — proves the second
+      // selected manga is also processed, not just the first.
+      verify(() => downloadManager.addTask(
+            sourceId: 's2',
+            mangaId: 'm2',
+            chapterId: 'cb1',
+            mangaTitle: 'MangaB',
+            chapterTitle: 'B-Ch1',
+          )).called(1);
     },
   );
 }
