@@ -51,6 +51,14 @@ class MangaImage extends StatefulWidget {
 class _MangaImageState extends State<MangaImage> {
   String? _localPath;
   bool _checkedCache = false;
+  /// Effective scramble info for [_localPath], resolved from this
+  /// chapter's on-disk scramble manifest (see [resolveScrambleFromManifest]
+  /// / [ChapterCacheService.readScrambleManifest]) when available. `null`
+  /// means "use `widget.image` as-is" (no manifest, or no local file to
+  /// look one up for). Only computed for the local-file render path -- the
+  /// live-network path (`MangaImageNetworkView`) always has a freshly-
+  /// parsed [ChapterImage] and doesn't need this.
+  ChapterImage? _manifestImage;
 
   bool get _canCache =>
       !kIsWeb &&
@@ -77,6 +85,7 @@ class _MangaImageState extends State<MangaImage> {
       return;
     }
     _localPath = null;
+    _manifestImage = null;
     if (_canCache) {
       _checkedCache = false;
       _checkCache();
@@ -93,9 +102,23 @@ class _MangaImageState extends State<MangaImage> {
       widget.chapterId!,
       widget.imageIndex!,
     );
+    ChapterImage? manifestImage;
+    if (path != null) {
+      final manifest = await cacheService.readScrambleManifest(
+        widget.sourceId!,
+        widget.mangaId!,
+        widget.chapterId!,
+      );
+      manifestImage = resolveScrambleFromManifest(
+        widget.image,
+        manifest,
+        widget.imageIndex!,
+      );
+    }
     if (mounted) {
       setState(() {
         _localPath = path;
+        _manifestImage = manifestImage;
         _checkedCache = true;
       });
     }
@@ -116,12 +139,13 @@ class _MangaImageState extends State<MangaImage> {
   /// [calculateJmcSegments] function (jmc_unscramble.dart), supplying the
   /// State-bound inputs it needs.
   int _calculateSegments(int width, int height) {
+    final effectiveImage = _manifestImage ?? widget.image;
     return calculateJmcSegments(
       width,
       height,
       chapterId: widget.chapterId,
-      url: widget.image.url,
-      scrambleId: widget.image.scrambleId,
+      url: effectiveImage.url,
+      scrambleId: effectiveImage.scrambleId,
     );
   }
 
@@ -240,6 +264,11 @@ class _MangaImageState extends State<MangaImage> {
 
     // If we have a local file, load from disk (native only)
     if (_localPath != null) {
+      // Prefer the manifest-resolved scramble info (accurate as of
+      // download time) over `widget.image`'s, which for a previously-
+      // downloaded/cached chapter may reflect a stale live re-derivation
+      // (see `resolveScrambleFromManifest` doc for why).
+      final effectiveImage = _manifestImage ?? widget.image;
       return buildFileImage(
         path: _localPath!,
         fit: widget.fit,
@@ -252,7 +281,7 @@ class _MangaImageState extends State<MangaImage> {
               }
           });
         },
-        onCompleted: widget.image.scrambleType == ScrambleType.jmc
+        onCompleted: effectiveImage.scrambleType == ScrambleType.jmc
             ? (state) {
                 final imageInfo = state.extendedImageInfo;
                 if (imageInfo != null) {

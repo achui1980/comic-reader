@@ -19,7 +19,10 @@ const int kMangaImageMaxLoadAttempts = 3;
 /// returning a 2xx status, which would otherwise be silently decoded as a
 /// (corrupt) truncated image. On success, if [sourceId]/[mangaId]/
 /// [chapterId]/[imageIndex] are all provided (native-only), the decoded
-/// bytes are also persisted via [ChapterCacheService.saveImage] so that
+/// bytes are also persisted via [ChapterCacheService.saveImage] (along
+/// with [image]'s `scrambleType`/`scrambleId`, so the reader's local-file
+/// render path can later recover accurate scramble info from the on-disk
+/// manifest instead of a possibly-stale live re-derivation) so that
 /// future reads (including precache/prefetch call sites) hit the disk
 /// cache instead of re-downloading.
 Future<Uint8List> loadAndCacheImageBytes({
@@ -72,6 +75,8 @@ Future<Uint8List> loadAndCacheImageBytes({
           chapterId,
           imageIndex,
           bytes,
+          scrambleType: image.scrambleType,
+          scrambleId: image.scrambleId,
         );
       }
       return bytes;
