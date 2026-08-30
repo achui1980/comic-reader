@@ -109,6 +109,17 @@ void main() {
       final chapters = [
         const ChapterItem(id: 'c1', mangaId: 'mA', title: 'Ch1'),
       ];
+      // Empty embedded chapters -> downloadUnread falls back to the
+      // getChapterList pagination path stubbed below (see
+      // HomeCubit.downloadUnread's getMangaInfo-first strategy).
+      when(() => repository.getMangaInfo('sA', 'mA')).thenAnswer(
+        (_) async => const MangaDetail(
+          id: 'mA',
+          sourceId: 'sA',
+          title: 'Manga A',
+          coverUrl: '',
+        ),
+      );
       when(() => repository.getChapterList('sA', 'mA', 1)).thenAnswer(
         (_) async => ChapterListResult(chapters: chapters, canLoadMore: false),
       );

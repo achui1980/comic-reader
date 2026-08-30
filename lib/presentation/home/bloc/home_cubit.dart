@@ -204,33 +204,44 @@ class HomeCubit extends Cubit<HomeState> {
 
   /// Download every chapter of [manga] that has not been read yet.
   ///
-  /// Fetches the *entire* chapter list first — paginating through every page
-  /// the source reports via [ChapterListResult.canLoadMore] (mirroring
-  /// `DetailCubit.loadChapters`'s loop) — before diffing against the read
-  /// set, so paginated sources (e.g. MangaDex) don't silently lose chapters
-  /// that only live on page 2+.
+  /// Mirrors `DetailCubit.loadChapters`'s strategy: some sources embed the
+  /// full chapter list directly in the manga detail response (their
+  /// `prepareChapterListFetch` unconditionally returns null, e.g. bazuo),
+  /// in which case [MangaRepository.getChapterList] always yields an empty
+  /// result. So [MangaRepository.getMangaInfo] is fetched first — if its
+  /// `MangaDetail.chapters` is non-empty, that embedded list is used
+  /// directly. Only when it's empty do we fall back to paginating through
+  /// [MangaRepository.getChapterList] — paging through every page the
+  /// source reports via [ChapterListResult.canLoadMore] — before diffing
+  /// against the read set, so paginated sources (e.g. MangaDex) don't
+  /// silently lose chapters that only live on page 2+.
   ///
-  /// Never throws: any failure fetching the chapter list or read history is
-  /// caught and treated as "nothing to queue" for this manga, so a single
-  /// manga's failure doesn't take down a batch download (see
+  /// Never throws: any failure fetching manga info/chapter list or read
+  /// history is caught and treated as "nothing to queue" for this manga, so
+  /// a single manga's failure doesn't take down a batch download (see
   /// [downloadSelected]).
   ///
   /// Returns the number of chapters actually queued for download (0 if none
   /// were unread, or if an error occurred).
   Future<int> downloadUnread(MangaSummary manga) async {
     try {
-      var page = 1;
-      var result =
-          await _repository.getChapterList(manga.sourceId, manga.id, page);
-      var allChapters = result.chapters;
-      var canLoadMore = result.canLoadMore;
-      const maxPages = 200; // safety cap to avoid infinite loops
-      while (canLoadMore && page < maxPages) {
-        page++;
-        result =
+      final info = await _repository.getMangaInfo(manga.sourceId, manga.id);
+      var allChapters = info.chapters;
+
+      if (allChapters.isEmpty) {
+        var page = 1;
+        var result =
             await _repository.getChapterList(manga.sourceId, manga.id, page);
-        allChapters = [...allChapters, ...result.chapters];
-        canLoadMore = result.canLoadMore;
+        allChapters = result.chapters;
+        var canLoadMore = result.canLoadMore;
+        const maxPages = 200; // safety cap to avoid infinite loops
+        while (canLoadMore && page < maxPages) {
+          page++;
+          result = await _repository.getChapterList(
+              manga.sourceId, manga.id, page);
+          allChapters = [...allChapters, ...result.chapters];
+          canLoadMore = result.canLoadMore;
+        }
       }
 
       final readSet =
