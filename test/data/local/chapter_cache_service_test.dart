@@ -632,4 +632,246 @@ void main() {
       );
     },
   );
+
+  group('ChapterCacheService scramble manifest', () {
+    test(
+      'downloadChapter persists per-index scrambleType/scrambleId to a '
+      'manifest that readScrambleManifest can read back',
+      () async {
+        final service = ChapterCacheService(dio: mockDio);
+        final images = [
+          const ChapterImage(
+            url: 'https://example.invalid/img0.jpg',
+            scrambleType: ScrambleType.jmc,
+            scrambleId: 220980,
+          ),
+          const ChapterImage(
+            url: 'https://example.invalid/img1.jpg',
+            scrambleType: ScrambleType.jmc,
+            scrambleId: 300000,
+          ),
+        ];
+        when(
+          () => mockDio.get<List<int>>(
+            any(),
+            options: any(named: 'options'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).thenAnswer(
+          (invocation) async => _fakeImageResponse(
+            invocation.positionalArguments[0] as String,
+          ),
+        );
+
+        final result = await service.downloadChapter(
+          sourceId: 's1',
+          mangaId: 'm1',
+          chapterId: 'c1',
+          images: images,
+        );
+        expect(result.failedImageIndexes, isEmpty);
+
+        final manifest = await service.readScrambleManifest('s1', 'm1', 'c1');
+        expect(manifest, isNotNull);
+        expect(manifest!['0000']['scrambleType'], 'jmc');
+        expect(manifest['0000']['scrambleId'], 220980);
+        expect(manifest['0001']['scrambleType'], 'jmc');
+        expect(manifest['0001']['scrambleId'], 300000);
+      },
+    );
+
+    test(
+      'downloadChapter with all ScrambleType.none images records "none" '
+      'for every index in the manifest',
+      () async {
+        final service = ChapterCacheService(dio: mockDio);
+        final images = List.generate(
+          3,
+          (i) => ChapterImage(url: 'https://example.invalid/img$i.jpg'),
+        );
+        when(
+          () => mockDio.get<List<int>>(
+            any(),
+            options: any(named: 'options'),
+            cancelToken: any(named: 'cancelToken'),
+          ),
+        ).thenAnswer(
+          (invocation) async => _fakeImageResponse(
+            invocation.positionalArguments[0] as String,
+          ),
+        );
+
+        await service.downloadChapter(
+          sourceId: 's1',
+          mangaId: 'm1',
+          chapterId: 'c1',
+          images: images,
+        );
+
+        final manifest = await service.readScrambleManifest('s1', 'm1', 'c1');
+        expect(manifest, isNotNull);
+        for (var i = 0; i < 3; i++) {
+          final key = i.toString().padLeft(4, '0');
+          expect(manifest![key]['scrambleType'], 'none');
+          expect(manifest[key].containsKey('scrambleId'), isFalse);
+        }
+      },
+    );
+
+    test(
+      'readScrambleManifest returns null when no chapter was ever '
+      'downloaded (no manifest file on disk)',
+      () async {
+        final service = ChapterCacheService();
+        final manifest = await service.readScrambleManifest(
+          'nope',
+          'nope',
+          'nope',
+        );
+        expect(manifest, isNull);
+      },
+    );
+
+    test(
+      'saveImage without scramble params (old call pattern) does not write '
+      'or alter the manifest, preserving pre-existing behavior',
+      () async {
+        final service = ChapterCacheService();
+        await service.saveImage(
+          's1',
+          'm1',
+          'c1',
+          0,
+          Uint8List.fromList([1, 2, 3]),
+        );
+        final manifest = await service.readScrambleManifest('s1', 'm1', 'c1');
+        expect(manifest, isNull);
+      },
+    );
+
+    test(
+      'saveImage with scrambleType/scrambleId writes a manifest entry for '
+      'that index without disturbing entries written by earlier calls',
+      () async {
+        final service = ChapterCacheService();
+        await service.saveImage(
+          's1',
+          'm1',
+          'c1',
+          0,
+          Uint8List.fromList([1, 2, 3]),
+          scrambleType: ScrambleType.jmc,
+          scrambleId: 220980,
+        );
+        await service.saveImage(
+          's1',
+          'm1',
+          'c1',
+          1,
+          Uint8List.fromList([4, 5, 6]),
+          scrambleType: ScrambleType.none,
+        );
+
+        final manifest = await service.readScrambleManifest('s1', 'm1', 'c1');
+        expect(manifest, isNotNull);
+        expect(manifest!['0000']['scrambleType'], 'jmc');
+        expect(manifest['0000']['scrambleId'], 220980);
+        expect(manifest['0001']['scrambleType'], 'none');
+      },
+    );
+
+    test(
+      'isChapterCached does not count the manifest file itself as one of '
+      'the chapter images (regression guard against an off-by-one false '
+      'positive)',
+      () async {
+        final service = ChapterCacheService();
+        // Only 1 of 2 images actually saved, but a manifest file exists
+        // alongside it (simulating saveImage having written a manifest
+        // entry for that one image).
+        await service.saveImage(
+          's1',
+          'm1',
+          'c1',
+          0,
+          Uint8List.fromList([1, 2, 3]),
+          scrambleType: ScrambleType.none,
+        );
+
+        final cached = await service.isChapterCached('s1', 'm1', 'c1', 2);
+        expect(cached, isFalse);
+      },
+    );
+  });
+
+  group('resolveScrambleFromManifest (pure function)', () {
+    const original = ChapterImage(
+      url: 'https://example.invalid/img.jpg',
+      scrambleType: ScrambleType.none,
+      scrambleId: null,
+    );
+
+    test('returns the original image unchanged when manifest is null', () {
+      final result = resolveScrambleFromManifest(original, null, 0);
+      expect(result, same(original));
+    });
+
+    test(
+      'returns the original image unchanged when this index has no entry '
+      'in the manifest',
+      () {
+        final manifest = {
+          '0001': {'scrambleType': 'jmc', 'scrambleId': 220980},
+        };
+        final result = resolveScrambleFromManifest(original, manifest, 0);
+        expect(result, same(original));
+      },
+    );
+
+    test(
+      'overrides scrambleType and scrambleId from the manifest entry when '
+      'present for this index',
+      () {
+        final manifest = {
+          '0000': {'scrambleType': 'jmc', 'scrambleId': 220980},
+        };
+        final result = resolveScrambleFromManifest(original, manifest, 0);
+        expect(result.scrambleType, ScrambleType.jmc);
+        expect(result.scrambleId, 220980);
+        // Everything else about the image is preserved.
+        expect(result.url, original.url);
+      },
+    );
+
+    test(
+      'omits scrambleId when the manifest entry does not include one (e.g. '
+      'scrambleType none)',
+      () {
+        final manifest = {
+          '0000': {'scrambleType': 'none'},
+        };
+        final result = resolveScrambleFromManifest(original, manifest, 0);
+        expect(result.scrambleType, ScrambleType.none);
+        expect(result.scrambleId, isNull);
+      },
+    );
+
+    test(
+      'falls back to the original scrambleType when the manifest entry has '
+      'an unrecognized scrambleType string',
+      () {
+        final manifest = {
+          '0000': {'scrambleType': 'not_a_real_type'},
+        };
+        const originalJmc = ChapterImage(
+          url: 'https://example.invalid/img.jpg',
+          scrambleType: ScrambleType.jmc,
+          scrambleId: 999,
+        );
+        final result = resolveScrambleFromManifest(originalJmc, manifest, 0);
+        expect(result.scrambleType, ScrambleType.jmc);
+        expect(result.scrambleId, 999);
+      },
+    );
+  });
 }

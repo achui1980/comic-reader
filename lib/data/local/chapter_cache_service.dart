@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +11,74 @@ import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/core/utils/image_response_decoder.dart';
 
 final _log = Logger('ChapterCacheService');
+
+/// Filename used for the per-chapter scramble manifest written alongside
+/// the numbered image files (see [ChapterCacheService.saveImage] /
+/// [ChapterCacheService.downloadChapter] / [ChapterCacheService.
+/// readScrambleManifest]). Dot-prefixed so directory scans that only look
+/// for known image extensions (e.g. [ChapterCacheService.getImageFile])
+/// never mistake it for a page image; [ChapterCacheService.isChapterCached]
+/// explicitly excludes it as well (see [_isManifestFileName]).
+const String _scrambleManifestFileName = '.manifest.json';
+
+bool _isManifestFileName(String path) =>
+    path.endsWith('/$_scrambleManifestFileName') ||
+    path == _scrambleManifestFileName;
+
+/// Resolves the effective scramble info for [original] at [index], using
+/// [manifest] (as returned by [ChapterCacheService.readScrambleManifest])
+/// when it has an entry for that index, falling back to [original]'s own
+/// (live-derived) `scrambleType`/`scrambleId` otherwise.
+///
+/// This is the pure decision function behind the reader's local-cached-
+/// file render path: a previously-downloaded chapter's manifest records
+/// the scramble threshold that was accurate at *download* time, which may
+/// disagree with a fresh (possibly stale) live re-derivation. See
+/// `manga_image.dart`'s local-file branch for the caller.
+///
+/// - `manifest == null` (chapter was never downloaded via a manifest-aware
+///   path, or predates this feature): returns [original] unchanged.
+/// - No entry for [index] in [manifest]: returns [original] unchanged.
+/// - Entry present but its `scrambleType` string doesn't match any
+///   [ScrambleType] value (defensive, e.g. manifest written by a future
+///   app version with a new scramble type): falls back to [original]
+///   .scrambleType rather than throwing.
+ChapterImage resolveScrambleFromManifest(
+  ChapterImage original,
+  Map<String, dynamic>? manifest,
+  int index,
+) {
+  if (manifest == null) return original;
+  final key = index.toString().padLeft(4, '0');
+  final entry = manifest[key];
+  if (entry is! Map) return original;
+  final rawType = entry['scrambleType'];
+  ScrambleType? parsedType;
+  if (rawType is String) {
+    for (final t in ScrambleType.values) {
+      if (t.name == rawType) {
+        parsedType = t;
+        break;
+      }
+    }
+  }
+  // Unrecognized/missing scrambleType: treat the whole entry as unusable
+  // and fall back to the original image entirely (including its own
+  // scrambleId), rather than mixing a fallback type with a manifest-
+  // sourced scrambleId that was never validated against it.
+  if (parsedType == null) return original;
+  final rawScrambleId = entry['scrambleId'];
+  final scrambleId = rawScrambleId is int ? rawScrambleId : null;
+  return ChapterImage(
+    url: original.url,
+    scrambleType: parsedType,
+    responseEncoding: original.responseEncoding,
+    headers: original.headers,
+    scrambleId: scrambleId,
+    wu55BookId: original.wu55BookId,
+    wu55PageNumber: original.wu55PageNumber,
+  );
+}
 
 /// Result of a [ChapterCacheService.downloadChapter] call.
 ///
@@ -125,6 +195,32 @@ class ChapterCacheService {
   /// runtime change to it takes effect immediately.
   String? _resolvedPlatformPath;
 
+  /// Serializes read-modify-write access to each chapter's scramble
+  /// manifest file, keyed by chapter directory path. Needed because
+  /// [downloadChapter] downloads up to [_maxConcurrentImagesPerChapter]
+  /// images concurrently (each wanting to record its own manifest entry),
+  /// and the reader's own prefetch (`manga_image_loader.dart`'s
+  /// `loadAndCacheImageBytes`, via [saveImage]) can likewise fire multiple
+  /// concurrent saves for the same chapter. Without this, concurrent
+  /// read-JSON/modify/write-JSON cycles on the same file would race and
+  /// silently drop entries.
+  final Map<String, Future<void>> _manifestLocks = {};
+
+  Future<void> _runExclusive(String key, Future<void> Function() action) async {
+    final previous = _manifestLocks[key] ?? Future<void>.value();
+    final completer = Completer<void>();
+    _manifestLocks[key] = completer.future;
+    try {
+      await previous;
+      await action();
+    } finally {
+      completer.complete();
+      if (identical(_manifestLocks[key], completer.future)) {
+        _manifestLocks.remove(key);
+      }
+    }
+  }
+
   ChapterCacheService({Dio? dio, bool forceAndroidPathForTest = false})
     : _dio = dio ?? Dio(),
       _forceAndroidPathForTest = forceAndroidPathForTest {
@@ -186,6 +282,13 @@ class ChapterCacheService {
   }
 
   /// Save image bytes to local cache.
+  ///
+  /// When [scrambleType] is provided, also records (or updates) this
+  /// [index]'s entry in the chapter's scramble manifest (see
+  /// [readScrambleManifest]) with [scrambleType] and [scrambleId]. Passing
+  /// `null` (the default, matching every call site that existed before
+  /// this parameter was added) leaves the manifest untouched, preserving
+  /// prior behavior exactly.
   Future<void> saveImage(
     String sourceId,
     String mangaId,
@@ -193,6 +296,8 @@ class ChapterCacheService {
     int index,
     Uint8List bytes, {
     String? contentType,
+    ScrambleType? scrambleType,
+    int? scrambleId,
   }) async {
     if (kIsWeb) return;
     final base = await _cachePath;
@@ -204,6 +309,70 @@ class ChapterCacheService {
     final ext = _extensionFromContentType(contentType);
     final file = File('$dir/${index.toString().padLeft(4, '0')}$ext');
     await file.writeAsBytes(bytes);
+    if (scrambleType != null) {
+      await _writeManifestEntry(dir, index, scrambleType, scrambleId);
+    }
+  }
+
+  /// Reads back the scramble manifest previously written by [saveImage] /
+  /// [downloadChapter] for this chapter, or `null` if no manifest file
+  /// exists (the chapter was never downloaded via a manifest-aware path,
+  /// predates this feature, or the file is unreadable/corrupt).
+  ///
+  /// The returned map's keys are zero-padded image indexes (e.g. `'0000'`)
+  /// matching the on-disk image filename convention; each value is a
+  /// `{"scrambleType": <ScrambleType.name>, "scrambleId": <int?>}` object
+  /// (`scrambleId` omitted when not applicable). See
+  /// [resolveScrambleFromManifest] for how a caller should apply this data
+  /// to a specific [ChapterImage].
+  Future<Map<String, dynamic>?> readScrambleManifest(
+    String sourceId,
+    String mangaId,
+    String chapterId,
+  ) async {
+    if (kIsWeb) return null;
+    final base = await _cachePath;
+    final dir = _chapterDir(base, sourceId, mangaId, chapterId);
+    final file = File('$dir/$_scrambleManifestFileName');
+    if (!await file.exists()) return null;
+    try {
+      final decoded = jsonDecode(await file.readAsString());
+      if (decoded is Map<String, dynamic>) return decoded;
+      return null;
+    } catch (e) {
+      _log.warning('Failed to parse scramble manifest at $dir: $e');
+      return null;
+    }
+  }
+
+  /// Read-modify-write of a single [index] entry into the scramble
+  /// manifest file under [dir], serialized per-directory via
+  /// [_runExclusive] to survive concurrent callers (see that field's doc).
+  Future<void> _writeManifestEntry(
+    String dir,
+    int index,
+    ScrambleType scrambleType,
+    int? scrambleId,
+  ) async {
+    await _runExclusive(dir, () async {
+      final file = File('$dir/$_scrambleManifestFileName');
+      Map<String, dynamic> manifest = {};
+      if (await file.exists()) {
+        try {
+          final decoded = jsonDecode(await file.readAsString());
+          if (decoded is Map<String, dynamic>) manifest = decoded;
+        } catch (e) {
+          _log.warning(
+            'Existing scramble manifest at $dir was unreadable, '
+            'recreating: $e',
+          );
+        }
+      }
+      final entry = <String, dynamic>{'scrambleType': scrambleType.name};
+      if (scrambleId != null) entry['scrambleId'] = scrambleId;
+      manifest[index.toString().padLeft(4, '0')] = entry;
+      await file.writeAsString(jsonEncode(manifest));
+    });
   }
 
   String _extensionFromContentType(String? contentType) {
@@ -226,8 +395,15 @@ class ChapterCacheService {
     final dir = _chapterDir(base, sourceId, mangaId, chapterId);
     final directory = Directory(dir);
     if (!await directory.exists()) return false;
-    final files = await directory.list().length;
-    return files >= totalImages;
+    // Count only page-image files. Excludes the scramble manifest file
+    // (`.manifest.json`, see `saveImage`/`downloadChapter`), which would
+    // otherwise inflate this count by one and could cause a chapter that
+    // is actually missing an image to be misreported as fully cached.
+    var count = 0;
+    await for (final entity in directory.list()) {
+      if (entity is File && !_isManifestFileName(entity.path)) count++;
+    }
+    return count >= totalImages;
   }
 
   /// Download all images of a chapter to local cache, [_maxConcurrentImagesPerChapter]
@@ -265,6 +441,19 @@ class ChapterCacheService {
       // which is the basis for resumable downloads.
       for (final ext in ['.jpg', '.png', '.webp', '.gif', '']) {
         if (await File('$dir/$baseName$ext').exists()) {
+          // The image file may have been saved by a previous run (possibly
+          // before this manifest feature existed, or a run that was
+          // interrupted after writing the file but before recording the
+          // manifest entry). Ensure the manifest entry exists/is correct
+          // regardless, using the scramble info we have right now from
+          // [images] -- this keeps the manifest complete even across
+          // partial-failure resumes.
+          await _writeManifestEntry(
+            dir,
+            i,
+            images[i].scrambleType,
+            images[i].scrambleId,
+          );
           completed++;
           onProgress?.call(completed, images.length);
           return;
@@ -284,12 +473,20 @@ class ChapterCacheService {
           );
           if (response.data != null) {
             final contentType = response.headers.value('content-type');
-            final ext = _extensionFromContentType(contentType);
             final bytes = decodeImageResponseBytes(
               Uint8List.fromList(response.data as List<int>),
               images[i].responseEncoding,
             );
-            await File('$dir/$baseName$ext').writeAsBytes(bytes);
+            await saveImage(
+              sourceId,
+              mangaId,
+              chapterId,
+              i,
+              bytes,
+              contentType: contentType,
+              scrambleType: images[i].scrambleType,
+              scrambleId: images[i].scrambleId,
+            );
           }
           completed++;
           onProgress?.call(completed, images.length);
