@@ -1,3 +1,5 @@
+import 'package:html/parser.dart' as html_parser;
+
 import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/data/sources/manga_source.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
@@ -19,10 +21,23 @@ class Manga51 extends MangaSource {
   /// Host used for the anti-hotlink Referer and for opening pages in a browser.
   static const String _pcBaseUrl = 'https://www.51manga.com';
 
+  /// Single source of truth for the Referer sent with BOTH page requests
+  /// ([defaultHeaders]) and image requests ([_imageHeaders]). The image CDN
+  /// (`img1.baipiaoguai.org`) answers 403 without a Referer, and a page-vs-image
+  /// mismatch is a classic silent 403 on anti-hotlink setups, so the two must
+  /// stay byte-identical — including the trailing slash.
+  static const String _referer = '$_pcBaseUrl/';
+
   static const String _mobileUa =
       'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
       'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 '
       'Mobile/15E148 Safari/604.1';
+
+  /// Headers attached to every cover/page image URL this source emits.
+  static const Map<String, String> _imageHeaders = {
+    'Referer': _referer,
+    'User-Agent': _mobileUa,
+  };
 
   @override
   String get id => sourceId;
@@ -52,7 +67,7 @@ class Manga51 extends MangaSource {
   String? get userAgent => _mobileUa;
 
   @override
-  Map<String, String>? get defaultHeaders => const {'Referer': '$_pcBaseUrl/'};
+  Map<String, String>? get defaultHeaders => const {'Referer': _referer};
 
   /// Discovery filters. Each `name` here is consumed by
   /// [prepareDiscoveryFetch] as a URL path segment (`/<name>/<value>`), so the
@@ -154,7 +169,7 @@ class Manga51 extends MangaSource {
 
   @override
   List<MangaSummary> parseDiscovery(dynamic response) {
-    throw UnimplementedError();
+    return _parseCards(response as String);
   }
 
   // --- Search ---
@@ -177,7 +192,7 @@ class Manga51 extends MangaSource {
 
   @override
   List<MangaSummary> parseSearch(dynamic response) {
-    throw UnimplementedError();
+    return _parseCards(response as String);
   }
 
   // --- Manga Info ---
@@ -218,5 +233,54 @@ class Manga51 extends MangaSource {
   String? getChapterWebUrl(String mangaId, String chapterId) {
     // PC layout reads better in a real browser.
     return '$_pcBaseUrl/show/$chapterId.html';
+  }
+
+  // --- Private helpers ---
+
+  static final RegExp _mangaIdPattern = RegExp(r'/mh/([A-Za-z0-9]+)');
+  static final RegExp _whitespacePattern = RegExp(r'\s+');
+
+  /// Parse `.comic-item` cards, shared by /category and /search.
+  ///
+  /// `div.mask` (已完结 / 连载) is intentionally ignored: MangaSummary has no
+  /// status field, so status is surfaced only on the detail page.
+  List<MangaSummary> _parseCards(String htmlStr) {
+    final document = html_parser.parse(htmlStr);
+    final results = <MangaSummary>[];
+
+    for (final item in document.querySelectorAll('div.comic-item')) {
+      final href = item.querySelector('a')?.attributes['href'] ?? '';
+      final mangaId = _mangaIdPattern.firstMatch(href)?.group(1);
+      // Cards without a /mh/ target are ads or app-download promos.
+      if (mangaId == null) continue;
+
+      final img = item.querySelector('div.pic img');
+      final cover =
+          img?.attributes['data-src'] ?? img?.attributes['src'] ?? '';
+
+      final title = _cleanText(item.querySelector('h3.title')?.text) ??
+          _cleanText(img?.attributes['alt']) ??
+          '';
+
+      results.add(MangaSummary(
+        id: mangaId,
+        sourceId: sourceId,
+        title: title,
+        coverUrl: cover,
+        latestChapter:
+            _cleanText(item.querySelector('div.field-info .txt')?.text),
+        headers: _imageHeaders,
+      ));
+    }
+
+    return results;
+  }
+
+  /// Trim, collapse internal whitespace, drop nbsp. Returns null when empty.
+  String? _cleanText(String? raw) {
+    if (raw == null) return null;
+    final cleaned =
+        raw.replaceAll('\u00a0', ' ').replaceAll(_whitespacePattern, ' ').trim();
+    return cleaned.isEmpty ? null : cleaned;
   }
 }

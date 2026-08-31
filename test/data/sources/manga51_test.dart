@@ -243,4 +243,94 @@ void main() {
       );
     });
   });
+
+  group('Manga51 card parsing', () {
+    const listHtml = '''
+<div id="comic-list">
+  <div class="comic-item">
+    <a href="/mh/4aNek4246W">
+      <div class="pic">
+        <img src="https://img1.baipiaoguai.org/static/upload3/book/id/520879/cover_1.jpg?v=1" alt="溯古之黄鹤楼">
+        <div class="mask">已完结</div>
+      </div>
+      <div class="field-info">
+        <h3 class="title">溯古之黄鹤楼</h3>
+        <div class="txt">最终章 释然</div>
+      </div>
+    </a>
+  </div>
+  <div class="comic-item">
+    <a href="/mh/r368n70WNX">
+      <div class="pic">
+        <img data-src="https://img1.baipiaoguai.org/lazy.jpg" src="/packs/mccms/empty.png" alt="魔皇大管家">
+        <div class="mask">连载</div>
+      </div>
+      <div class="field-info">
+        <h3 class="title">魔皇大管家</h3>
+        <div class="txt">第916话</div>
+      </div>
+    </a>
+  </div>
+  <div class="comic-item">
+    <a href="/redirect/code/toP0LT"><div class="pic"><img src="x.jpg"></div></a>
+  </div>
+</div>
+''';
+
+    test('parseDiscovery extracts id, title, cover and latest chapter', () {
+      final results = source.parseDiscovery(listHtml);
+      expect(results, hasLength(2), reason: 'the non-/mh/ card must be skipped');
+
+      expect(results[0].id, '4aNek4246W');
+      expect(results[0].sourceId, 'manga51');
+      expect(results[0].title, '溯古之黄鹤楼');
+      expect(
+        results[0].coverUrl,
+        'https://img1.baipiaoguai.org/static/upload3/book/id/520879/cover_1.jpg?v=1',
+      );
+      expect(results[0].latestChapter, '最终章 释然');
+    });
+
+    test('parseDiscovery prefers data-src over the src placeholder', () {
+      final results = source.parseDiscovery(listHtml);
+      expect(results[1].coverUrl, 'https://img1.baipiaoguai.org/lazy.jpg');
+    });
+
+    test('every summary carries the anti-hotlink headers', () {
+      for (final s in source.parseDiscovery(listHtml)) {
+        expect(s.headers?['Referer'], 'https://www.51manga.com/');
+        expect(s.headers?['User-Agent'], contains('iPhone'));
+      }
+    });
+
+    test('parseSearch uses the same card parser', () {
+      final results = source.parseSearch(listHtml);
+      expect(results.map((s) => s.id).toList(), ['4aNek4246W', 'r368n70WNX']);
+    });
+
+    test('parseDiscovery returns empty on unrelated HTML', () {
+      expect(source.parseDiscovery('<html><body>nope</body></html>'), isEmpty);
+    });
+
+    test('falls back to img alt for the title and nulls a blank latest chapter',
+        () {
+      // Covers the two _cleanText paths the fixture above never reaches: the
+      // h3.title-missing fallback to `alt`, and the collapse of a
+      // whitespace-only .txt to null rather than ''. Both matter because a
+      // latestChapter of '' renders as an empty badge in the UI, and a blank
+      // title makes the card unidentifiable.
+      const html = '''
+<div class="comic-item">
+  <a href="/mh/Zz9Qq1">
+    <div class="pic"><img data-src="c.jpg" alt="  标题\u00a0 有空格 "></div>
+    <div class="field-info"><div class="txt">   </div></div>
+  </a>
+</div>
+''';
+      final results = source.parseDiscovery(html);
+      expect(results, hasLength(1));
+      expect(results[0].title, '标题 有空格');
+      expect(results[0].latestChapter, isNull);
+    });
+  });
 }
