@@ -677,4 +677,149 @@ setTimeout(function() {
           isFalse);
     });
   });
+
+  group('Manga51 chapter parsing', () {
+    /// Base64 of `IV || AES-128-CBC(PKCS7)` built offline with the real key
+    /// `9S8$vJnU2ANeSRoF` and IV `0123456789abcdef`, so a wrong key OR wrong
+    /// IV handling fails these tests rather than quietly yielding mojibake
+    /// (aesDecryptBase64PrefixedIv decodes UTF-8 leniently — see its doc).
+    ///
+    /// Cross-checked outside Dart before being trusted (288 decoded bytes;
+    /// `tail -c +17` drops the 16-byte IV prefix so only ciphertext reaches
+    /// openssl):
+    ///
+    /// ```sh
+    /// printf '%s' "$params" | base64 -d | tail -c +17 \
+    ///   | openssl enc -d -aes-128-cbc \
+    ///       -K 39533824764a6e5532414e6553526f46 \
+    ///       -iv 30313233343536373839616263646566
+    /// ```
+    ///
+    /// Plaintext:
+    /// {"host":"www.51manga.com","source_id":"12","comic_id":"618431",
+    ///  "comic_down":0,"chapter_id":"223165","images":[
+    ///    "https://img1.baipiaoguai.org/static/upload3/book/id/1/a.webp",
+    ///    "/static/upload3/book/id/1/b.webp",
+    ///    "static/upload3/book/id/1/c.webp"],"lazy":false}
+    ///
+    /// The mixed absolute / leading-slash / bare-relative `images` array is
+    /// synthetic: every live path is absolute (see the CDN-prefix test).
+    const params =
+        'MDEyMzQ1Njc4OWFiY2RlZoJEmtpzKW14ZWHmM1m0alUjXyRvoUP2OgS3xi55GP0dDMqJ'
+        'D56Gixfv9pBhogV9slaJqVOKl+lzwk0IIzeYFccF5vpjRO1EbofHrMSy0iCcQ0e2WH6W'
+        'eRDxbJjZ80tD/sQjfXc0jXZMBU+O9J0AYlJind9LaCFo3f1yPkrUTNX/N02+m7dOxgJU'
+        'GEM0VqOLpXAGdQMO4yZiIYek67LhZJZYPTeAtVqB6+zNnRsQz9w4/DtLZ9/w1ek7mUSp'
+        'TsilECJi2yRy7mXvhLQhSWqmP8hDu2gxSuAtQw2OPsuDRPEqqpnM9u7Ax2XNB1kzpAt5'
+        'mM/sTnwPTigPfJ/dvi4I8IgWc3trypbEwQpvYk5ogZvj';
+
+    /// Shaped like the live page: `div#pic-list` is an EMPTY container and the
+    /// payload sits in a plain `<script>` just after `</main>`.
+    const chapterHtml = '''
+<html><body>
+<header class="x"><div class="title"><h2>第1-2话 初遇</h2></div></header>
+<div class="back"><a href="/mh/4aNek4246W">返回</a></div>
+<div class="img-box" id="pic-list"></div>
+<div class="diy_btn"><a href="/show/ARkjkt1m3D.html">下一话</a></div>
+<script>var tpl_path = '/template/wap/51manga/', params = '$params';</script>
+</body></html>
+''';
+
+    test('decrypts params into the image list', () {
+      final result =
+          source.parseChapter(chapterHtml, '4aNek4246W', 'Vd3Q3uKzVB', 1);
+
+      expect(result.chapter.id, 'Vd3Q3uKzVB');
+      expect(result.chapter.mangaId, '4aNek4246W');
+      expect(result.chapter.title, '第1-2话 初遇');
+      // The payload carries no prev/next fields (18 of 18 live payloads had the
+      // key set [host, source_id, comic_id, comic_down, chapter_id, images,
+      // lazy] and nothing else, verified 2026-08-31), and the whole chapter
+      // ships in one response — so there is no in-chapter pagination to expose.
+      expect(result.canLoadMore, isFalse);
+      expect(result.chapter.images, hasLength(3));
+    });
+
+    test('absolute URLs pass through and relative paths get the CDN prefix', () {
+      final result =
+          source.parseChapter(chapterHtml, '4aNek4246W', 'Vd3Q3uKzVB', 1);
+
+      expect(result.chapter.images.map((i) => i.url).toList(), [
+        'https://img1.baipiaoguai.org/static/upload3/book/id/1/a.webp',
+        'https://img1.baipiaoguai.org/static/upload3/book/id/1/b.webp',
+        'https://img1.baipiaoguai.org/static/upload3/book/id/1/c.webp',
+      ]);
+    });
+
+    test('every image carries the anti-hotlink headers', () {
+      // Measured directly against a live payload URL (2026-08-31): the CDN
+      // answers 403 with no Referer and 200 with `https://www.51manga.com/`.
+      final result =
+          source.parseChapter(chapterHtml, '4aNek4246W', 'Vd3Q3uKzVB', 1);
+      expect(result.chapter.images, isNotEmpty);
+      for (final image in result.chapter.images) {
+        expect(image.headers?['Referer'], 'https://www.51manga.com/');
+        expect(image.headers?['User-Agent'], contains('iPhone'));
+        // These images are not scrambled; the reader must not try to unscramble.
+        expect(image.scrambleType, ScrambleType.none);
+      }
+    });
+
+    test('falls back to chapterId when the title element is missing', () {
+      final html =
+          chapterHtml.replaceFirst('<h2>第1-2话 初遇</h2>', '<h2></h2>');
+      final result = source.parseChapter(html, '4aNek4246W', 'Vd3Q3uKzVB', 1);
+      expect(result.chapter.title, 'Vd3Q3uKzVB');
+    });
+
+    test('an empty images array yields an empty chapter without throwing', () {
+      // Not hypothetical: 1 of the 18 live chapter pages sampled
+      // (/show/OAGm8H9pVD.html, 4397 bytes) ships a perfectly valid payload
+      // whose `images` is `[]` — a real, published, image-less chapter.
+      // Throwing there would report the site's own state as a parse failure,
+      // and it is what keeps the missing-`params` throw below unambiguous.
+      // That chapter's REAL decrypted payload, re-encrypted offline with the
+      // real key and the same `0123456789abcdef` IV as above:
+      //   {"host":"m.51manga.com","source_id":"12","comic_id":"424001",
+      //    "comic_down":0,"chapter_id":"137658","images":[],"lazy":false}
+      const payload =
+          'MDEyMzQ1Njc4OWFiY2RlZm1Rw+TYraTSVQcxXFMNl9TZSgakurfTq8PhNHPQ1MrU'
+          'F2sxz+b5r/XJqWkJp45fenpo9pcp7S5iw5UR2nOaBS5taPmKq73cNk7LxV5jGB7c'
+          'qPAo5rGtoDQrRr9S7uuKZJXeNm7am4dSDhUXiogyrXoGZgPgd3MqgAR1Ki71g2UA';
+      const html = "<script>var params = '$payload';</script>";
+
+      final result = source.parseChapter(html, '4aNek4246W', 'OAGm8H9pVD', 1);
+      expect(result.chapter.images, isEmpty);
+      expect(result.canLoadMore, isFalse);
+    });
+
+    test('throws when params is absent instead of returning zero images', () {
+      // The message predicate is the point: a bare isA<Exception>() would be
+      // satisfied by any unrelated crash — including one caused by deleting the
+      // guard and letting a later null deref fire — and would keep passing if
+      // this branch silently returned an empty chapter's worth of nothing.
+      const html = '<html><body><div id="pic-list"></div></body></html>';
+      expect(
+        () => source.parseChapter(html, '4aNek4246W', 'Vd3Q3uKzVB', 1),
+        throwsA(isA<Exception>().having(
+            (e) => e.toString(), 'message', contains('未找到章节图片数据'))),
+      );
+    });
+
+    test('throws with the chapterId in the message when decryption fails', () {
+      // Decodes to 33 bytes, i.e. 17 bytes of "ciphertext" after the IV prefix:
+      // not block-aligned, so AES-CBC rejects it.
+      //
+      // `解密失败` is load-bearing, not decoration. Both throw sites interpolate
+      // the chapterId, so `contains('BADCHAP')` ALONE cannot tell this branch
+      // apart from the missing-`params` one above — a mutation that broke the
+      // payload regex would still satisfy it.
+      const html =
+          "<script>var params = 'bm90LWEtdmFsaWQtcGF5bG9hZC1hdC1hbGwtcmVhbGx5';</script>";
+      expect(
+        () => source.parseChapter(html, '4aNek4246W', 'BADCHAP', 1),
+        throwsA(isA<Exception>().having((e) => e.toString(), 'message',
+            allOf(contains('BADCHAP'), contains('解密失败')))),
+      );
+    });
+  });
 }

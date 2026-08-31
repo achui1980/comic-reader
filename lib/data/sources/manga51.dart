@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart';
 
 import 'package:comic_reader/core/models/fetch_config.dart';
+import 'package:comic_reader/core/utils/crypto_utils.dart';
 import 'package:comic_reader/data/sources/manga_source.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 
@@ -39,6 +42,31 @@ class Manga51 extends MangaSource {
     'Referer': _referer,
     'User-Agent': _mobileUa,
   };
+
+  /// Host that `pic-v3.js` prepends to any chapter image path that is not
+  /// already absolute. Read only by [_absoluteImageUrl], whose doc explains why
+  /// that path is never taken in practice. Note this is also (one of) the cover
+  /// hosts — see [_extractCoverUrl], which must NOT assume it.
+  static const String _imageCdn = 'https://img1.baipiaoguai.org';
+
+  /// AES key for the chapter image payload. 16 bytes, i.e. AES-128.
+  ///
+  /// Reverse-engineered out of the site's own
+  /// `https://www.51manga.com/template/pc/51manga/js/pic-v3.js` — a 10699-byte
+  /// obfuscated CryptoJS bundle. The literal does NOT appear anywhere in that
+  /// file (verified 2026-08-31): every string in it, this one included, is
+  /// rebuilt at runtime through a `_0x392f(index, seed)` table decoder, so
+  /// re-deriving this value means running the deobfuscator, not grepping.
+  ///
+  /// That makes it simultaneously the value in this file MOST likely to rotate
+  /// and the most expensive to recover. If chapters start failing with
+  /// 「章节图片解密失败」, suspect this first.
+  ///
+  /// MUST stay a raw string: it contains `$v`, so an ordinary literal would
+  /// parse as an interpolation of `vJnU2ANeSRoF`. Today that happens to be a
+  /// compile error (no such name), which is luck rather than protection — the
+  /// safety net disappears the moment any identifier by that name exists.
+  static const String _picKey = r'9S8$vJnU2ANeSRoF';
 
   @override
   String get id => sourceId;
@@ -323,10 +351,101 @@ class Manga51 extends MangaSource {
     return FetchConfig(url: '$_baseUrl/show/$chapterId.html');
   }
 
+  /// `div#pic-list` on the chapter page is an EMPTY container — there is no
+  /// markup to scrape. The real image list is an AES-encrypted blob in an inline
+  /// `<script>` just after `</main>`, which [_picKey] decrypts to JSON.
   @override
   ChapterResult parseChapter(
       dynamic response, String mangaId, String chapterId, int page) {
-    throw UnimplementedError();
+    final htmlStr = response as String;
+
+    final payload = _paramsPattern.firstMatch(htmlStr)?.group(1);
+    // The `isEmpty` half is unreachable, not merely unobserved: [_paramsPattern]
+    // captures `[^']+`, so a match can never be empty. It is kept only as the
+    // honest shape of a "did we get a usable blob" check — do not go looking for
+    // a test that distinguishes it, exactly as with [_extractCoverUrl]'s
+    // `url.isEmpty`.
+    if (payload == null || payload.isEmpty) {
+      // Deliberately NEUTRAL wording: it names no cause, because no live cause
+      // is known. This is the opposite call to the one parseMangaInfo makes, and
+      // for the opposite reason — there, two causes were both observable and had
+      // to be told apart; here every candidate cause has been ruled out:
+      //  * an image-less chapter is NOT this branch. It ships `params` normally,
+      //    carrying `"images":[]` (1 of 18 live chapter pages sampled did
+      //    exactly that, verified 2026-08-31), and is handled below as zero
+      //    images. A test pins that.
+      //  * an unknown chapter id is NOT this branch either: `/show/<bogus>.html`
+      //    answers HTTP 404 (redirected to /err/404, a 1556-byte generic page),
+      //    so HttpClient rejects it before any of this runs.
+      // What is left is a template change, but asserting that would be a guess,
+      // and a guess printed verbatim to the user — reader_bloc surfaces this
+      // message as-is. So: state the symptom, not a theory.
+      throw Exception('51manga: 未找到章节图片数据 (chapterId=$chapterId)');
+    }
+
+    final List<dynamic> rawImages;
+    try {
+      final decoded = json.decode(aesDecryptBase64PrefixedIv(payload, _picKey));
+      // `host`, `source_id`, `comic_id`, `comic_down` and `lazy` are the other
+      // five keys (identical key set on 18 of 18 live payloads, verified
+      // 2026-08-31) and all are ignored on purpose: `host` only exists so the
+      // site's own JS can refuse to render a payload cross-domain, and the rest
+      // drive its lazy-loading UI. There are no prev/next keys, which is why
+      // [ChapterResult.canLoadMore] below is a constant.
+      //
+      // A Map whose `images` is missing or not a List falls through to an empty
+      // chapter rather than throwing. That is the plan's behaviour, kept as-is,
+      // but be aware it conflates a JSON-shape change with a genuinely
+      // image-less chapter — and unlike the `params` case above, the two ARE
+      // separable, since a real image-less chapter sends `"images":[]`.
+      rawImages = (decoded is Map && decoded['images'] is List)
+          ? decoded['images'] as List
+          : const [];
+    } catch (e) {
+      // Surface a key rotation / template change loudly rather than showing an
+      // empty chapter. 解密失败 is what distinguishes this from the throw above;
+      // both interpolate chapterId, so the prefix is the only discriminator and
+      // a test depends on it.
+      throw Exception('51manga: 章节图片解密失败 (chapterId=$chapterId): $e');
+    }
+
+    final images = <ChapterImage>[];
+    for (final raw in rawImages) {
+      // Unobserved defensive skip: all 821 image entries sampled are non-empty
+      // Strings (0 non-String, 0 empty, across 18 chapter pages from 12 manga,
+      // verified live 2026-08-31). Kept so one malformed entry costs one page
+      // instead of the whole chapter.
+      if (raw is! String || raw.isEmpty) continue;
+      images.add(ChapterImage(
+        // The CDN answers 403 with no Referer and 200 with ours — measured
+        // directly against a live payload URL, 2026-08-31.
+        url: _absoluteImageUrl(raw),
+        headers: _imageHeaders,
+      ));
+    }
+
+    final document = html_parser.parse(htmlStr);
+    // Exactly one non-empty `header .title h2` on 18 of 18 live chapter pages
+    // (verified 2026-08-31), holding e.g. 第01话. The `?? chapterId` fallback is
+    // therefore unobserved, and exists so a renamed selector yields an ugly
+    // heading rather than a blank one.
+    final title =
+        _cleanText(document.querySelector('header .title h2')?.text) ??
+            chapterId;
+
+    return ChapterResult(
+      chapter: Chapter(
+        id: chapterId,
+        mangaId: mangaId,
+        title: title,
+        images: images,
+      ),
+      // No in-chapter pagination: the payload holds every page of the chapter at
+      // once (up to 215 images in one payload among those sampled, from a
+      // 23104-character base64 blob for a 152-image chapter — do not assume this
+      // blob is small) and carries no prev/next cursor.
+      canLoadMore: false,
+    );
   }
 
   @override
@@ -545,5 +664,53 @@ class Manga51 extends MangaSource {
       if (tag.contains('连载')) return MangaStatus.ongoing;
     }
     return MangaStatus.unknown;
+  }
+
+  /// The encrypted chapter payload, out of
+  /// `var tpl_path = '...', params = '<base64>';`.
+  ///
+  /// A single-quoted, non-greedy scrape of the raw HTML is safe here rather than
+  /// merely convenient: the token `params` occurs EXACTLY ONCE in the whole
+  /// chapter document, in this assignment (1 of 1 on the page grepped in full,
+  /// and never more than one match across 18 sampled pages, verified live
+  /// 2026-08-31). So there is no need to walk `<script>` nodes looking for the
+  /// right one, and nothing else on the page can shadow it.
+  ///
+  /// The captured blob is base64, so `[^']+` cannot terminate early on it.
+  static final RegExp _paramsPattern = RegExp(r"""params\s*=\s*'([^']+)'""");
+
+  /// Absolutize one image path out of the decrypted payload.
+  ///
+  /// **Both relative branches are unobserved.** Every live path sampled is
+  /// already absolute `https://img1.baipiaoguai.org/...` — 821 of 821 across 18
+  /// chapter pages from 12 manga, zero relative, zero protocol-relative, one
+  /// single host (verified live 2026-08-31). Only the pass-through arm runs.
+  ///
+  /// The fallback is kept because `pic-v3.js` has one:
+  ///
+  /// ```js
+  /// if (/^(?!https?:\/\/).*/.test(imgDataSrc)) {
+  ///     if (params.source_id == 12) {
+  ///         imgDataSrc = 'https://img1.baipiaoguai.org' + imgDataSrc;
+  ///     }
+  /// }
+  /// ```
+  ///
+  /// Three conscious divergences from that snippet, all confined to the
+  /// unobserved path, so none is a live behaviour difference:
+  ///  * it concatenates with NO separator, so a bare relative path would give it
+  ///    `...baipiaoguai.orgstatic/x.webp`. We insert the `/` instead of
+  ///    reproducing a URL that could not possibly load.
+  ///  * its `source_id == 12` gate is dropped. All 18 payloads sampled carry
+  ///    `source_id: "12"`, so the gate has no observable effect, and a second
+  ///    source id would need its own CDN identified before it could be honoured.
+  ///  * `startsWith('http')` is looser than `^https?://`: it would also pass
+  ///    through a path literally beginning `http`. Accepted as harmless — no
+  ///    such path is plausible, and over-accepting here merely emits the URL
+  ///    unchanged, whereas the alternative failure prepends a CDN to an absolute
+  ///    URL.
+  static String _absoluteImageUrl(String raw) {
+    if (raw.startsWith('http')) return raw;
+    return raw.startsWith('/') ? '$_imageCdn$raw' : '$_imageCdn/$raw';
   }
 }
