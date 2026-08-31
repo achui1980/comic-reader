@@ -122,7 +122,14 @@ void main() {
     });
 
     test('sends a mobile UA and a PC-host Referer', () {
-      expect(source.userAgent, contains('iPhone'));
+      // Assert defaultHeaders, NOT source.userAgent. FetchPipeline.mergeHeaders
+      // builds Dio requests from defaultHeaders + config.headers + extraHeaders
+      // and never reads the userAgent getter — that getter reaches only the
+      // Cloudflare WebView, which this source does not use. An earlier version of
+      // this test asserted `source.userAgent` while being NAMED for the
+      // behaviour, so it passed for months while every real request went out as
+      // `Dart/3.x (dart:io)`. Assert what the framework transmits.
+      expect(source.defaultHeaders?['User-Agent'], contains('iPhone'));
       expect(source.defaultHeaders?['Referer'], 'https://www.51manga.com/');
     });
 
@@ -576,9 +583,10 @@ void main() {
         '/show/abc_123.html': null,
         '/show/abc-123.html': null,
         // Would yield 'abc123' if the trailing `.html$` anchor were dropped.
-        // Every live chapter href carries the suffix (2145/2145 sampled — see
-        // _chapterIdPattern's doc for the sample), so requiring it is the
-        // verified contract, not a guess.
+        // Every live chapter href sampled carried the suffix — see
+        // _chapterIdPattern's doc, and note it deliberately cites no absolute
+        // total, because three different ones have each provoked a contradiction.
+        // So requiring it is the verified contract, not a guess.
         '/show/abc123': null,
         '/show/abc123.html.bak': null,
         // No id at all.
@@ -598,16 +606,97 @@ void main() {
 ''';
 
       cases.forEach((href, expected) {
-        final ids =
-            source.parseMangaInfo(rowFor(href), 'x').chapters.map((c) => c.id);
-        expect(ids, expected == null ? isEmpty : [expected],
-            reason: 'href $href');
+        if (expected == null) {
+          // Each fixture has exactly ONE row, so a rejected href means every row
+          // on the page was rejected — which is now the 章节链接格式异常 condition
+          // rather than a silent empty list. This still pins exactly what the
+          // table is for (this href must not yield an id), and pins it harder: an
+          // observable throw instead of an absence.
+          expect(
+            () => source.parseMangaInfo(rowFor(href), 'x'),
+            throwsA(isA<Exception>().having((e) => e.toString(), 'message',
+                contains('章节链接格式异常'))),
+            reason: 'href $href must be rejected',
+          );
+        } else {
+          expect(
+            source.parseMangaInfo(rowFor(href), 'x').chapters.map((c) => c.id),
+            [expected],
+            reason: 'href $href',
+          );
+        }
       });
     });
 
     test('falls back to the header title when h1.name is absent', () {
       const html = '<header><div class="title"><h2>兜底标题</h2></div></header>';
       expect(source.parseMangaInfo(html, 'x').title, '兜底标题');
+    });
+
+    test('throws when chapter rows exist but no href is recognisable', () {
+      // The href-shape counterpart of parseChapter's 章节图片列表格式异常. If the
+      // site drops `.html`, moves to `/read/`, or widens the id charset, EVERY row
+      // stops matching and the detail page would otherwise render title + cover +
+      // description with zero chapters — silently, and indistinguishably from the
+      // 8-9 of 25 sampled pages that genuinely have none. detail_cubit would emit
+      // chaptersLoading: false with no error and nothing logged.
+      const html = '''
+<h1 class="name">T</h1>
+<ul class="chapter-list">
+  <li><a href="/read/aaaaaaaaaa">第1话</a></li>
+  <li><a href="/read/bbbbbbbbbb">第2话</a></li>
+  <li><a href="/read/cccccccccc">第3话</a></li>
+</ul>
+''';
+      expect(
+        () => source.parseMangaInfo(html, 'x'),
+        throwsA(isA<Exception>().having(
+          (e) => e.toString(),
+          'message',
+          allOf([
+            contains('章节链接格式异常'),
+            contains('mangaId=x'),
+            // The row count is the actionable part: it says "3 rows were there
+            // and all 3 were rejected", which is what separates a shape change
+            // from an empty page.
+            contains('3 行'),
+            // Distinct from all four other messages this source can throw.
+            isNot(contains('不存在')),
+            isNot(contains('选择器')),
+            isNot(contains('未找到章节图片数据')),
+            isNot(contains('解密失败')),
+            isNot(contains('章节图片列表格式异常')),
+            // Leak invariant: never the markup. `/read/` is a path from the
+            // fixture's hrefs and must not be echoed.
+            isNot(contains('/read/')),
+            isNot(contains('第1话')),
+          ]),
+        )),
+      );
+    });
+
+    test('a genuinely chapterless page returns normally with no chapters', () {
+      // The other direction of the same boundary, and the reason the guard tests
+      // `rows.isNotEmpty` rather than `chapters.isEmpty` alone. 8-9 of the 25
+      // sampled pages have no chapter rows at all — that is the site's own state
+      // (「最新话：待浏览」), exactly as `"images":[]` is for a chapter, and it must
+      // stay silent.
+      const html = '<h1 class="name">T</h1>'
+          '<div class="zuixin"><p>最新话：待浏览</p></div>';
+      final detail = source.parseMangaInfo(html, 'x');
+      expect(detail.chapters, isEmpty);
+      expect(detail.title, 'T');
+      expect(detail.latestChapter, '待浏览');
+    });
+
+    test('a bare 最新话 label with no chapter name yields null', () {
+      // Pins the collapsed empty-handling: _cleanText runs BEFORE the label strip
+      // so the `^` anchor survives indented markup, and AGAIN after, so stripping
+      // the label down to nothing gives null rather than ''. An empty-string
+      // latestChapter renders as a blank badge in the UI.
+      const html =
+          '<h1 class="name">T</h1><div class="zuixin"><p>  最新话：  </p></div>';
+      expect(source.parseMangaInfo(html, 'x').latestChapter, isNull);
     });
 
     test('throws on the deleted-manga page instead of returning an empty shell',
@@ -668,12 +757,17 @@ setTimeout(function() {
     });
 
     test('parseChapterList always returns an empty result', () {
-      // prepareChapterListFetch returns null, so the framework never calls
-      // this; the info page ships every chapter. Verified live: on all 16
-      // chapter-bearing pages sampled the last <li> equals div.zuixin's
-      // 最新话 (916 rows on r368n70WNX, up to 1835 on 85oDJXjmZa — a floor that
-      // keeps rising), and the only control near ul.chapter-list is a
-      // client-side [倒序] toggle.
+      // prepareChapterListFetch returns null, so the framework never calls this;
+      // the info page ships every chapter. The last <li> was confirmed to equal
+      // div.zuixin's 最新话 on the 16 chapter-bearing pages of an EARLIER sample
+      // (r368n70WNX and 85oDJXjmZa were the two largest at 916 and 1835 rows), and
+      // the only control near ul.chapter-list is a client-side [倒序] toggle.
+      //
+      // A later 25-page sample from a different id set found 17 chapter-bearing
+      // pages and did NOT re-run the equality check, so 16 and 17 are two samples
+      // rather than one sample with a failure. See parseMangaInfo's note: the
+      // invariant is well-supported but not fully verified, and the site now 403s
+      // our egress IP on cache MISS so it cannot be closed from here.
       expect(
           source.parseChapterList(detailHtml, '4aNek4246W').chapters, isEmpty);
       expect(source.parseChapterList(detailHtml, '4aNek4246W').canLoadMore,
@@ -848,6 +942,17 @@ setTimeout(function() {
             'images=String',
         // [1,2,3]  -- top level is not even an object
         'MDEyMzQ1Njc4OWFiY2RlZom/71hOuAixYvdjg9BSgSw=': '顶层=List<dynamic>',
+        // {"https://img1.baipiaoguai.org/secret/SENTINEL_LEAK_MARKER/9.webp":1,
+        //  "lazy":false}
+        //
+        // The nastiest shape a payload change could take, because map KEYS are
+        // decrypted plaintext: echoing them verbatim would print a real image URL.
+        // Only identifier-shaped keys are echoed; this one collapses to its
+        // length, and `lazy` survives to show the filter is per-key rather than
+        // all-or-nothing.
+        'MDEyMzQ1Njc4OWFiY2RlZgNb5SL7NH9h4dHk1WRDYbSXS/cxKbWcCNNg8LeNFDRax6'
+            '7KYRJrqF7fEV597hDNljNbUhtSmAh5GOODTZgB1hnlASY7G6ej3nZOnSvKLGGKEoXK'
+            'JmemGP+IPQSp+xmPjw==': 'keys=[<63字符>,lazy]',
       };
 
       cases.forEach((payload, expectedDetail) {
@@ -870,6 +975,10 @@ setTimeout(function() {
               // conflating them sends the maintainer to the wrong place.
               isNot(contains('未找到章节图片数据')),
               isNot(contains('解密失败')),
+              // The same leak invariant the 解密失败 message holds: no decrypted
+              // content, and a key is decrypted content too.
+              isNot(contains('SENTINEL_LEAK_MARKER')),
+              isNot(contains('baipiaoguai')),
               // The diagnostic detail is load-bearing too: "shape changed" with
               // no shape is unactionable, and this is what says WHICH key went.
               contains(expectedDetail),

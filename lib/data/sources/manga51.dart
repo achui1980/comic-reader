@@ -25,11 +25,16 @@ class Manga51 extends MangaSource {
   /// Host used for the anti-hotlink Referer and for opening pages in a browser.
   static const String _pcBaseUrl = 'https://www.51manga.com';
 
-  /// Single source of truth for the Referer sent with BOTH page requests
+  /// Single source of truth for the Referer sent with page requests
   /// ([defaultHeaders]) and image requests ([_imageHeaders]). The image CDN
   /// (`img1.baipiaoguai.org`) answers 403 without a Referer, and a page-vs-image
   /// mismatch is a classic silent 403 on anti-hotlink setups, so the two must
   /// stay byte-identical — including the trailing slash.
+  ///
+  /// As of the [defaultHeaders] fix the two maps are not merely consistent, they
+  /// are the SAME map. Keep it that way: an earlier version had `defaultHeaders`
+  /// carry only the Referer while `_imageHeaders` carried Referer + UA, and the
+  /// asymmetry was undocumented and unintended.
   static const String _referer = '$_pcBaseUrl/';
 
   static const String _mobileUa =
@@ -92,11 +97,38 @@ class Manga51 extends MangaSource {
   @override
   bool get needsProxy => false;
 
+  /// WEBVIEW ONLY. Nothing on this source's normal request path reads this.
+  ///
+  /// `FetchPipeline.mergeHeaders` (`fetch_pipeline.dart`) builds every Dio
+  /// request from `defaultHeaders` + `config.headers` + `extraHeaders` and never
+  /// consults this getter; its only readers are `webview_native.dart` (the
+  /// Cloudflare verification WebView) and the `webview_fetcher_*` chain. With
+  /// `needsCloudflare == false` and `usesWebViewFetch == false` neither runs here,
+  /// so **[defaultHeaders] is what actually transmits the UA** — see below.
+  ///
+  /// Kept anyway, deliberately. It costs one line, 20 of the 34 sources declare
+  /// it, and it becomes live the moment this source needs Cloudflare or
+  /// WebView-fetch — at which point the WebView MUST present the same UA as Dio
+  /// or the session/cookie pair mismatches. Deleting it would make that future
+  /// flip silently fall back to the app-default desktop UA, which is the exact
+  /// mirror image of the bug this comment exists to prevent.
   @override
   String? get userAgent => _mobileUa;
 
+  /// The headers the framework actually sends with every page request.
+  ///
+  /// The UA belongs HERE, not only in [userAgent]. Without it every request goes
+  /// out as `Dart/3.x (dart:io)` — which is what happened until this was fixed,
+  /// meaning the whole live verification campaign (which always passed the mobile
+  /// UA explicitly) ran a configuration the app never reproduced. This site gates
+  /// on headers, so that mismatch was the one unforced risk in the source.
+  ///
+  /// Deliberately the very same map as [_imageHeaders]: pages and images must
+  /// present an identical Referer/UA pair on an anti-hotlink setup. 24 of the 34
+  /// sources put the UA in `defaultHeaders`; the mobile-host siblings
+  /// (`manhuagui_mobile.dart`, `ikan_manhua.dart`, `baozi_manga.dart`) all do.
   @override
-  Map<String, String>? get defaultHeaders => const {'Referer': _referer};
+  Map<String, String>? get defaultHeaders => _imageHeaders;
 
   /// Discovery filters. Each `name` here is consumed by
   /// [prepareDiscoveryFetch] as a URL path segment (`/<name>/<value>`), so the
@@ -122,6 +154,26 @@ class Manga51 extends MangaSource {
           name: 'tags',
           label: '题材',
           defaultValue: '',
+          // PROVENANCE: these 29 ids come from PC `/category` recon, not from the
+          // mobile host this source otherwise uses. Only 867-877 are advertised
+          // anywhere in the mobile UI, and 10 of those 11 are declared (873 is
+          // dropped as a duplicate label), so **19 of the 29 are UNVERIFIED** —
+          // never confirmed to return results. They cannot be verified from here
+          // now either; see [_chapterIdPattern] on the 403.
+          //
+          // Kept rather than trimmed to 11, because a dead id degrades gently and
+          // the precedent says the backend honours more than the mobile UI shows:
+          // `order` is not advertised on the mobile page AT ALL, yet
+          // `order=addtime` demonstrably returns a different first item than
+          // `order=hits`. Trimming to only the advertised ids would throw away
+          // most of the filter for a risk the site itself contradicts.
+          //
+          // A dead id degrades to: HTTP 200 with an empty grid -> parseDiscovery
+          // returns [] -> discovery_cubit emits `status: loaded, manga: [],
+          // hasMore: false` -> discovery_screen has no empty-state widget, so the
+          // user sees a blank grid and no error. Not good, but already the
+          // accepted outcome for multi-filter combinations, since the site's own
+          // filter links REPLACE rather than combine segments.
           choices: [
             FilterChoice(label: '全部', value: ''),
             FilterChoice(label: '科幻', value: '867'),
@@ -291,24 +343,40 @@ class Manga51 extends MangaSource {
     // use the full-width `：` exclusively (25/25, verified live 2026-08-31). It
     // is disclosed rather than removed, matching how the `data-src` and nbsp
     // branches below are handled.
-    final latestChapter = _cleanText(zuixin?.querySelector('p')?.text)
-        ?.replaceFirst(RegExp(r'^最新话[:：]\s*'), '');
+    final zuixinText = _cleanText(zuixin?.querySelector('p')?.text);
+    // Cleaned TWICE on purpose, and in this order. The first call trims, so the
+    // `^` anchor can reach 最新话 even when the markup indents it; stripping the
+    // label can then leave nothing at all (a bare 最新话：), and the second call
+    // is what turns that back into null instead of ''. Folding this into one
+    // `_cleanText(raw?.replaceFirst(...))` looks tidier but silently breaks the
+    // anchor on untrimmed input.
+    final latestChapter =
+        _cleanText(zuixinText?.replaceFirst(RegExp(r'^最新话[:：]\s*'), ''));
 
     // The whole chapter list ships with this page, which is why
-    // prepareChapterListFetch returns null.
-    // Ascending (earliest first): on all 16 chapter-bearing pages sampled the
-    // final row equals div.zuixin's 最新话, at up to 1835 rows (verified live
-    // 2026-08-31 — a floor that keeps rising, not a bound). Emitted in document
-    // order, so callers get that same order; reader_bloc.dart depends on
-    // ascending for next/previous chapter navigation.
+    // prepareChapterListFetch returns null. Emitted in document order, so callers
+    // get the site's own order; reader_bloc.dart depends on ascending (earliest
+    // first) for next/previous chapter navigation.
+    //
+    // HONEST STATE OF THAT INVARIANT: ascending order was confirmed by checking
+    // that the final row equals div.zuixin's 最新话 on the 16 chapter-bearing
+    // pages of an EARLIER sample (2026-08-31). A later, larger sample from a
+    // different id set found 17 chapter-bearing pages, and the equality check was
+    // NOT re-run on it. So "16" and "17" are two samples, not one sample with a
+    // failure in it — but equally, no single measurement covers all 17, and the
+    // site is now returning 403 to our egress IP on every cache MISS (openresty,
+    // 159-byte body, exactly correlated with `x-cache: BYPASS`; `HIT`s still
+    // return 200; still in force at the time of writing), so this cannot be
+    // closed from here. Treat ascending order as well-supported but not fully
+    // verified, and do not restate it as "all pages".
+    final rows = document.querySelectorAll('ul.chapter-list li a');
     final chapters = <ChapterItem>[];
-    for (final a in document.querySelectorAll('ul.chapter-list li a')) {
+    for (final a in rows) {
       // Match the parsed PATH, anchored — same contract as [_mangaIdPattern],
       // for the same reasons. Uri.tryParse never throws: it returns null on a
       // malformed href, and for `javascript:void(0);` yields the path
-      // `void(0);`, which the anchor rejects. 2145 of 2145 live chapter hrefs
-      // sampled match this exactly — see [_chapterIdPattern] for the sample and
-      // for why the absolute count is the weakest part of that claim.
+      // `void(0);`, which the anchor rejects. Every live chapter href sampled
+      // matched — see [_chapterIdPattern].
       final path = Uri.tryParse(a.attributes['href'] ?? '')?.path ?? '';
       final chapterId = _chapterIdPattern.firstMatch(path)?.group(1);
       if (chapterId == null) continue;
@@ -320,17 +388,53 @@ class Manga51 extends MangaSource {
       ));
     }
 
+    // Rows present but NONE recognised can only mean the href shape changed —
+    // [_chapterIdPattern] requires a trailing `.html` and rejects `-`/`_`, which
+    // its own doc calls out as deliberately the brittlest regex in this file. So
+    // dropping `.html`, moving to `/read/`, or widening the id charset silently
+    // empties every chapter list.
+    //
+    // Without this guard that is INDISTINGUISHABLE from the 8-9 of 25 sampled
+    // pages that legitimately have no chapters: detail_cubit.loadChapters would
+    // emit `chaptersLoading: false` with no error and nothing logged. That is the
+    // exact conflation parseChapter's 章节图片列表格式异常 guard exists to prevent,
+    // and this method was written before it — hence the divergence.
+    //
+    // Zero rows is NOT this case and must stay silent: it is the site's own
+    // chapterless state, the same way `"images":[]` is. Both directions are
+    // pinned by tests.
+    //
+    // Leak invariant, as at every other throw site: only [mangaId] and a count.
+    // Never a row's href or text, which are site markup.
+    if (rows.isNotEmpty && chapters.isEmpty) {
+      throw Exception(
+          '51manga: 章节链接格式异常 (mangaId=$mangaId): ${rows.length} 行全部无法识别');
+    }
+
     return MangaDetail(
       id: mangaId,
       sourceId: sourceId,
       title: title,
       coverUrl: _extractCoverUrl(document) ?? '',
       description: _extractDescription(document),
+      // `div.comic_hot` as the author is the one selector here with no measured
+      // fact behind it, and the least self-evident — a div named "hot" read as an
+      // author. It came from the implementation plan and was never verified, and
+      // it can no longer be: the site now 403s our egress IP on every cache MISS
+      // (see the chapter-order note above), and no detail-page artifact was kept.
+      // Treat it as UNMEASURED. If it is wrong the failure is quiet — a wrong or
+      // empty author line, never an exception.
+      //
+      // It also depends on something unpinned: `.text` includes ALL descendant
+      // text, and the live markup is
+      // `<div class="comic_hot"><i class="iconfont icon-myfill"></i>作者名</div>`.
+      // That works only because the `<i>` icon is empty. Give it a text label and
+      // the label lands in the author string. The fixture reproduces the empty
+      // `<i>`, so no test would catch that either.
       author: _cleanText(document.querySelector('div.comic_hot')?.text) ?? '',
       tags: tags,
       status: _statusFromTags(tags),
-      latestChapter:
-          (latestChapter != null && latestChapter.isEmpty) ? null : latestChapter,
+      latestChapter: latestChapter,
       updateTime: _cleanText(zuixin?.querySelector('time')?.text),
       chapters: chapters,
       // The cover CDN 403s without the Referer.
@@ -521,19 +625,28 @@ class Manga51 extends MangaSource {
   /// silently) and `/go?to=/show/spam1.html` mines `spam1` out of a query
   /// string. Both become a clean skip here, which is the safer loss.
   ///
-  /// Every live chapter href sampled is exactly `/show/<10 alnum>.html`: 2145 of
-  /// 2145 hrefs matched, every captured id 10 characters, across the 17
+  /// Every live chapter href sampled was exactly `/show/<10 alnum>.html`: all of
+  /// them matched, and every captured id was 10 characters, across the
   /// chapter-bearing pages of a 25-detail-page sample (measured 2026-08-31).
-  /// That figure REPLACES two earlier, mutually contradictory counts — 6271 here
-  /// and 4436 in the test file — neither of which was reproducible. Note the
-  /// total is a property of the sample, not of the site: per-manga chapter counts
-  /// range from a handful to over 1800, so any absolute count here moves with
-  /// whichever manga happen to be sampled. The ratio and the id width are the
-  /// claims that matter.
+  ///
+  /// **No absolute total is cited, on purpose.** This slot has now held three
+  /// different totals (6271, then 4436, then 2145) and every one of them provoked
+  /// a contradiction, because a per-sample href total is meaningless next to any
+  /// other sample's: one manga with 1800+ chapters moves it by more than an
+  /// entire 25-page sample. The claims that survive comparison are the RATIO
+  /// (all matched, none skipped) and the ID WIDTH (10). Those are what this regex
+  /// rests on; a fourth number would only restart the cycle.
+  ///
+  /// It also cannot be re-derived from here: the site answers 403 to our egress
+  /// IP on every cache MISS (openresty, 159 bytes, exact correlation with
+  /// `x-cache: BYPASS`, while `HIT`s still return 200 — IP-scoped, not UA- or
+  /// TLS-scoped). Anyone re-measuring needs a different egress.
   ///
   /// The `+` quantifier over-accepts on purpose, since a length rule would start
-  /// dropping real chapters the day the site widens its ids. The trailing
-  /// `\.html` is NOT over-accepted: all 2145 carry the suffix.
+  /// dropping real chapters the day the site widens its ids. The trailing `\.html`
+  /// is NOT over-accepted — every sampled href carried it — which makes this the
+  /// most brittle regex in the file, and is why [parseMangaInfo] now throws
+  /// 章节链接格式异常 when rows exist but none of them match.
   ///
   /// Pinned by the `chapter id must be the whole path` test, which is the
   /// sibling of the `manga id must be the whole path` table.
@@ -655,18 +768,21 @@ class Manga51 extends MangaSource {
   /// reads 「下载APP，免费看更多精彩漫画」, on every page sampled (25/25, verified
   /// live 2026-08-31).
   ///
-  /// **Excluding that subtree is the load-bearing guard**, and the only one a
-  /// test pins. It is sufficient on its own, because it drops the advert
-  /// regardless of which surviving paragraph is then picked. Delete it and the
-  /// advert becomes the description of every blurb-less manga.
+  /// **Excluding that subtree is treated as the load-bearing guard**, and it is
+  /// the only one a test pins. Be clear that this ranking is a JUDGEMENT CALL, not
+  /// a measurement: on observed data NEITHER half is load-bearing, because
+  /// `div.metas-desc` holds exactly 2 paragraphs (advert + blurb) on 25/25 pages,
+  /// so exclusion-plus-`.last` and `.first`-alone give byte-identical output on
+  /// every page sampled. The ranking rests on which HYPOTHETICAL page each half
+  /// defends against, and the exclusion wins that argument only because a
+  /// blurb-less manga (where the advert would become the description) seems far
+  /// likelier than a page gaining a leading non-advert paragraph. No sampled page
+  /// is either.
   ///
   /// `.last` is unpinned belt-and-braces, retained only against the site one day
-  /// adding a leading non-advert `<p>`. There is NO live evidence of such a
-  /// paragraph: `div.metas-desc` holds exactly 2 (advert + blurb) on 25/25
-  /// pages, so `.last` and `.first` yield byte-identical output on every page
-  /// sampled. Do NOT mistake `.last` for the thing that defeats the advert — an
-  /// earlier version of this comment did, which would have led a maintainer to
-  /// delete the exclusion as the "redundant" half.
+  /// adding a leading non-advert `<p>`. Do NOT mistake `.last` for the thing that
+  /// defeats the advert — an earlier version of this comment did, which would have
+  /// led a maintainer to delete the exclusion as the "redundant" half.
   ///
   /// The exclusion is non-destructive on purpose. It previously called
   /// `ad.remove()`, which mutated the caller's [Document] and made correctness
@@ -718,22 +834,37 @@ class Manga51 extends MangaSource {
     return MangaStatus.unknown;
   }
 
+  /// Conservative shape of a JSON key that is safe to echo verbatim: an
+  /// identifier, nothing else. A URL cannot match it — `://` alone disqualifies —
+  /// which is the whole point. See [_payloadShapeExcerpt].
+  static final RegExp _plainKeyPattern = RegExp(r'^[A-Za-z0-9_]{1,24}$');
+
   /// A short, BOUNDED description of a decrypted payload's shape, for the
   /// 「章节图片列表格式异常」 message.
   ///
-  /// Bounded deliberately, on two counts. The thing being described is a full
-  /// chapter payload — 17328 plaintext bytes for one 152-image chapter measured
-  /// live 2026-08-31 — and this string is user-facing, since reader_bloc prints
-  /// the exception verbatim. So: at most 8 keys, and at most 100 characters of
-  /// them. `decoded.length` is included so a truncated list is obvious rather
-  /// than misleading.
+  /// This string is user-facing — reader_bloc prints the exception verbatim — and
+  /// it describes a full chapter payload (17328 plaintext bytes for one 152-image
+  /// chapter measured live 2026-08-31). So values are never exposed, and keys are
+  /// filtered rather than merely truncated.
   ///
-  /// Only key NAMES are exposed, never a value. That keeps decrypted image URLs
-  /// out of UI strings and logs, and key names are also the ONLY part that is
-  /// diagnostic here — a renamed `images` is precisely what this is for.
+  /// The filter matters because **map keys ARE decrypted plaintext**, and this
+  /// branch exists precisely for "the shape changed". A payload shaped
+  /// `{"https://img1.…/a.webp": 1}` would otherwise put a real image URL on
+  /// screen — a length cap alone would just decide how much of it. So each key is
+  /// echoed only if it matches [_plainKeyPattern]; anything else collapses to its
+  /// length. That is the same structural-over-volumetric choice made for the
+  /// 解密失败 message, and it costs nothing diagnostically: keys are useful here
+  /// only when they are short identifiers (`images`, `imgs`, `pics`), which is
+  /// exactly what the pattern admits.
+  ///
+  /// Still bounded belt-and-braces: at most 8 keys and at most 100 characters of
+  /// them, with `decoded.length` included so truncation is visible.
   static String _payloadShapeExcerpt(Object? decoded) {
     if (decoded is! Map) return '顶层=${decoded.runtimeType}';
-    var keys = decoded.keys.take(8).join(',');
+    var keys = decoded.keys.take(8).map((k) {
+      final name = '$k';
+      return _plainKeyPattern.hasMatch(name) ? name : '<${name.length}字符>';
+    }).join(',');
     if (keys.length > 100) keys = '${keys.substring(0, 100)}…';
     return '顶层=Map(${decoded.length}), keys=[$keys]';
   }
