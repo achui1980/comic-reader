@@ -10,6 +10,7 @@ import 'package:get_it/get_it.dart';
 import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/data/remote/http_client.dart';
+import 'package:comic_reader/data/sources/source_image_transform.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/data/sources/wu55comic.dart';
 import 'package:comic_reader/data/sources/wu55comic_decoder.dart';
@@ -45,6 +46,10 @@ class _MangaCoverImageState extends State<MangaCoverImage> {
   static final Map<String, Wu55ImageDecodeResult> _coverCache = {};
   static const int _maxCacheSize = 100;
 
+  /// In-memory cache of *transformed* cover bytes, for sources whose covers are
+  /// served encrypted and therefore have to be fetched and decoded manually.
+  static final Map<String, Uint8List> _transformedCoverCache = {};
+
   Wu55ImageDecodeResult? _decoded;
   ui.Image? _image;
   bool _loading = false;
@@ -62,12 +67,32 @@ class _MangaCoverImageState extends State<MangaCoverImage> {
       widget.sourceId == Wu55Comic.sourceId &&
       widget.imageUrl.contains('/static/upload/book/');
 
+  /// Whether this cover's raw bytes need a per-source transform (typically
+  /// decryption) before they can be decoded.
+  ///
+  /// Such covers cannot be rendered by [CachedNetworkImage], which never
+  /// exposes the raw response bytes, so they take the manual fetch-and-decode
+  /// path instead.
+  bool get _needsByteTransform {
+    if (widget.imageUrl.isEmpty) return false;
+    if (!GetIt.instance.isRegistered<SourceRegistry>()) return false;
+    final source = GetIt.instance<SourceRegistry>().get(widget.sourceId);
+    return source != null && source.transformsImageBytes;
+  }
+
+  /// Kicks off whichever manual load strategy this cover needs, if any.
+  void _startManualLoadIfNeeded() {
+    if (_isWu55Encrypted) {
+      _loadEncryptedCover();
+    } else if (_needsByteTransform) {
+      _loadTransformedCover();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    if (_isWu55Encrypted) {
-      _loadEncryptedCover();
-    }
+    _startManualLoadIfNeeded();
   }
 
   @override
@@ -79,9 +104,7 @@ class _MangaCoverImageState extends State<MangaCoverImage> {
       _image = null;
       _error = false;
       _webCfNeeded = false;
-      if (_isWu55Encrypted) {
-        _loadEncryptedCover();
-      }
+      _startManualLoadIfNeeded();
     }
   }
 
@@ -174,6 +197,80 @@ class _MangaCoverImageState extends State<MangaCoverImage> {
     }
   }
 
+  /// Fetches a cover whose bytes are encrypted at rest, applies the owning
+  /// source's byte transform, and decodes the result.
+  Future<void> _loadTransformedCover() async {
+    final url = widget.imageUrl;
+
+    final cached = _transformedCoverCache[url];
+    if (cached != null) {
+      await _decodeBytesToImage(cached);
+      return;
+    }
+
+    if (_loading) return;
+    _loading = true;
+
+    try {
+      // Note: Do NOT wrap with ImageProxy.url() here - the HttpClient's
+      // CorsProxyInterceptor already handles proxy prefixing on web.
+      final response = await GetIt.I<HttpClient>().execute(FetchConfig(
+        url: url,
+        responseType: ResponseType.bytes,
+        headers: widget.headers,
+      ));
+      final data = response.data;
+      if (data is! List<int>) {
+        throw const FormatException('Cover response did not contain bytes');
+      }
+      final bytes = applySourceImageTransform(
+        Uint8List.fromList(data),
+        widget.sourceId,
+      );
+
+      if (_transformedCoverCache.length >= _maxCacheSize) {
+        for (final k in _transformedCoverCache.keys.take(20).toList()) {
+          _transformedCoverCache.remove(k);
+        }
+      }
+      _transformedCoverCache[url] = bytes;
+
+      await _decodeBytesToImage(bytes);
+    } catch (e) {
+      debugPrint('[MangaCoverImage] Failed to load cover: $e');
+      if (mounted) {
+        setState(() {
+          _error = true;
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  /// Decodes already-transformed cover [bytes] into a [ui.Image].
+  Future<void> _decodeBytesToImage(Uint8List bytes) async {
+    try {
+      final codec = await ui.instantiateImageCodec(bytes);
+      final frame = await codec.getNextFrame();
+      if (mounted) {
+        setState(() {
+          _image = frame.image;
+          _loading = false;
+        });
+      } else {
+        frame.image.dispose();
+      }
+    } catch (e) {
+      debugPrint('[MangaCoverImage] Failed to decode image: $e');
+      if (mounted) {
+        setState(() {
+          _error = true;
+          _loading = false;
+        });
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Wu55 encrypted cover
@@ -211,6 +308,19 @@ class _MangaCoverImageState extends State<MangaCoverImage> {
 
     // Normal network image
     if (widget.imageUrl.isEmpty) {
+      return _buildPlaceholder();
+    }
+
+    // Covers whose raw bytes need a per-source transform (e.g. AES-encrypted
+    // images) are fetched and decoded manually above, because
+    // CachedNetworkImage never exposes raw bytes. This deliberately takes
+    // precedence over the web-direct <img> path below, which cannot apply any
+    // transform at all since the bytes never enter Dart.
+    if (_needsByteTransform) {
+      if (_image != null) {
+        return RawImage(image: _image, fit: widget.fit);
+      }
+      if (_error) return _buildErrorWidget();
       return _buildPlaceholder();
     }
 

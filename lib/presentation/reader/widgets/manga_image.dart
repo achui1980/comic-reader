@@ -183,6 +183,7 @@ class _MangaImageState extends State<MangaImage> {
         widget.image.url,
         headers: widget.image.headers,
         responseEncoding: widget.image.responseEncoding,
+        sourceId: widget.sourceId,
       );
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
