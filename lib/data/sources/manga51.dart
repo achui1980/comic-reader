@@ -285,6 +285,13 @@ class Manga51 extends MangaSource {
   @override
   MangaDetail parseMangaInfo(dynamic response, String mangaId) {
     final htmlStr = response as String;
+    // FIRST, before every other branch. The origin's block page has no title
+    // element of either kind, so letting it reach the checks below would report a
+    // template change (「详情页标题选择器可能已失效」) for what is an upstream IP
+    // block — a wrong cause, printed verbatim on the user's screen by
+    // detail_cubit.dart. That is the same misdiagnosis the 不存在-vs-selector
+    // split exists to prevent, arriving from one layer further out.
+    _assertNotOriginBlock(htmlStr, 'mangaId=$mangaId');
     final document = html_parser.parse(htmlStr);
 
     final title = _cleanText(document.querySelector('h1.name')?.text) ??
@@ -466,6 +473,11 @@ class Manga51 extends MangaSource {
   ChapterResult parseChapter(
       dynamic response, String mangaId, String chapterId, int page) {
     final htmlStr = response as String;
+    // Before the payload scrape. The block page carries no `params`, so otherwise
+    // it reports 「未找到章节图片数据」 — a message whose own comment carefully
+    // rules out every cause it knows of, and which would now be quietly wrong
+    // about a cause it cannot see.
+    _assertNotOriginBlock(htmlStr, 'chapterId=$chapterId');
 
     final payload = _paramsPattern.firstMatch(htmlStr)?.group(1);
     // The `isEmpty` half is unreachable, not merely unobserved: [_paramsPattern]
@@ -605,6 +617,85 @@ class Manga51 extends MangaSource {
 
   // --- Private helpers ---
 
+  /// The origin's block page, identified by nginx/openresty's `server_tokens`
+  /// footer: `<hr><center>openresty/1.27.1.2</center>`.
+  ///
+  /// The block page verbatim (fetched 2026-08-31 from `/mh/YyZJyLgV6q`,
+  /// `/mh/4aNek4246W` and `/show/Vd3Q3uKzVB.html` — all three byte-identical,
+  /// sha256 `3ceb7483…ba6c`, 159 bytes, CRLF):
+  ///
+  /// ```html
+  /// <html>
+  /// <head><title>403 Forbidden</title></head>
+  /// <body>
+  /// <center><h1>403 Forbidden</h1></center>
+  /// <hr><center>openresty/1.27.1.2</center>
+  /// </body>
+  /// </html>
+  /// ```
+  ///
+  /// **Why not the substring `403`.** Because it false-positives on real content,
+  /// measured rather than imagined: `403` occurs 3 times in one live listing page
+  /// (`/category/order/hits/page/2`, 35892 bytes, 2026-08-31) — inside cover URLs
+  /// for book ids 7403, 44032 and 134403. A title or chapter name could do the
+  /// same at any time.
+  ///
+  /// **Why this cannot false-positive.** It requires the DEPRECATED `<center>`
+  /// tag immediately followed by a web-server name. Across every real artifact
+  /// sampled — 2 chapter pages, 2 listing pages, the site's own `/err/404` body
+  /// and `pic-v3.js`, 145850 bytes total, 2026-08-31 — `<center>` occurs 0 times,
+  /// `openresty` 0 times and `nginx` 0 times. The site's templates simply do not
+  /// emit that tag, and manga metadata cannot place a server name directly inside
+  /// one. Both halves would have to appear, adjacent, for a false positive.
+  ///
+  /// The version suffix is deliberately not matched, so `server_tokens off`
+  /// (`<center>openresty</center>`) still trips it. `nginx` is included because
+  /// openresty IS nginx and the footer changes with configuration.
+  ///
+  /// KNOWN FALSE NEGATIVE, accepted: a block page WITHOUT this footer (a custom
+  /// error page, or a different intermediary) is not detected and falls through to
+  /// the old, wrong message. That is today's behaviour, so no regression — and the
+  /// bias is deliberate, since a false positive would tell a user with a perfectly
+  /// good connection that their IP is banned.
+  static final RegExp _originBlockPattern =
+      RegExp(r'<center>\s*(?:openresty|nginx)', caseSensitive: false);
+
+  /// Throws if [htmlStr] is the origin's block page rather than site content.
+  ///
+  /// Must be called BEFORE any selector-based branch in every entry point that
+  /// parses a page body, because the block page satisfies none of the site's
+  /// selectors and would otherwise be misreported as a template change or as
+  /// missing data. [context] is an id or a route label for diagnosability.
+  ///
+  /// Two live facts make this necessary rather than defensive:
+  ///  * A CDN cache **HIT** serves real content with HTTP 200 even from a banned
+  ///    egress, while a **MISS** serves this page — so the same session sees both,
+  ///    and a source cannot infer the state from one response.
+  ///    Measured 2026-08-31: `/show/X3QXKiznL5.html` → 200, 27394 bytes,
+  ///    `x-cache: HIT, policy, disk`; `/mh/4aNek4246W` → 159 bytes,
+  ///    `x-cache: BYPASS, Status: 403`.
+  ///  * The block page sometimes arrives with an HTTP **200** status line, with
+  ///    the real code visible only inside `x-cache: BYPASS, Status: 403`. Dio then
+  ///    raises nothing and hands the body straight to us, which is precisely why
+  ///    this has to be a BODY check and cannot be left to `http_client.dart`.
+  ///    UNMEASURED BY THIS AUTHOR: every probe from this egress
+  ///    (2026-08-31) returned a genuine `403` status line, so Dio would have
+  ///    thrown first. The 200-with-403-body form is a SECOND SAMPLE, reported
+  ///    2026-08-31 from egress IP 38.246.228.36, corroborated by a user runtime
+  ///    log showing the genuine-403 form as well. Both forms are therefore
+  ///    believed to occur; only the genuine-403 form was reproduced here.
+  static void _assertNotOriginBlock(String htmlStr, String context) {
+    if (!_originBlockPattern.hasMatch(htmlStr)) return;
+    // Names the real cause and explicitly disclaims the one a reader would
+    // otherwise assume. Avoids the token 解析失败 on purpose, so it stays
+    // substring-disjoint from 「解析失败：详情页标题选择器可能已失效」.
+    //
+    // Leak invariant, as at every other throw site: only our own literals plus
+    // [context], which is an id or a route label. Never any part of the body.
+    throw Exception('51manga: 源站拒绝了请求：IP 可能被限流或封禁'
+        '（openresty 403 拦截页，不是页面结构变化）($context)');
+  }
+
   /// A listing card's manga id, matched against the href's PATH rather than the
   /// raw href, and anchored at both ends. Both properties are load-bearing:
   ///  * unanchored, a wrapper/tracking href like `/go?url=/mh/spam` would yield
@@ -678,6 +769,11 @@ class Manga51 extends MangaSource {
   /// `<b><a>` — so an unscoped query degrades to a few dropped cards instead of
   /// a blank page.
   List<MangaSummary> _parseCards(String htmlStr) {
+    // Quieter than the detail page but no less wrong: without this a blocked
+    // response yields zero cards, and discovery_cubit emits
+    // `status: loaded, manga: []`. discovery_screen has no empty-state widget, so
+    // the user gets a blank grid and no hint that anything failed.
+    _assertNotOriginBlock(htmlStr, 'listing');
     final document = html_parser.parse(htmlStr);
     final results = <MangaSummary>[];
 

@@ -26,6 +26,28 @@ const String kSimplePayload =
 
 const String kPicKey = r'9S8$vJnU2ANeSRoF';
 
+/// The origin's block page, BYTE-EXACT as fetched 2026-08-31 from
+/// `m.51manga.com/mh/YyZJyLgV6q`, `/mh/4aNek4246W` and `/show/Vd3Q3uKzVB.html`
+/// with the source's own mobile UA and PC Referer. All three were identical:
+/// 159 bytes, CRLF line endings, sha256
+/// `3ceb748352630dacd912caa738f2c52a0f1e34073e5eeb84ac4d545cfb98ba6c`.
+/// A test asserts the length, so this cannot be "tidied" into an LF copy.
+///
+/// This is what 51manga's origin returns on a CDN cache MISS once the egress IP
+/// is rate-limited or banned. A cache HIT still returns real content with HTTP
+/// 200 from the very same IP, so a single session sees both.
+///
+/// Note the version suffix on `openresty/1.27.1.2`: an earlier hand-written
+/// reproduction of this page rendered the footer as a bare `openresty`, which
+/// would have broken any discriminator keyed on the exact string.
+const String kOriginBlockHtml = '<html>\r\n'
+    '<head><title>403 Forbidden</title></head>\r\n'
+    '<body>\r\n'
+    '<center><h1>403 Forbidden</h1></center>\r\n'
+    '<hr><center>openresty/1.27.1.2</center>\r\n'
+    '</body>\r\n'
+    '</html>\r\n';
+
 void main() {
   // Fresh instance per test: MangaSource holds mutable auth state
   // (`_extraHeaders`), so later tasks' tests must not inherit it.
@@ -1074,6 +1096,116 @@ setTimeout(function() {
       expect(result.chapter.images, hasLength(3));
       expect(result.chapter.images.first.url,
           'https://img1.baipiaoguai.org/static/upload3/book/id/1/a.webp');
+    });
+  });
+
+  group('Manga51 origin-block detection', () {
+    // The origin IP-bans scraper egresses. On a CDN cache MISS it serves a
+    // 159-byte openresty block page, and that page has been observed arriving
+    // with an HTTP 200 status line (the real code hidden in
+    // `x-cache: BYPASS, Status: 403`), so Dio raises nothing and the body reaches
+    // parse* directly. Every entry point that parses a page body must therefore
+    // recognise it BEFORE its own selectors, or it reports a confident wrong cause.
+
+    test('the fixture is the real 159-byte page, CRLF and version included', () {
+      // Guards the fixture itself: an editor stripping CRLF, or someone dropping
+      // the `/1.27.1.2`, would silently weaken every test below.
+      expect(kOriginBlockHtml.length, 159);
+      expect(kOriginBlockHtml, contains('\r\n'));
+      expect(
+          kOriginBlockHtml, contains('<hr><center>openresty/1.27.1.2</center>'));
+    });
+
+    test('parseMangaInfo reports an origin block, NOT a selector failure', () {
+      // The regression that motivated this. The block page has neither `h1.name`
+      // nor `header .title h2` and does not contain 不存在, so it fell through to
+      // the selector-failure branch and told the user the site template had
+      // changed — a wrong cause, printed verbatim by detail_cubit.dart.
+      expect(
+        () => source.parseMangaInfo(kOriginBlockHtml, 'YyZJyLgV6q'),
+        throwsA(isA<Exception>().having(
+          (e) => e.toString(),
+          'message',
+          allOf([
+            contains('源站拒绝了请求'),
+            contains('YyZJyLgV6q'),
+            // The message that USED to win here. Pinning its absence is the whole
+            // point of this test.
+            isNot(contains('选择器')),
+            isNot(contains('解析失败')),
+            // ...and not any of the other five either.
+            isNot(contains('不存在')),
+            isNot(contains('章节链接格式异常')),
+            isNot(contains('未找到章节图片数据')),
+            isNot(contains('章节图片解密失败')),
+            isNot(contains('章节图片列表格式异常')),
+            // Leak invariant: our own literals plus the id, never the body.
+            isNot(contains('<center>')),
+            isNot(contains('Forbidden')),
+          ]),
+        )),
+      );
+    });
+
+    test('parseDiscovery reports an origin block instead of a blank grid', () {
+      // Without the guard this returns [] and discovery_cubit emits
+      // `status: loaded, manga: []`; discovery_screen has no empty-state widget,
+      // so the user sees an empty grid with no reason for it.
+      expect(
+        () => source.parseDiscovery(kOriginBlockHtml),
+        throwsA(isA<Exception>().having((e) => e.toString(), 'message',
+            allOf(contains('源站拒绝了请求'), isNot(contains('选择器'))))),
+      );
+    });
+
+    test('parseSearch reports an origin block instead of zero results', () {
+      // Shares _parseCards with parseDiscovery, but pinned separately: they are
+      // two entry points and a refactor could easily guard only one.
+      expect(
+        () => source.parseSearch(kOriginBlockHtml),
+        throwsA(isA<Exception>()
+            .having((e) => e.toString(), 'message', contains('源站拒绝了请求'))),
+      );
+    });
+
+    test('parseChapter reports an origin block, NOT missing image data', () {
+      // The block page has no `params`, so this used to report
+      // 「未找到章节图片数据」 — a message whose own comment carefully rules out
+      // every cause it knows of, which would have made it confidently wrong here.
+      expect(
+        () =>
+            source.parseChapter(kOriginBlockHtml, '4aNek4246W', 'Vd3Q3uKzVB', 1),
+        throwsA(isA<Exception>().having(
+          (e) => e.toString(),
+          'message',
+          allOf([
+            contains('源站拒绝了请求'),
+            contains('Vd3Q3uKzVB'),
+            isNot(contains('未找到章节图片数据')),
+            isNot(contains('解密失败')),
+            isNot(contains('章节图片列表格式异常')),
+          ]),
+        )),
+      );
+    });
+
+    test('a real cover URL containing 403 is not mistaken for a block page', () {
+      // The false-positive direction, which matters more than the others: telling
+      // a user with a working connection that their IP is banned would be worse
+      // than the bug being fixed.
+      //
+      // A bare `403` check would fail this. `403` occurs 3 times in one live
+      // listing page (/category/order/hits/page/2, 35892 bytes, 2026-08-31), every
+      // time inside a cover URL — book ids 7403, 44032 and 134403. This fixture
+      // reproduces the third. The whole rest of the suite covers the same
+      // direction for every other fixture, since none of them may start throwing.
+      const coverWith403 = '<div class="comic-item">'
+          '<a href="/mh/abcdefghij"><div class="pic">'
+          '<img src="https://img1.baipiaoguai.org/static/upload2/book/id/134403/cover_1.jpg">'
+          '</div><h3 class="title">全球冰封</h3></a></div>';
+      final cards = source.parseDiscovery(coverWith403);
+      expect(cards, hasLength(1));
+      expect(cards.first.coverUrl, contains('134403'));
     });
   });
 }
