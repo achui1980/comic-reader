@@ -429,15 +429,20 @@ void main() {
   });
 
   group('Manga51 detail parsing', () {
-    // Mirrors the live m.51manga.com/mh/4aNek4246W markup. Two deliberate
-    // deviations from that page, both defensive:
+    // Mirrors the live m.51manga.com/mh/4aNek4246W markup. Three deliberate
+    // deviations from that page, all defensive:
     //  * the `javascript:void(0);` row inside ul.chapter-list. On the live page
     //    the only such href is the `[倒序]` sort toggle, which sits in
     //    div.panel-heading OUTSIDE the list (0 javascript: hrefs occur inside
-    //    ul.chapter-list across the 15 chapter-bearing pages sampled).
+    //    ul.chapter-list across the 16 chapter-bearing pages sampled).
     //  * only 3 of the page's 12 chapter rows are reproduced.
+    //  * the trailing `href="/category/"` tag anchor. That page has only real
+    //    `/category/tags/N` links; this row is lifted from r368n70WNX, where the
+    //    tags were never split and arrive concatenated. It is here so the href
+    //    filter in parseMangaInfo is actually exercised — without it every
+    //    fixture anchor conforms and dropping the filter changes nothing.
     // The empty `<div class="mask">` IS faithful: it is present and empty on
-    // all 24 live detail pages sampled, which is exactly why div.mask is not a
+    // all 25 live detail pages sampled, which is exactly why div.mask is not a
     // status selector here even though it is one on listing routes.
     const detailHtml = '''
 <html><body>
@@ -449,6 +454,7 @@ void main() {
   <a target="_blank" href="/category/tags/1025">已完结</a>
   <a target="_blank" href="/category/tags/2843">国漫</a>
   <a target="_blank" href="/category/tags/2593">古风</a>
+  <a target="_blank" href="/category/">热血玄幻古风魔幻魔法</a>
 </span>
 <div class="comic_hot"><i class="iconfont icon-myfill"></i>剧象漫画</div>
 <div class="zuixin">
@@ -485,7 +491,11 @@ void main() {
       expect(detail.headers?['Referer'], 'https://www.51manga.com/');
     });
 
-    test('description skips the download-app decoy paragraph', () {
+    test('description comes from metas-desc, not the download-app advert', () {
+      // Named for the outcome, not a mechanism. What makes this pass is
+      // parseMangaInfo EXCLUDING the .download-app subtree; `.last` alone would
+      // also pass here, which is precisely why the old name ("skips the
+      // download-app decoy") misattributed the defence.
       final detail = source.parseMangaInfo(detailHtml, '4aNek4246W');
       expect(detail.description, startsWith('北宋年间'));
       expect(detail.description, isNot(contains('下载APP')));
@@ -495,6 +505,23 @@ void main() {
       final detail = source.parseMangaInfo(detailHtml, '4aNek4246W');
       expect(detail.tags, ['已完结', '国漫', '古风']);
       expect(detail.status, MangaStatus.completed);
+    });
+
+    test('drops unsplittable pseudo-tags that are not /category/tags/ links',
+        () {
+      // 1 of the 25 live pages sampled (r368n70WNX) never had its tags split
+      // into real links: they arrive as `href="/category/"` anchors holding
+      // several tag names concatenated with NO separator, so they cannot be
+      // recovered into individual tags. The href filter drops them.
+      //
+      // Two things go wrong if that filter is removed: 「热血玄幻古风魔幻魔法」
+      // reaches the detail screen as one nonsense chip, and _statusFromTags gets
+      // handed a single string that can contain both 完结 and 连载 — the case its
+      // ordering note assumes cannot occur.
+      final detail = source.parseMangaInfo(detailHtml, '4aNek4246W');
+      expect(detail.tags, isNot(contains('热血玄幻古风魔幻魔法')));
+      expect(detail.tags, hasLength(3),
+          reason: 'only the three /category/tags/ anchors are real tags');
     });
 
     test('infers ongoing status from a 连载 tag', () {
@@ -507,7 +534,7 @@ void main() {
 
     test('status is unknown when no tag mentions it', () {
       // This, not the completed/ongoing branches, is the common live outcome:
-      // only 1 of 24 sampled detail pages carries a status-bearing tag.
+      // exactly 1 of the 25 pages sampled carries a status-bearing tag.
       const html = '<h1 class="name">T</h1>'
           '<span class="tags_last diy_tags"><a href="/category/tags/1">古风</a></span>';
       expect(source.parseMangaInfo(html, 'x').status, MangaStatus.unknown);
@@ -584,17 +611,25 @@ void main() {
 
     test('throws on the deleted-manga page instead of returning an empty shell',
         () {
-      // Live shape: /mh/<unknown-id> 302s to /err/comic, which serves this
-      // sentence. Reachable from real listings — one card on
-      // /category/finish/1/page/1 resolved to exactly this stub.
+      // The REAL /err/comic body (fetched 2026-08-31), verbatim apart from line
+      // endings: the wire form is CRLF and 259 bytes, this LF copy is 254.
+      // /mh/<unknown-id> 302s here, and it is reachable from real listings — 1
+      // of the 24 ids taken off live listing pages resolved to it. Note what the
+      // idealized fixture used to hide: there is no <html>/<body> wrapper, there
+      // is a SECOND sentence, and a <script> redirects to /category after 2s.
       //
-      // What actually trips the throw is `title.isEmpty` (the stub has neither
-      // h1.name nor header .title h2), NOT detection of the sentence. The
-      // message predicate is what makes this test meaningful: a bare
+      // What trips the throw is `title.isEmpty` (the stub has neither h1.name
+      // nor header .title h2); the 不存在 substring then selects WHICH message.
+      // The message predicate is what makes this test meaningful: a bare
       // isA<Exception>() would be satisfied by any unrelated crash, including
       // one from deleting the guard and letting a later null deref fire.
       const html =
-          '<html><body>很遗憾，该漫画不存在或章节已被删除。</body></html>';
+          '''很遗憾，该漫画不存在或章节已被删除。我们将自动跳转到漫画检索页，在那里您可以发现更多精彩内容。
+<script type="text/javascript">
+setTimeout(function() {
+	window.location.href = '/category';
+}, 2000);
+</script>''';
       expect(
         () => source.parseMangaInfo(html, 'deadid'),
         throwsA(isA<Exception>()
@@ -602,7 +637,28 @@ void main() {
       );
     });
 
+    test('a titleless page that is NOT the deleted stub reports a selector '
+        'failure, not a deletion', () {
+      // detail_cubit.dart passes e.toString() straight to the detail screen, so
+      // these two causes must read differently. If `h1.name` were ever renamed,
+      // conflating them would tell every user that the whole catalogue had been
+      // deleted, and would point the maintainer nowhere near the selectors.
+      const html = '<html><body><div class="comic_article">'
+          '<div class="metas-desc"><p>真的简介</p></div>'
+          '</div></body></html>';
+      expect(
+        () => source.parseMangaInfo(html, 'x'),
+        throwsA(isA<Exception>().having(
+          (e) => e.toString(),
+          'message',
+          allOf(contains('选择器'), isNot(contains('不存在'))),
+        )),
+      );
+    });
+
     test('description is null when metas-desc has no real paragraph', () {
+      // The one case where excluding .download-app is load-bearing: with no
+      // blurb, the advert is the ONLY paragraph, so `.last` cannot save it.
       const html = '<h1 class="name">T</h1>'
           '<div class="metas-desc"><div class="download-app"><p>下载APP，免费看更多精彩漫画</p></div></div>';
       expect(source.parseMangaInfo(html, 'x').description, isNull);
@@ -610,10 +666,11 @@ void main() {
 
     test('parseChapterList always returns an empty result', () {
       // prepareChapterListFetch returns null, so the framework never calls
-      // this; the info page ships every chapter. Verified live: on all 15
+      // this; the info page ships every chapter. Verified live: on all 16
       // chapter-bearing pages sampled the last <li> equals div.zuixin's
-      // 最新话 (up to 916 rows on r368n70WNX, 1328 on km6KELW8NB), and the
-      // only control near ul.chapter-list is a client-side [倒序] toggle.
+      // 最新话 (916 rows on r368n70WNX, up to 1835 on 85oDJXjmZa — a floor that
+      // keeps rising), and the only control near ul.chapter-list is a
+      // client-side [倒序] toggle.
       expect(
           source.parseChapterList(detailHtml, '4aNek4246W').chapters, isEmpty);
       expect(source.parseChapterList(detailHtml, '4aNek4246W').canLoadMore,
