@@ -237,30 +237,70 @@ class Manga51 extends MangaSource {
 
   // --- Private helpers ---
 
-  static final RegExp _mangaIdPattern = RegExp(r'/mh/([A-Za-z0-9]+)');
+  /// A listing card's manga id, matched against the href's PATH rather than the
+  /// raw href, and anchored at both ends. Both properties are load-bearing:
+  ///  * unanchored, a wrapper/tracking href like `/go?url=/mh/spam` would yield
+  ///    an id out of a query string;
+  ///  * without the `$`, `/mh/abc_123` would silently TRUNCATE to `abc` — a
+  ///    plausible-looking card that 404s on tap, with nothing in the logs.
+  ///    Skipping is strictly better than a wrong id.
+  /// Every live id sampled (120/120 across 4 listing routes) is 6-10 chars of
+  /// `[A-Za-z0-9]` — no `_`, no `-`.
+  static final RegExp _mangaIdPattern = RegExp(r'^/mh/([A-Za-z0-9]+)$');
   static final RegExp _whitespacePattern = RegExp(r'\s+');
 
   /// Parse `.comic-item` cards, shared by /category and /search.
   ///
-  /// `div.mask` (已完结 / 连载) is intentionally ignored: MangaSummary has no
-  /// status field, so status is surfaced only on the detail page.
+  /// `div.mask` is intentionally not read. On listing routes it is a status
+  /// badge (完结 / 已完结 / 连载 / 连载中), but on the homepage the same selector
+  /// holds a chapter name, so it is NOT a site-wide status selector.
+  /// [MangaSummary] has no status field regardless; status is surfaced only on
+  /// the detail page.
+  ///
+  /// Cover URLs are emitted verbatim. Every listing cover sampled (60/60) is
+  /// absolute, so the base-URL join is consciously omitted rather than
+  /// overlooked — note the failure would be silent, as a protocol-relative
+  /// (`//host/x.jpg`) or root-relative (`/static/y.jpg`) cover would pass
+  /// through and merely render broken.
+  ///
+  /// The query is deliberately NOT scoped to `#comic-list`. That id is present
+  /// on every listing route today, but scoping to it would turn any container
+  /// rename into a silently EMPTY discovery screen. The `title.isEmpty` guard
+  /// below already discards foreign `.comic-item` shapes — notably the detail
+  /// page's "related" strip, which uses `a.pic > img` and puts its title in
+  /// `<b><a>` — so an unscoped query degrades to a few dropped cards instead of
+  /// a blank page.
   List<MangaSummary> _parseCards(String htmlStr) {
     final document = html_parser.parse(htmlStr);
     final results = <MangaSummary>[];
 
     for (final item in document.querySelectorAll('div.comic-item')) {
       final href = item.querySelector('a')?.attributes['href'] ?? '';
-      final mangaId = _mangaIdPattern.firstMatch(href)?.group(1);
-      // Cards without a /mh/ target are ads or app-download promos.
+      // Uri.path strips any origin, so an absolute href resolves too.
+      final path = Uri.tryParse(href)?.path ?? '';
+      final mangaId = _mangaIdPattern.firstMatch(path)?.group(1);
+      // Defensive: skip anything in the grid that is not a /mh/ manga link.
+      // (As of this writing every card on /category and /search is one — 120 of
+      // 120 sampled; this guard exists so a template change degrades to fewer
+      // cards, not wrong ids.)
       if (mangaId == null) continue;
 
       final img = item.querySelector('div.pic img');
+      // `data-src` is checked first purely as cheap defense: no live page emits
+      // it and no lazy-load library is referenced anywhere on the site — covers
+      // ship in plain `src`. For coverless entries the site serves its own
+      // absolute `packs/mccms/empty.png`, which is passed through as-is: it is a
+      // real graphic, and blanking it would make "no cover" indistinguishable
+      // from "parse failed".
       final cover =
           img?.attributes['data-src'] ?? img?.attributes['src'] ?? '';
 
       final title = _cleanText(item.querySelector('h3.title')?.text) ??
           _cleanText(img?.attributes['alt']) ??
           '';
+      // A titleless card would render as a blank, unlabelled tile and would
+      // collide with every other empty title in cross-source dedup, so drop it.
+      if (title.isEmpty) continue;
 
       results.add(MangaSummary(
         id: mangaId,
@@ -276,11 +316,12 @@ class Manga51 extends MangaSource {
     return results;
   }
 
-  /// Trim, collapse internal whitespace, drop nbsp. Returns null when empty.
-  String? _cleanText(String? raw) {
+  /// Trim and collapse internal whitespace; returns null when nothing is left.
+  /// `\s` already covers U+00A0 (nbsp) and U+3000 (ideographic space), both of
+  /// which this site emits, so no explicit entity handling is needed.
+  static String? _cleanText(String? raw) {
     if (raw == null) return null;
-    final cleaned =
-        raw.replaceAll('\u00a0', ' ').replaceAll(_whitespacePattern, ' ').trim();
+    final cleaned = raw.replaceAll(_whitespacePattern, ' ').trim();
     return cleaned.isEmpty ? null : cleaned;
   }
 }

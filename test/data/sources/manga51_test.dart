@@ -245,6 +245,10 @@ void main() {
   });
 
   group('Manga51 card parsing', () {
+    // Mirrors live /category and /search markup. Both routes render the same
+    // cards. Covers are in plain `src` (no `data-src` occurs anywhere on the
+    // real site), and the second card carries the site's own absolute
+    // placeholder, which is what coverless entries actually serve.
     const listHtml = '''
 <div id="comic-list">
   <div class="comic-item">
@@ -262,7 +266,7 @@ void main() {
   <div class="comic-item">
     <a href="/mh/r368n70WNX">
       <div class="pic">
-        <img data-src="https://img1.baipiaoguai.org/lazy.jpg" src="/packs/mccms/empty.png" alt="魔皇大管家">
+        <img src="https://www.51manga.com/packs/mccms/empty.png" alt="魔皇大管家">
         <div class="mask">连载</div>
       </div>
       <div class="field-info">
@@ -291,9 +295,33 @@ void main() {
       expect(results[0].latestChapter, '最终章 释然');
     });
 
-    test('parseDiscovery prefers data-src over the src placeholder', () {
+    test("passes the site's own empty.png placeholder through unchanged", () {
+      // Coverless entries (3 of 30 on /category/page/1) get this absolute URL in
+      // plain `src`. It must NOT be normalised to '': it is a real graphic the
+      // site designed for this case, and blanking it would substitute the app's
+      // error widget and make "no cover" indistinguishable from "parse failed".
       final results = source.parseDiscovery(listHtml);
-      expect(results[1].coverUrl, 'https://img1.baipiaoguai.org/lazy.jpg');
+      expect(results[1].coverUrl, 'https://www.51manga.com/packs/mccms/empty.png');
+    });
+
+    test('prefers data-src when present (defensive; live pages use plain src)',
+        () {
+      // No live 51manga page emits data-src and the site references no
+      // lazy-load library, so this branch is speculative armour, not observed
+      // behaviour. It lives in its own fixture so listHtml above stays a
+      // faithful record of the real markup.
+      const lazyHtml = '''
+<div class="comic-item">
+  <a href="/mh/r368n70WNX">
+    <div class="pic">
+      <img data-src="https://img1.baipiaoguai.org/lazy.jpg" src="/packs/mccms/empty.png" alt="魔皇大管家">
+    </div>
+    <div class="field-info"><h3 class="title">魔皇大管家</h3></div>
+  </a>
+</div>
+''';
+      final results = source.parseDiscovery(lazyHtml);
+      expect(results.single.coverUrl, 'https://img1.baipiaoguai.org/lazy.jpg');
     });
 
     test('every summary carries the anti-hotlink headers', () {
@@ -319,10 +347,13 @@ void main() {
       // whitespace-only .txt to null rather than ''. Both matter because a
       // latestChapter of '' renders as an empty badge in the UI, and a blank
       // title makes the card unidentifiable.
+      //
+      // The \u00a0 in the alt also pins that Dart's `\s` matches nbsp, which is
+      // why _cleanText needs no explicit nbsp handling.
       const html = '''
 <div class="comic-item">
   <a href="/mh/Zz9Qq1">
-    <div class="pic"><img data-src="c.jpg" alt="  标题\u00a0 有空格 "></div>
+    <div class="pic"><img src="c.jpg" alt="  标题\u00a0 有空格 "></div>
     <div class="field-info"><div class="txt">   </div></div>
   </a>
 </div>
@@ -331,6 +362,63 @@ void main() {
       expect(results, hasLength(1));
       expect(results[0].title, '标题 有空格');
       expect(results[0].latestChapter, isNull);
+    });
+
+    test('skips cards with no usable title', () {
+      // Real shape: the /mh/ DETAIL page carries 6 `div.comic-item` cards in a
+      // "related" strip whose markup is incompatible — `a.pic > img` instead of
+      // `div.pic > img`, title in `<b><a>`, no h3.title, no .field-info. The
+      // href IS a valid /mh/ link, so the id guard passes and this parser would
+      // otherwise emit summaries with empty title AND empty cover, which
+      // manga_card.dart renders as blank unlabelled tiles.
+      //
+      // This is also why the selector is not scoped to `#comic-list`: the title
+      // guard handles the foreign shape without betting discovery on a
+      // container id.
+      const relatedHtml = '''
+<div class="comic-item">
+  <a class="pic" href="/mh/rgoqMjdwoY"><img src="r.jpg"></a>
+  <b><a href="/mh/rgoqMjdwoY">相关漫画</a></b>
+</div>
+''';
+      expect(source.parseDiscovery(relatedHtml), isEmpty);
+    });
+
+    test('manga id must be the whole path, not a substring of it', () {
+      // Table of href -> expected id (null = card must be skipped). Documents
+      // the id charset contract that Task 4's sibling chapter-id pattern should
+      // copy. The truncation cases matter most: a wrong-but-plausible id sends
+      // the user to a 404 detail page silently, so skipping is the safer loss.
+      const cases = <String, String?>{
+        '/mh/4aNek4246W': '4aNek4246W',
+        // Uri.path strips the origin, so absolute hrefs resolve too.
+        'https://m.51manga.com/mh/abc123': 'abc123',
+        // Ids live in the path only; a query string must not smuggle one.
+        '/go?url=/mh/spam1&id=9': null,
+        '/ad/click?to=/mh/PROMO1': null,
+        // Would truncate to 'abc' / 'abc123' if the pattern were unanchored.
+        '/mh/abc_123': null,
+        '/mh/abc-123': null,
+        '/mh/abc123.html': null,
+        // No id at all.
+        '/mh/': null,
+        '/redirect/code/toP0LT': null,
+      };
+
+      String cardFor(String href) => '''
+<div class="comic-item">
+  <a href="$href">
+    <div class="pic"><img src="c.jpg" alt="T"></div>
+    <div class="field-info"><h3 class="title">T</h3></div>
+  </a>
+</div>
+''';
+
+      cases.forEach((href, expected) {
+        final ids = source.parseDiscovery(cardFor(href)).map((s) => s.id);
+        expect(ids, expected == null ? isEmpty : [expected],
+            reason: 'href $href');
+      });
     });
   });
 }
