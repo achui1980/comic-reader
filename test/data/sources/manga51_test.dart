@@ -26,6 +26,14 @@ const String kSimplePayload =
 const String kPicKey = r'9S8$vJnU2ANeSRoF';
 
 void main() {
+  // Fresh instance per test: MangaSource holds mutable auth state
+  // (`_extraHeaders`), so later tasks' tests must not inherit it.
+  late Manga51 source;
+
+  setUp(() {
+    source = Manga51();
+  });
+
   group('aesDecryptBase64PrefixedIv', () {
     test('decrypts a known payload to its known plaintext', () {
       expect(
@@ -93,8 +101,6 @@ void main() {
   });
 
   group('Manga51 metadata', () {
-    final source = Manga51();
-
     test('identity getters', () {
       expect(source.id, 'manga51');
       expect(source.name, '51漫画');
@@ -108,7 +114,10 @@ void main() {
       expect(source.needsProxy, isFalse);
       expect(source.needsCloudflare, isFalse);
       expect(source.disabled, isFalse);
-      expect(source.firstPage, 1);
+      expect(source.firstPage, 1,
+          reason: 'prepareSearchFetch treats page <= 1 as the bare, '
+              'page-segment-less URL, which is only correct while the first '
+              'page is numbered 1');
     });
 
     test('sends a mobile UA and a PC-host Referer', () {
@@ -121,7 +130,12 @@ void main() {
         source.discoveryFilters.map((f) => f.name).toList(),
         ['list', 'tags', 'finish', 'order'],
       );
-      expect(source.searchFilters, isEmpty);
+    });
+
+    test('search takes a keyword only, with no filters', () {
+      expect(source.searchFilters, isEmpty,
+          reason: 'the site has no search-side filter UI; search is '
+              'keyword-only, so prepareSearchFetch ignores its filters arg');
     });
 
     test('tag filter labels are unique (site duplicates id 872/873 as 恋爱)', () {
@@ -134,13 +148,39 @@ void main() {
   });
 
   group('Manga51 request builders', () {
-    final source = Manga51();
-
     test('prepareDiscoveryFetch with no filters', () {
       expect(
         source.prepareDiscoveryFetch(1, {}).url,
         'https://m.51manga.com/category/page/1',
       );
+    });
+
+    test('prepareDiscoveryFetch emits EVERY declared discovery filter', () {
+      // Drift guard. prepareDiscoveryFetch iterates a hardcoded segment list
+      // that runs parallel to discoveryFilters (deliberately, so the site's
+      // required segment order is not tied to the UI dropdown order). Without
+      // this test, adding a 5th FilterOption and forgetting the segment list
+      // would silently drop it from every discovery URL with all tests green.
+      //
+      // Derived from discoveryFilters rather than hardcoded, so it keeps
+      // working as filters are added and does NOT care about their order.
+      final filters = <String, String>{
+        for (final option in source.discoveryFilters)
+          // The builder skips empty values, and most options offer a "全部"
+          // choice whose value is '' — picking that would make this vacuous.
+          option.name: option.choices
+              .map((c) => c.value)
+              .firstWhere((v) => v.isNotEmpty, orElse: () => 'probe'),
+      };
+
+      final url = source.prepareDiscoveryFetch(1, filters).url;
+
+      expect(filters, isNotEmpty, reason: 'sanity: filters were derived');
+      filters.forEach((name, value) {
+        expect(url, contains('/$name/$value'),
+            reason: 'prepareDiscoveryFetch dropped the "$name" filter — its '
+                'hardcoded segment list is out of sync with discoveryFilters');
+      });
     });
 
     test('prepareDiscoveryFetch emits segments in the site order', () {
@@ -174,7 +214,8 @@ void main() {
       final url = source.prepareSearchFetch('妹妹', 2, {}).url;
       expect(url, 'https://m.51manga.com/search/%E5%A6%B9%E5%A6%B9/2');
       expect(url, isNot(contains('/page/')),
-          reason: '/page/N silently returns page 1 on this site');
+          reason: '/page/N silently returns page 1 on the SEARCH route '
+              '(discovery, by contrast, requires /page/N)');
     });
 
     test('prepareMangaInfoFetch', () {

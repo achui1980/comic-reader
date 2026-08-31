@@ -54,6 +54,12 @@ class Manga51 extends MangaSource {
   @override
   Map<String, String>? get defaultHeaders => const {'Referer': '$_pcBaseUrl/'};
 
+  /// Discovery filters. Each `name` here is consumed by
+  /// [prepareDiscoveryFetch] as a URL path segment (`/<name>/<value>`), so the
+  /// names are site API surface, not just UI labels. Adding an option here
+  /// requires adding its name to the segment list in [prepareDiscoveryFetch];
+  /// a test enforces that. Declaration order sets the UI dropdown order only —
+  /// the URL segment order is fixed separately by the site.
   @override
   List<FilterOption> get discoveryFilters => const [
         FilterOption(
@@ -132,11 +138,16 @@ class Manga51 extends MangaSource {
   @override
   FetchConfig prepareDiscoveryFetch(int page, Map<String, String> filters) {
     // Segment order is fixed by the site: list -> tags -> finish -> order -> page.
+    // This list must stay in sync with the `name`s in [discoveryFilters]; it is
+    // deliberately NOT derived from them, because that would tie the site's
+    // required segment order to the UI dropdown order.
     final buffer = StringBuffer('$_baseUrl/category');
     for (final key in const ['list', 'tags', 'finish', 'order']) {
       final value = filters[key] ?? '';
       if (value.isNotEmpty) buffer.write('/$key/$value');
     }
+    // Discovery REQUIRES the `/page/N` form and paginates correctly with it.
+    // (Contrast prepareSearchFetch, where `/page/N` is broken.)
     buffer.write('/page/$page');
     return FetchConfig(url: buffer.toString());
   }
@@ -150,8 +161,16 @@ class Manga51 extends MangaSource {
   @override
   FetchConfig prepareSearchFetch(
       String keyword, int page, Map<String, String> filters) {
-    // Pagination is a BARE numeric segment. `/page/$page` silently returns
-    // page 1 on this site.
+    // Pagination on the SEARCH route is a bare numeric segment: `/search/<kw>/2`.
+    // Verified live against m.51manga.com with the mobile UA (keyword 妹妹):
+    //  * `/search/<kw>` and `/search/<kw>/1` are byte-identical, so the bare
+    //    form is merely the site's canonical page-1 URL. This special case is a
+    //    stylistic choice, NOT a site requirement — the sibling HaokanManhua
+    //    appends `/$page` unconditionally and works fine.
+    //  * `/search/<kw>/page/2` returns page 1 SILENTLY (200, same bytes as
+    //    page 1). Do not copy the `/page/N` form that prepareDiscoveryFetch
+    //    uses; that route needs it, this one breaks on it.
+    // `<=` rather than `==` is defensive against a 0-or-negative caller.
     final base = '$_baseUrl/search/${Uri.encodeComponent(keyword)}';
     return FetchConfig(url: page <= 1 ? base : '$base/$page');
   }
