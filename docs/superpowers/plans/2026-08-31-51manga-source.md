@@ -45,6 +45,20 @@ import 'package:comic_reader/core/utils/crypto_utils.dart';
 /// Base64 of `IV || AES-128-CBC(PKCS7)` produced offline with the real 51manga
 /// key `9S8$vJnU2ANeSRoF` and the fixed IV `0123456789abcdef`.
 /// Plaintext: `{"ok":true,"msg":"51manga"}`
+///
+/// Re-verify this vector independently of Dart (`tail -c +17` drops the
+/// 16-byte IV prefix so only the ciphertext reaches openssl):
+///
+/// ```sh
+/// echo -n 'MDEyMzQ1Njc4OWFiY2RlZg3jWjN/qoD6bo2MJ85/CU9d6d1jHc/1vHQsEOQqB99M' \
+///   | base64 -d | tail -c +17 \
+///   | openssl enc -d -aes-128-cbc \
+///       -K 39533824764a6e5532414e6553526f46 \
+///       -iv 30313233343536373839616263646566
+/// # -> {"ok":true,"msg":"51manga"}
+/// ```
+///
+/// `-K`/`-iv` are the hex forms of the UTF-8 key and IV above.
 const String kSimplePayload =
     'MDEyMzQ1Njc4OWFiY2RlZg3jWjN/qoD6bo2MJ85/CU9d6d1jHc/1vHQsEOQqB99M';
 
@@ -61,16 +75,58 @@ void main() {
 
     test('throws when the payload is 16 bytes or shorter (no ciphertext)', () {
       // 16 bytes: IV only, nothing left to decrypt.
+      //
+      // The message predicate is essential, not decoration: RangeError and
+      // IndexError both EXTEND ArgumentError, so a bare isA<ArgumentError>()
+      // would also be satisfied by an accidental out-of-range crash and would
+      // still pass if the length guard were deleted outright.
       expect(
         () => aesDecryptBase64PrefixedIv('MDEyMzQ1Njc4OWFiY2RlZg==', kPicKey),
-        throwsA(isA<ArgumentError>()),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message.toString(),
+            'message',
+            allOf(
+              contains('decoded payload is 16 bytes'),
+              contains('need more than 16'),
+            ),
+          ),
+        ),
       );
     });
 
-    test('throws on a wrong key rather than returning garbage', () {
+    test('throws a PKCS7 pad-check failure on a wrong key of the correct '
+        'length', () {
+      // The pad check is the ONLY thing that makes a wrong key throw here.
+      // Encrypter.decrypt utf8-decodes with allowMalformed: true, so garbage
+      // plaintext would otherwise come back as U+FFFD mojibake, not an error.
       expect(
         () => aesDecryptBase64PrefixedIv(kSimplePayload, 'wrongkey12345678'),
-        throwsA(isA<Object>()),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message.toString(),
+            'message',
+            contains('Invalid or corrupted pad block'),
+          ),
+        ),
+      );
+    });
+
+    test('throws FormatException when the payload is not valid base64', () {
+      // base64.decode (not our guard) rejects this, so the type is
+      // FormatException rather than ArgumentError. Matters because Task 5
+      // scrapes this payload out of HTML. Note base64.decode IS tolerant of
+      // missing '=' padding and of the base64url alphabet, so this fixture
+      // uses a character outside both alphabets.
+      expect(
+        () => aesDecryptBase64PrefixedIv('not!valid!base64', kPicKey),
+        throwsA(
+          isA<FormatException>().having(
+            (e) => e.message,
+            'message',
+            contains('Invalid character'),
+          ),
+        ),
       );
     });
   });
@@ -107,17 +163,29 @@ import 'package:encrypt/encrypt.dart' as encrypt;
 Then insert this function after the closing brace of `aesDecrypt` (i.e. after line 31) and before `Uint8List _hexDecode(...)`:
 
 ```dart
-/// AES-128-CBC decryption where [payload] is base64-encoded and, once decoded,
+/// AES-CBC decryption where [payload] is base64-encoded and, once decoded,
 /// its first 16 BYTES are the IV and the remainder is the ciphertext.
 ///
-/// [key] is the AES key as a UTF-8 string (16 bytes for AES-128).
-/// Padding is PKCS7 and the plaintext is decoded as UTF-8.
+/// [key] is the AES key as a UTF-8 string; its length selects the variant
+/// (16 bytes = AES-128, 24 = AES-192, 32 = AES-256). 51manga uses a 16-byte
+/// key, but nothing here is 128-specific. Padding is PKCS7.
 ///
 /// This is the scheme used by 51manga's `pic-v3.js`. It is deliberately
 /// separate from [aesDecrypt], which uses 16 leading *characters* as the IV
 /// plus *hex* ciphertext (the CopyManga scheme).
 ///
-/// Throws [ArgumentError] if the decoded payload has no ciphertext.
+/// The plaintext is UTF-8 decoded *leniently* (`allowMalformed: true`, inside
+/// `Encrypter.decrypt`), so a wrong-but-plausible key yields U+FFFD mojibake
+/// rather than an error. Do not treat "returned a String" as "decrypted
+/// correctly" — callers should validate the decoded content.
+///
+/// Throws:
+/// - [FormatException] if [payload] is not valid base64. Relevant because
+///   callers scrape this blob out of HTML, so a markup change surfaces here
+///   and not as an [ArgumentError].
+/// - [ArgumentError] if the decoded payload has no ciphertext (the explicit
+///   guard below), and also from the PKCS7 pad check ("Invalid or corrupted
+///   pad block") when the key is wrong or the ciphertext is not block-aligned.
 String aesDecryptBase64PrefixedIv(String payload, String key) {
   final raw = base64.decode(payload);
   if (raw.length <= 16) {
@@ -150,7 +218,7 @@ String aesDecryptBase64PrefixedIv(String payload, String key) {
 flutter test test/data/sources/manga51_test.dart
 ```
 
-Expected: `All tests passed!` (3 tests).
+Expected: `All tests passed!` (4 tests).
 
 - [ ] **Step 5: Static check**
 
@@ -543,7 +611,7 @@ class Manga51 extends MangaSource {
 flutter test test/data/sources/manga51_test.dart
 ```
 
-Expected: `All tests passed!` (14 tests). If `_imageHeaders` is reported as unused, that is expected until Task 3 — but it is referenced by `const` so analyze will not flag it; if analyze does complain, proceed to Task 3 rather than deleting it.
+Expected: `All tests passed!` (15 tests). If `_imageHeaders` is reported as unused, that is expected until Task 3 — but it is referenced by `const` so analyze will not flag it; if analyze does complain, proceed to Task 3 rather than deleting it.
 
 - [ ] **Step 5: Static check**
 
@@ -778,7 +846,7 @@ Note: `Document` from `package:html/dom.dart` is needed by Task 4; the import is
 flutter test test/data/sources/manga51_test.dart
 ```
 
-Expected: `All tests passed!` (19 tests).
+Expected: `All tests passed!` (20 tests).
 
 - [ ] **Step 5: Static check**
 
@@ -1066,7 +1134,7 @@ If Task 3 skipped the `package:html/dom.dart` import, add it now — `Document` 
 flutter test test/data/sources/manga51_test.dart
 ```
 
-Expected: `All tests passed!` (29 tests).
+Expected: `All tests passed!` (30 tests).
 
 - [ ] **Step 5: Static check**
 
@@ -1299,7 +1367,7 @@ Then add these next to the other private helpers:
 flutter test test/data/sources/manga51_test.dart
 ```
 
-Expected: `All tests passed!` (35 tests).
+Expected: `All tests passed!` (36 tests).
 
 - [ ] **Step 5: Static check**
 
@@ -1365,7 +1433,7 @@ Expected: `No issues found!`
 flutter test test/data/sources/manga51_test.dart
 ```
 
-Expected: `All tests passed!` (35 tests).
+Expected: `All tests passed!` (36 tests).
 
 Do NOT run `flutter test` over the whole repo: this repo contains live-network scripts under `test/` and a `test/widget_test.dart` that is already failing for unrelated reasons.
 
