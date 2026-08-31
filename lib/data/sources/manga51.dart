@@ -247,7 +247,10 @@ class Manga51 extends MangaSource {
       // sentence is 「很遗憾，该漫画不存在或章节已被删除。」 and which carries no
       // title element of either kind. This is a hot path, not an edge case: 1 of
       // the 24 ids taken straight off live listing pages resolved to that stub
-      // (verified live 2026-08-31).
+      // (verified live 2026-08-31). That 24 is NOT a typo for the 25 used
+      // elsewhere in this file: 24 counts ids tapped from a listing, of which
+      // this 1 was the stub, leaving the 25-page detail samples cited below —
+      // two different measurements that happen to sit one apart.
       if (htmlStr.contains('不存在')) {
         throw Exception('51manga: 该漫画不存在或已被删除 (mangaId=$mangaId)');
       }
@@ -303,8 +306,9 @@ class Manga51 extends MangaSource {
       // Match the parsed PATH, anchored — same contract as [_mangaIdPattern],
       // for the same reasons. Uri.tryParse never throws: it returns null on a
       // malformed href, and for `javascript:void(0);` yields the path
-      // `void(0);`, which the anchor rejects. 6271 of 6271 live chapter hrefs
-      // sampled match this exactly (verified 2026-08-31).
+      // `void(0);`, which the anchor rejects. 2145 of 2145 live chapter hrefs
+      // sampled match this exactly — see [_chapterIdPattern] for the sample and
+      // for why the absolute count is the weakest part of that claim.
       final path = Uri.tryParse(a.attributes['href'] ?? '')?.path ?? '';
       final chapterId = _chapterIdPattern.firstMatch(path)?.group(1);
       if (chapterId == null) continue;
@@ -383,31 +387,42 @@ class Manga51 extends MangaSource {
       throw Exception('51manga: 未找到章节图片数据 (chapterId=$chapterId)');
     }
 
-    final List<dynamic> rawImages;
+    // The try covers decryption and JSON parsing ONLY. The shape check below is
+    // deliberately outside it: inside, its throw would be caught here and
+    // re-reported as a decryption failure, which is a different fault with a
+    // different fix.
+    final Object? decoded;
     try {
-      final decoded = json.decode(aesDecryptBase64PrefixedIv(payload, _picKey));
-      // `host`, `source_id`, `comic_id`, `comic_down` and `lazy` are the other
-      // five keys (identical key set on 18 of 18 live payloads, verified
-      // 2026-08-31) and all are ignored on purpose: `host` only exists so the
-      // site's own JS can refuse to render a payload cross-domain, and the rest
-      // drive its lazy-loading UI. There are no prev/next keys, which is why
-      // [ChapterResult.canLoadMore] below is a constant.
-      //
-      // A Map whose `images` is missing or not a List falls through to an empty
-      // chapter rather than throwing. That is the plan's behaviour, kept as-is,
-      // but be aware it conflates a JSON-shape change with a genuinely
-      // image-less chapter — and unlike the `params` case above, the two ARE
-      // separable, since a real image-less chapter sends `"images":[]`.
-      rawImages = (decoded is Map && decoded['images'] is List)
-          ? decoded['images'] as List
-          : const [];
+      decoded = json.decode(aesDecryptBase64PrefixedIv(payload, _picKey));
     } catch (e) {
-      // Surface a key rotation / template change loudly rather than showing an
+      // Surface a key rotation / corrupt blob loudly rather than showing an
       // empty chapter. 解密失败 is what distinguishes this from the throw above;
-      // both interpolate chapterId, so the prefix is the only discriminator and
+      // both interpolate chapterId, so the phrase is the only discriminator and
       // a test depends on it.
       throw Exception('51manga: 章节图片解密失败 (chapterId=$chapterId): $e');
     }
+
+    // `host`, `source_id`, `comic_id`, `comic_down` and `lazy` are the other five
+    // keys (identical key set on 18 of 18 live payloads, verified 2026-08-31) and
+    // all are ignored on purpose: `host` only exists so the site's own JS can
+    // refuse to render a payload cross-domain, and the rest drive its
+    // lazy-loading UI. There are no prev/next keys, which is why
+    // [ChapterResult.canLoadMore] below is a constant.
+    final Object? imagesValue = decoded is Map ? decoded['images'] : null;
+    if (imagesValue is! List) {
+      // A missing or non-list `images` can ONLY mean the payload shape changed.
+      // It is not the site's legitimate image-less chapter: that ships
+      // `"images":[]` — a real, empty List — which passes this guard and is
+      // handled below as zero images (pinned by its own test). Returning empty
+      // here instead would make a template break indistinguishable from that
+      // state, the same conflation the two throws above exist to avoid.
+      //
+      // Symptom, not theory: it reports WHAT was found, not why. The shape
+      // excerpt is bounded — see [_payloadShapeExcerpt].
+      throw Exception('51manga: 章节图片列表格式异常 (chapterId=$chapterId): '
+          'images=${imagesValue.runtimeType}, ${_payloadShapeExcerpt(decoded)}');
+    }
+    final List<dynamic> rawImages = imagesValue;
 
     final images = <ChapterImage>[];
     for (final raw in rawImages) {
@@ -476,12 +491,19 @@ class Manga51 extends MangaSource {
   /// silently) and `/go?to=/show/spam1.html` mines `spam1` out of a query
   /// string. Both become a clean skip here, which is the safer loss.
   ///
-  /// Every live chapter href sampled is exactly `/show/<10 alnum>.html`
-  /// (6271/6271 across 16 chapter-bearing pages, and the captured id is 10 chars
-  /// on all 25 pages, verified live 2026-08-31); the `+` quantifier
-  /// over-accepts on purpose, since a length rule would start dropping real
-  /// chapters the day the site widens its ids. The trailing `\.html` is NOT
-  /// over-accepted: every one of those 6271 hrefs carries the suffix.
+  /// Every live chapter href sampled is exactly `/show/<10 alnum>.html`: 2145 of
+  /// 2145 hrefs matched, every captured id 10 characters, across the 17
+  /// chapter-bearing pages of a 25-detail-page sample (measured 2026-08-31).
+  /// That figure REPLACES two earlier, mutually contradictory counts — 6271 here
+  /// and 4436 in the test file — neither of which was reproducible. Note the
+  /// total is a property of the sample, not of the site: per-manga chapter counts
+  /// range from a handful to over 1800, so any absolute count here moves with
+  /// whichever manga happen to be sampled. The ratio and the id width are the
+  /// claims that matter.
+  ///
+  /// The `+` quantifier over-accepts on purpose, since a length rule would start
+  /// dropping real chapters the day the site widens its ids. The trailing
+  /// `\.html` is NOT over-accepted: all 2145 carry the suffix.
   ///
   /// Pinned by the `chapter id must be the whole path` test, which is the
   /// sibling of the `manga id must be the whole path` table.
@@ -664,6 +686,26 @@ class Manga51 extends MangaSource {
       if (tag.contains('连载')) return MangaStatus.ongoing;
     }
     return MangaStatus.unknown;
+  }
+
+  /// A short, BOUNDED description of a decrypted payload's shape, for the
+  /// 「章节图片列表格式异常」 message.
+  ///
+  /// Bounded deliberately, on two counts. The thing being described is a full
+  /// chapter payload — 17328 plaintext bytes for one 152-image chapter measured
+  /// live 2026-08-31 — and this string is user-facing, since reader_bloc prints
+  /// the exception verbatim. So: at most 8 keys, and at most 100 characters of
+  /// them. `decoded.length` is included so a truncated list is obvious rather
+  /// than misleading.
+  ///
+  /// Only key NAMES are exposed, never a value. That keeps decrypted image URLs
+  /// out of UI strings and logs, and key names are also the ONLY part that is
+  /// diagnostic here — a renamed `images` is precisely what this is for.
+  static String _payloadShapeExcerpt(Object? decoded) {
+    if (decoded is! Map) return '顶层=${decoded.runtimeType}';
+    var keys = decoded.keys.take(8).join(',');
+    if (keys.length > 100) keys = '${keys.substring(0, 100)}…';
+    return '顶层=Map(${decoded.length}), keys=[$keys]';
   }
 
   /// The encrypted chapter payload, out of

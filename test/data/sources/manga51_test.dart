@@ -576,8 +576,9 @@ void main() {
         '/show/abc_123.html': null,
         '/show/abc-123.html': null,
         // Would yield 'abc123' if the trailing `.html$` anchor were dropped.
-        // Every live chapter href carries the suffix (4436/4436 sampled), so
-        // requiring it is the verified contract, not a guess.
+        // Every live chapter href carries the suffix (2145/2145 sampled — see
+        // _chapterIdPattern's doc for the sample), so requiring it is the
+        // verified contract, not a guess.
         '/show/abc123': null,
         '/show/abc123.html.bak': null,
         // No id at all.
@@ -614,7 +615,9 @@ void main() {
       // The REAL /err/comic body (fetched 2026-08-31), verbatim apart from line
       // endings: the wire form is CRLF and 259 bytes, this LF copy is 254.
       // /mh/<unknown-id> 302s here, and it is reachable from real listings — 1
-      // of the 24 ids taken off live listing pages resolved to it. Note what the
+      // of the 24 ids taken off live listing pages resolved to it (24 counts
+      // listing-tap ids, not the 25 parsed detail pages cited elsewhere — see
+      // parseMangaInfo's note). Note what the
       // idealized fixture used to hide: there is no <html>/<body> wrapper, there
       // is a SECOND sentence, and a <script> redirects to /category after 2s.
       //
@@ -820,6 +823,61 @@ setTimeout(function() {
         throwsA(isA<Exception>().having((e) => e.toString(), 'message',
             allOf(contains('BADCHAP'), contains('解密失败')))),
       );
+    });
+
+    test('throws when the payload decrypts but has no usable images list', () {
+      // The counterpart of the `"images":[]` test above, and together with it
+      // this is what pins the boundary: an EMPTY list is the site's own state and
+      // must pass, while a MISSING or non-list `images` can only mean the payload
+      // shape changed — no live chapter can produce it, because the one real
+      // image-less chapter observed sends `"images":[]`.
+      //
+      // All three payloads were built offline with the real key and the same
+      // `0123456789abcdef` IV, so they exercise the shape guard specifically and
+      // not the decrypt path.
+      const cases = <String, String>{
+        // {"host":"m.51manga.com","source_id":"12","comic_id":"424001",
+        //  "chapter_id":"137658","lazy":false}  -- `images` key absent entirely
+        'MDEyMzQ1Njc4OWFiY2RlZm1Rw+TYraTSVQcxXFMNl9TZSgakurfTq8PhNHPQ1MrUF2sx'
+            'z+b5r/XJqWkJp45feraKnQ9HgINlgtAjVt6TGsxbo4GsAQrTEiLQW4LsvE5DrNu1'
+            'lgtO9FrXDJlb5SeAg36fSoR43iBIg+04oPiIql8=': 'images=Null',
+        // {"host":"m.51manga.com","chapter_id":"137658","images":"oops",
+        //  "lazy":false}  -- present but a String
+        'MDEyMzQ1Njc4OWFiY2RlZm1Rw+TYraTSVQcxXFMNl9Sopat8rDlMwNWlkKZ6IHKwz72u'
+            '8EefjQjIpLMrBCA1CCPBPchg8j4XsngHJtpNXVdKC4RM5yF84C/7s79fKJkt':
+            'images=String',
+        // [1,2,3]  -- top level is not even an object
+        'MDEyMzQ1Njc4OWFiY2RlZom/71hOuAixYvdjg9BSgSw=': '顶层=List<dynamic>',
+      };
+
+      cases.forEach((payload, expectedDetail) {
+        final html = "<script>var params = '$payload';</script>";
+        expect(
+          () => source.parseChapter(html, '4aNek4246W', 'SHAPE1', 1),
+          throwsA(isA<Exception>().having(
+            (e) => e.toString(),
+            'message',
+            allOf(
+              // The distinctive phrase. Asserting it is the whole point: every
+              // throw site here interpolates the chapterId, so `contains(id)`
+              // discriminates nothing (proved by mutating the decrypt message to
+              // equal the missing-`params` one — the chapterId predicate alone
+              // did not notice).
+              contains('章节图片列表格式异常'),
+              contains('SHAPE1'),
+              // Must NOT be reported as either neighbouring failure. A shape
+              // change is not a missing blob and not a decryption failure, and
+              // conflating them sends the maintainer to the wrong place.
+              isNot(contains('未找到章节图片数据')),
+              isNot(contains('解密失败')),
+              // The diagnostic detail is load-bearing too: "shape changed" with
+              // no shape is unactionable, and this is what says WHICH key went.
+              contains(expectedDetail),
+            ),
+          )),
+          reason: payload,
+        );
+      });
     });
   });
 }
