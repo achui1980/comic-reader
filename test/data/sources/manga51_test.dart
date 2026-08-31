@@ -375,10 +375,15 @@ void main() {
       // This is also why the selector is not scoped to `#comic-list`: the title
       // guard handles the foreign shape without betting discovery on a
       // container id.
+      //
+      // The `alt` is present because the real markup carries one. That makes
+      // the `div.` prefix on the img selector load-bearing and tested: broaden
+      // it to `.pic img` and all six related cards are emitted with real titles
+      // scraped from `alt`, exactly as they would be off the live page.
       const relatedHtml = '''
 <div class="comic-item">
-  <a class="pic" href="/mh/rgoqMjdwoY"><img src="r.jpg"></a>
-  <b><a href="/mh/rgoqMjdwoY">相关漫画</a></b>
+  <a class="pic" href="/mh/rgoqMjdwoY" target="_blank"><img alt="相关漫画" src="r.jpg"></a>
+  <b><a href="/mh/rgoqMjdwoY" target="_blank">相关漫画</a></b>
 </div>
 ''';
       expect(source.parseDiscovery(relatedHtml), isEmpty);

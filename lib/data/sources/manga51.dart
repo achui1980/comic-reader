@@ -244,8 +244,10 @@ class Manga51 extends MangaSource {
   ///  * without the `$`, `/mh/abc_123` would silently TRUNCATE to `abc` — a
   ///    plausible-looking card that 404s on tap, with nothing in the logs.
   ///    Skipping is strictly better than a wrong id.
-  /// Every live id sampled (120/120 across 4 listing routes) is 6-10 chars of
-  /// `[A-Za-z0-9]` — no `_`, no `-`.
+  /// Every live id sampled is exactly 10 chars of `[A-Za-z0-9]` — no `_`, no
+  /// `-` (120/120 across 4 listing routes, verified live 2026-08-31). The `+`
+  /// quantifier deliberately accepts more than that: over-accepting an id is
+  /// safe, whereas a length rule would drop real cards the day the site widens.
   static final RegExp _mangaIdPattern = RegExp(r'^/mh/([A-Za-z0-9]+)$');
   static final RegExp _whitespacePattern = RegExp(r'\s+');
 
@@ -257,11 +259,12 @@ class Manga51 extends MangaSource {
   /// [MangaSummary] has no status field regardless; status is surfaced only on
   /// the detail page.
   ///
-  /// Cover URLs are emitted verbatim. Every listing cover sampled (60/60) is
-  /// absolute, so the base-URL join is consciously omitted rather than
-  /// overlooked — note the failure would be silent, as a protocol-relative
-  /// (`//host/x.jpg`) or root-relative (`/static/y.jpg`) cover would pass
-  /// through and merely render broken.
+  /// Cover URLs are emitted verbatim. Every listing cover sampled is absolute
+  /// (120/120, zero relative or protocol-relative, verified live 2026-08-31), so
+  /// the base-URL join is consciously omitted rather than overlooked — note the
+  /// failure would be silent, as a protocol-relative (`//host/x.jpg`) or
+  /// root-relative (`/static/y.jpg`) cover would pass through and merely render
+  /// broken.
   ///
   /// The query is deliberately NOT scoped to `#comic-list`. That id is present
   /// on every listing route today, but scoping to it would turn any container
@@ -281,8 +284,8 @@ class Manga51 extends MangaSource {
       final mangaId = _mangaIdPattern.firstMatch(path)?.group(1);
       // Defensive: skip anything in the grid that is not a /mh/ manga link.
       // (As of this writing every card on /category and /search is one — 120 of
-      // 120 sampled; this guard exists so a template change degrades to fewer
-      // cards, not wrong ids.)
+      // 120 sampled, verified live 2026-08-31; this guard exists so a template
+      // change degrades to fewer cards, not wrong ids.)
       if (mangaId == null) continue;
 
       final img = item.querySelector('div.pic img');
@@ -317,8 +320,14 @@ class Manga51 extends MangaSource {
   }
 
   /// Trim and collapse internal whitespace; returns null when nothing is left.
-  /// `\s` already covers U+00A0 (nbsp) and U+3000 (ideographic space), both of
-  /// which this site emits, so no explicit entity handling is needed.
+  ///
+  /// No explicit nbsp/entity handling is needed, for two independent reasons:
+  /// `\s` already covers U+00A0 and U+3000 anyway, and no U+00A0 (literal or
+  /// `&nbsp;`) or U+3000 occurs on any sampled listing, detail or home page
+  /// (verified live 2026-08-31). An earlier `replaceAll('\u00a0', ' ')` here was
+  /// therefore dead code twice over and was removed; do not re-add it. A test
+  /// feeds a synthetic U+00A0 to pin the `\s` semantics — that fixture is not
+  /// evidence the site emits one.
   static String? _cleanText(String? raw) {
     if (raw == null) return null;
     final cleaned = raw.replaceAll(_whitespacePattern, ' ').trim();
