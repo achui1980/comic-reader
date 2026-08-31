@@ -40,6 +40,7 @@ import 'package:comic_reader/data/sources/hmjd9.dart';
 import 'package:comic_reader/data/sources/mmero.dart';
 import 'package:comic_reader/data/sources/haokan_manhua.dart';
 import 'package:comic_reader/data/sources/bazuo.dart';
+import 'package:comic_reader/data/sources/manga51.dart';
 import 'package:comic_reader/data/repositories/manga_repository_impl.dart';
 import 'package:comic_reader/domain/repositories/manga_repository.dart';
 import 'package:comic_reader/data/local/local_storage.dart';
@@ -199,6 +200,7 @@ void configureDependencies() {
   registry.register(MmeroSource());
   registry.register(HaokanManhua());
   registry.register(Bazuo());
+  registry.register(Manga51());
   getIt.registerSingleton<SourceRegistry>(registry);
 
   // Repository
