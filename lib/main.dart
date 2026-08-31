@@ -27,32 +27,6 @@ class MyHttpOverrides extends HttpOverrides {
 
   MyHttpOverrides({this.proxyEnabled = false, this.proxyAddress = '127.0.0.1:2222'});
 
-  /// Hosts that must never be routed through the configured HTTP proxy, even
-  /// when the proxy is enabled.
-  ///
-  /// Some sites refuse traffic from datacentre / VPN exit IPs. 51manga's origin
-  /// (openresty) IP-bans such exits and then answers every CDN cache MISS with a
-  /// 159-byte `403 Forbidden` page while cached URLs still return 200 — so the
-  /// failure looks intermittent rather than like a block. These sites are
-  /// reachable on a normal residential connection, so they go out direct.
-  ///
-  /// Matched by host suffix, so `51manga.com` also covers `www.` and `m.`.
-  static const Set<String> proxyBypassHosts = {
-    '51manga.com',
-    'baipiaoguai.org', // 51manga's image CDN — keep on the same exit IP as the pages
-  };
-
-  /// Whether [host] is covered by [proxyBypassHosts].
-  ///
-  /// Suffix match is anchored on a dot so `not51manga.com` does not match
-  /// `51manga.com`.
-  static bool shouldBypassProxy(String host) {
-    final normalized = host.toLowerCase();
-    return proxyBypassHosts.any(
-      (domain) => normalized == domain || normalized.endsWith('.$domain'),
-    );
-  }
-
   /// Update proxy config at runtime (called from settings).
   void updateProxy({required bool enabled, required String address}) {
     proxyEnabled = enabled;
@@ -66,10 +40,6 @@ class MyHttpOverrides extends HttpOverrides {
         (X509Certificate cert, String host, int port) => true;
     client.findProxy = (uri) {
       if (!proxyEnabled || proxyAddress.isEmpty) {
-        return 'DIRECT';
-      }
-      // Sites that reject proxy/VPN exit IPs must use the device's own route.
-      if (shouldBypassProxy(uri.host)) {
         return 'DIRECT';
       }
       // Android emulator uses 10.0.2.2 to reach host machine's localhost.
