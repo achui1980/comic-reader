@@ -528,6 +528,55 @@ void main() {
       expect(detail.chapters.last.title, '第1-2话 初遇');
     });
 
+    test('chapter id must be the whole path, not a substring of it', () {
+      // Sibling of `manga id must be the whole path, not a substring of it`
+      // above — same contract, same failure modes, deliberately the same shape.
+      // Table of href -> expected chapter id (null = row must be skipped).
+      //
+      // The truncation cases matter most: a wrong-but-plausible id sends the
+      // user to a 404 reader page silently, so skipping is the safer loss.
+      // Without this table nothing distinguishes the anchored pattern from an
+      // unanchored one, because the detailHtml fixture's only junk href is
+      // `javascript:void(0);`, which both forms reject.
+      const cases = <String, String?>{
+        '/show/ARkjkt1m3D.html': 'ARkjkt1m3D',
+        // Uri.path strips the origin, so absolute hrefs resolve too.
+        'https://m.51manga.com/show/abc123.html': 'abc123',
+        // Ids live in the path only; a query string must not smuggle one.
+        '/go?to=/show/spam1.html': null,
+        '/ad/click?to=/show/PROMO1.html': null,
+        // Would truncate to 'abc' if the pattern were unanchored.
+        '/show/abc_123.html': null,
+        '/show/abc-123.html': null,
+        // Would yield 'abc123' if the trailing `.html$` anchor were dropped.
+        // Every live chapter href carries the suffix (4436/4436 sampled), so
+        // requiring it is the verified contract, not a guess.
+        '/show/abc123': null,
+        '/show/abc123.html.bak': null,
+        // No id at all.
+        '/show/.html': null,
+        '/show/': null,
+        // A manga href, not a chapter href.
+        '/mh/4aNek4246W': null,
+        'javascript:void(0);': null,
+      };
+
+      // parseMangaInfo throws without a title, so every fixture needs one.
+      String rowFor(String href) => '''
+<h1 class="name">T</h1>
+<ul class="chapter-list">
+  <li data-chapter_id="1"><i></i><a href="$href">第1话</a><span>08-08</span></li>
+</ul>
+''';
+
+      cases.forEach((href, expected) {
+        final ids =
+            source.parseMangaInfo(rowFor(href), 'x').chapters.map((c) => c.id);
+        expect(ids, expected == null ? isEmpty : [expected],
+            reason: 'href $href');
+      });
+    });
+
     test('falls back to the header title when h1.name is absent', () {
       const html = '<header><div class="title"><h2>兜底标题</h2></div></header>';
       expect(source.parseMangaInfo(html, 'x').title, '兜底标题');

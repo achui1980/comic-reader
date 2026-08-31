@@ -335,12 +335,11 @@ class Manga51 extends MangaSource {
   /// (4436/4436 across 15 chapter-bearing pages, and the captured id is 10 chars
   /// on all 24 pages, verified live 2026-08-31); the `+` quantifier
   /// over-accepts on purpose, since a length rule would start dropping real
-  /// chapters the day the site widens its ids.
+  /// chapters the day the site widens its ids. The trailing `\.html` is NOT
+  /// over-accepted: every one of those 4436 hrefs carries the suffix.
   ///
-  /// NOTE: no test currently distinguishes this from the unanchored form — the
-  /// detail fixture's only junk href is `javascript:void(0);`, which both
-  /// reject. See the `manga id must be the whole path` test for the adversarial
-  /// href table this pattern deserves.
+  /// Pinned by the `chapter id must be the whole path` test, which is the
+  /// sibling of the `manga id must be the whole path` table.
   static final RegExp _chapterIdPattern =
       RegExp(r'^/show/([A-Za-z0-9]+)\.html$');
 
