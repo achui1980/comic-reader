@@ -879,5 +879,92 @@ setTimeout(function() {
         );
       });
     });
+
+    test('the decryption-failure message leaks neither plaintext nor payload',
+        () {
+      // The sibling 章节图片列表格式异常 branch is careful to expose only types and
+      // counts (see _payloadShapeExcerpt). This pins the SAME invariant on this
+      // branch, which is easy to lose: interpolating the caught exception raw is
+      // the obvious thing to write, and both documented failure modes of
+      // aesDecryptBase64PrefixedIv embed their input in `toString()`.
+      //
+      // reader_bloc.dart prints this message verbatim, so a leak here is a leak
+      // to the screen and to any log that captures it.
+      //
+      // A test that only asserted contains('解密失败') could not catch this — the
+      // assertions that matter are the negative ones.
+
+      // (a) Decrypts cleanly with the REAL key, then fails json.decode on the
+      //     trailing garbage. Plaintext:
+      //     {"a":"https://img1.baipiaoguai.org/leak/SENTINEL_LEAK_MARKER/0001.webp"}TRAILING_GARBAGE
+      //     A raw `$e` puts the decrypted URL — a real image path in production —
+      //     into the message.
+      const plaintextLeak =
+          'MDEyMzQ1Njc4OWFiY2RlZn+2DlXfSg4oF80CljxRhDBodFp0hZ7tYE7lFX6mX+8w'
+          'PokQbPCb/Y+RapHuirD2CrfoLgWrLwHK/FKXrvhKbabKVBZxSm/xGcmL4MJokHl2'
+          '7SIQC/AFGF4/uJczHKIL8g==';
+      // (b) 16 decoded bytes: IV only. crypto_utils throws
+      //     ArgumentError.value(payload, ...), whose toString embeds the payload
+      //     itself.
+      const payloadLeak = 'MDEyMzQ1Njc4OWFiY2RlZg==';
+      // (c) Not valid base64 at all — FormatException from base64.decode, which
+      //     also quotes its source.
+      const notBase64 = 'not!base64!at!all!!!!';
+
+      for (final payload in [plaintextLeak, payloadLeak, notBase64]) {
+        final html = "<script>var params = '$payload';</script>";
+        String message;
+        try {
+          source.parseChapter(html, '4aNek4246W', 'LEAK1', 1);
+          fail('expected a throw for $payload');
+        } catch (e) {
+          message = e.toString();
+        }
+
+        // Still diagnosable, and still the distinctive phrase.
+        expect(message, contains('解密失败'), reason: payload);
+        expect(message, contains('LEAK1'), reason: payload);
+        // ...and still distinct from its two neighbours.
+        expect(message, isNot(contains('未找到章节图片数据')), reason: payload);
+        expect(message, isNot(contains('章节图片列表格式异常')), reason: payload);
+
+        // The invariant. No decrypted plaintext:
+        expect(message, isNot(contains('SENTINEL_LEAK_MARKER')),
+            reason: payload);
+        expect(message, isNot(contains('baipiaoguai')), reason: payload);
+        // ...and no payload, not even a fragment of it. A 24-character prefix is
+        // far more than any accidental collision and far less than a leak.
+        expect(message, isNot(contains(payload.substring(0, 21))),
+            reason: payload);
+        // Bounded outright. Measured pre-fix, 2026-08-31: case (a) produced a
+        // 200+ character message containing a whole image URL, (b) 138 chars
+        // quoting the payload, (c) 79 chars quoting the base64. Post-fix all
+        // three are ~80. The cap is what makes this structural rather than a hope
+        // that some future toString() stays short.
+        expect(message.length, lessThan(120), reason: payload);
+      }
+    });
+
+    test('an identifier merely ENDING in params does not shadow the real one',
+        () {
+      // Not a remote hypothetical: on the live page `tpl_path` sits in the VERY
+      // SAME `var` statement as `params`, so `tpl_params` is one template rename
+      // away. And the decoy does not merely tie — it WINS, because it appears
+      // first and firstMatch takes the first match.
+      //
+      // Renaming only `tpl_path`, so the real assignment is untouched and still
+      // the one that must be picked.
+      final html = chapterHtml.replaceFirst(
+        "var tpl_path = '/template/wap/51manga/',",
+        "var tpl_params = 'DECOY-NOT-BASE64',",
+      );
+      expect(html, contains('tpl_params'));
+
+      // Without a left boundary this throws 解密失败 on 'DECOY-NOT-BASE64'.
+      final result = source.parseChapter(html, '4aNek4246W', 'Vd3Q3uKzVB', 1);
+      expect(result.chapter.images, hasLength(3));
+      expect(result.chapter.images.first.url,
+          'https://img1.baipiaoguai.org/static/upload3/book/id/1/a.webp');
+    });
   });
 }

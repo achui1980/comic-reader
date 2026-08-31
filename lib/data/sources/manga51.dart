@@ -399,7 +399,37 @@ class Manga51 extends MangaSource {
       // empty chapter. 解密失败 is what distinguishes this from the throw above;
       // both interpolate chapterId, so the phrase is the only discriminator and
       // a test depends on it.
-      throw Exception('51manga: 章节图片解密失败 (chapterId=$chapterId): $e');
+      //
+      // `e.runtimeType` and NOT `$e`, holding the same line as
+      // [_payloadShapeExcerpt]: nothing derived from payload or plaintext content
+      // may reach this string, because reader_bloc prints it verbatim.
+      //
+      // Raw `$e` breaks that. Measured against this call site, 2026-08-31:
+      //  * json.decode's FormatException quotes up to 78 characters of DECRYPTED
+      //    PLAINTEXT — in production that is a complete image URL. This is the
+      //    serious one, and a test reproduces it with a sentinel.
+      //  * base64.decode's FormatException (79 chars) quotes a window of the
+      //    base64 payload.
+      //  * the `ArgumentError.value(payload, ...)` length guard (138 chars)
+      //    quotes the payload in full — though only ever a short one, since it
+      //    fires only when the blob decodes to <= 16 bytes, i.e. at most ~24
+      //    base64 characters. It CANNOT emit a wall of base64: a full-size blob
+      //    never reaches that guard.
+      //  * a wrong key on a full-size blob is `Invalid or corrupted pad block`
+      //    (51 chars) and leaks nothing — so the leak is worst exactly where the
+      //    key still WORKS and the format changed.
+      //
+      // A type name is a compile-time constant, so this is a structural guarantee
+      // rather than a bet on some future toString() staying short — and it keeps
+      // the signal that actually drives the diagnosis: ArgumentError means bad
+      // key/padding/length, FormatException means it decrypted to something that
+      // is not JSON. `payload.length` is a count, not content, and restores the
+      // one thing the type alone loses: whether we received a plausibly-sized
+      // blob at all. What is given up is FormatException's character offset,
+      // which is both the least actionable field and the one sitting directly
+      // against the leak.
+      throw Exception('51manga: 章节图片解密失败 (chapterId=$chapterId): '
+          '${e.runtimeType}, payload ${payload.length} 字符');
     }
 
     // `host`, `source_id`, `comic_id`, `comic_down` and `lazy` are the other five
@@ -711,15 +741,26 @@ class Manga51 extends MangaSource {
   /// The encrypted chapter payload, out of
   /// `var tpl_path = '...', params = '<base64>';`.
   ///
-  /// A single-quoted, non-greedy scrape of the raw HTML is safe here rather than
-  /// merely convenient: the token `params` occurs EXACTLY ONCE in the whole
-  /// chapter document, in this assignment (1 of 1 on the page grepped in full,
-  /// and never more than one match across 18 sampled pages, verified live
-  /// 2026-08-31). So there is no need to walk `<script>` nodes looking for the
-  /// right one, and nothing else on the page can shadow it.
+  /// Scraping raw HTML instead of walking `<script>` nodes is safe here rather
+  /// than merely convenient, but only because of the lookbehind. What is measured
+  /// is that the TOKEN `params` occurs exactly once in the whole chapter document
+  /// (1 of 1 on the page grepped in full, and never more than one match across 18
+  /// sampled pages, verified live 2026-08-31) — and `(?<![\w$])` is what makes
+  /// the regex actually test for that token, rather than for any identifier
+  /// merely ENDING in it.
   ///
-  /// The captured blob is base64, so `[^']+` cannot terminate early on it.
-  static final RegExp _paramsPattern = RegExp(r"""params\s*=\s*'([^']+)'""");
+  /// That distinction is load-bearing, not pedantry. Unanchored, a `tpl_params`
+  /// would not just tie with the real assignment, it would WIN, because
+  /// `firstMatch` takes the earliest match and the decoy comes first. And the
+  /// live page puts `tpl_path` in the very same `var` statement as `params`, so
+  /// this is a single template rename away, not a remote hypothetical. A test
+  /// pins it with exactly that decoy.
+  ///
+  /// `[^']+` is greedy but quote-bounded — the negated class, not laziness, is
+  /// what stops it at the closing quote. Since the captured blob is base64 it can
+  /// contain no `'`, so the capture cannot terminate early either.
+  static final RegExp _paramsPattern =
+      RegExp(r"""(?<![\w$])params\s*=\s*'([^']+)'""");
 
   /// Absolutize one image path out of the decrypted payload.
   ///
