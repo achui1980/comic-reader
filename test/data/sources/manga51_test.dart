@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:comic_reader/core/utils/crypto_utils.dart';
 import 'package:comic_reader/data/sources/manga51.dart';
+import 'package:comic_reader/domain/entities/entities.dart';
 
 /// Base64 of `IV || AES-128-CBC(PKCS7)` produced offline with the real 51manga
 /// key `9S8$vJnU2ANeSRoF` and the fixed IV `0123456789abcdef`.
@@ -424,6 +425,150 @@ void main() {
         expect(ids, expected == null ? isEmpty : [expected],
             reason: 'href $href');
       });
+    });
+  });
+
+  group('Manga51 detail parsing', () {
+    // Mirrors the live m.51manga.com/mh/4aNek4246W markup. Two deliberate
+    // deviations from that page, both defensive:
+    //  * the `javascript:void(0);` row inside ul.chapter-list. On the live page
+    //    the only such href is the `[倒序]` sort toggle, which sits in
+    //    div.panel-heading OUTSIDE the list (0 javascript: hrefs occur inside
+    //    ul.chapter-list across the 15 chapter-bearing pages sampled).
+    //  * only 3 of the page's 12 chapter rows are reproduced.
+    // The empty `<div class="mask">` IS faithful: it is present and empty on
+    // all 24 live detail pages sampled, which is exactly why div.mask is not a
+    // status selector here even though it is one on listing routes.
+    const detailHtml = '''
+<html><body>
+<header><div class="title"><h2>头部标题</h2></div></header>
+<div class="comic_cover" style="background-image: url('https://img1.baipiaoguai.org/static/upload3/book/id/520879/cover_1.jpg?v=1786032820'); display: block;"></div>
+<div class="mask"></div>
+<h1 class="name">溯古之黄鹤楼</h1>
+<span class="tags_last diy_tags" style="color: #fff;">
+  <a target="_blank" href="/category/tags/1025">已完结</a>
+  <a target="_blank" href="/category/tags/2843">国漫</a>
+  <a target="_blank" href="/category/tags/2593">古风</a>
+</span>
+<div class="comic_hot"><i class="iconfont icon-myfill"></i>剧象漫画</div>
+<div class="zuixin">
+  <p>最新话：最终章 释然</p>
+  <time>2026-08-08 01:26</time>
+</div>
+<div class="metas-desc">
+  <div class="download-app">
+    <p>下载APP，免费看更多精彩漫画</p>
+    <a href="/redirect/code/toP0LT" target="_blank">立即下载</a>
+  </div>
+  <p>北宋年间，吕洞宾于黄鹤楼修行之时，点化费祎用橘皮化作的黄鹤。</p>
+</div>
+<ul class="chapter-list" style="max-height: 100%;">
+  <li data-chapter_id="1"><i></i><a href="/show/ARkjkt1m3D.html">预告：2月16日上线</a><span>08-08</span></li>
+  <li data-chapter_id="2"><i></i><a href="/show/Vd3Q3uKzVB.html">第1-2话 初遇</a><span>08-08</span></li>
+  <li data-chapter_id="3"><i></i><a href="javascript:void(0);">占位</a></li>
+</ul>
+</body></html>
+''';
+
+    test('extracts the scalar fields', () {
+      final detail = source.parseMangaInfo(detailHtml, '4aNek4246W');
+      expect(detail.id, '4aNek4246W');
+      expect(detail.sourceId, 'manga51');
+      expect(detail.title, '溯古之黄鹤楼');
+      expect(
+        detail.coverUrl,
+        'https://img1.baipiaoguai.org/static/upload3/book/id/520879/cover_1.jpg?v=1786032820',
+      );
+      expect(detail.author, '剧象漫画');
+      expect(detail.latestChapter, '最终章 释然');
+      expect(detail.updateTime, '2026-08-08 01:26');
+      expect(detail.headers?['Referer'], 'https://www.51manga.com/');
+    });
+
+    test('description skips the download-app decoy paragraph', () {
+      final detail = source.parseMangaInfo(detailHtml, '4aNek4246W');
+      expect(detail.description, startsWith('北宋年间'));
+      expect(detail.description, isNot(contains('下载APP')));
+    });
+
+    test('extracts tags and infers completed status from them', () {
+      final detail = source.parseMangaInfo(detailHtml, '4aNek4246W');
+      expect(detail.tags, ['已完结', '国漫', '古风']);
+      expect(detail.status, MangaStatus.completed);
+    });
+
+    test('infers ongoing status from a 连载 tag', () {
+      final html = detailHtml.replaceFirst(
+        '<a target="_blank" href="/category/tags/1025">已完结</a>',
+        '<a target="_blank" href="/category/tags/1024">连载中</a>',
+      );
+      expect(source.parseMangaInfo(html, 'x').status, MangaStatus.ongoing);
+    });
+
+    test('status is unknown when no tag mentions it', () {
+      // This, not the completed/ongoing branches, is the common live outcome:
+      // only 1 of 24 sampled detail pages carries a status-bearing tag.
+      const html = '<h1 class="name">T</h1>'
+          '<span class="tags_last diy_tags"><a href="/category/tags/1">古风</a></span>';
+      expect(source.parseMangaInfo(html, 'x').status, MangaStatus.unknown);
+    });
+
+    test('extracts the full ascending chapter list, skipping non-/show/ rows',
+        () {
+      final detail = source.parseMangaInfo(detailHtml, '4aNek4246W');
+      expect(detail.chapters, hasLength(2));
+
+      expect(detail.chapters.first.id, 'ARkjkt1m3D');
+      expect(detail.chapters.first.mangaId, '4aNek4246W');
+      expect(detail.chapters.first.title, '预告：2月16日上线');
+      expect(detail.chapters.first.href,
+          'https://www.51manga.com/show/ARkjkt1m3D.html');
+
+      expect(detail.chapters.last.id, 'Vd3Q3uKzVB');
+      expect(detail.chapters.last.title, '第1-2话 初遇');
+    });
+
+    test('falls back to the header title when h1.name is absent', () {
+      const html = '<header><div class="title"><h2>兜底标题</h2></div></header>';
+      expect(source.parseMangaInfo(html, 'x').title, '兜底标题');
+    });
+
+    test('throws on the deleted-manga page instead of returning an empty shell',
+        () {
+      // Live shape: /mh/<unknown-id> 302s to /err/comic, which serves this
+      // sentence. Reachable from real listings — one card on
+      // /category/finish/1/page/1 resolved to exactly this stub.
+      //
+      // What actually trips the throw is `title.isEmpty` (the stub has neither
+      // h1.name nor header .title h2), NOT detection of the sentence. The
+      // message predicate is what makes this test meaningful: a bare
+      // isA<Exception>() would be satisfied by any unrelated crash, including
+      // one from deleting the guard and letting a later null deref fire.
+      const html =
+          '<html><body>很遗憾，该漫画不存在或章节已被删除。</body></html>';
+      expect(
+        () => source.parseMangaInfo(html, 'deadid'),
+        throwsA(isA<Exception>()
+            .having((e) => e.toString(), 'message', contains('不存在'))),
+      );
+    });
+
+    test('description is null when metas-desc has no real paragraph', () {
+      const html = '<h1 class="name">T</h1>'
+          '<div class="metas-desc"><div class="download-app"><p>下载APP，免费看更多精彩漫画</p></div></div>';
+      expect(source.parseMangaInfo(html, 'x').description, isNull);
+    });
+
+    test('parseChapterList always returns an empty result', () {
+      // prepareChapterListFetch returns null, so the framework never calls
+      // this; the info page ships every chapter. Verified live: on all 15
+      // chapter-bearing pages sampled the last <li> equals div.zuixin's
+      // 最新话 (up to 916 rows on r368n70WNX, 1328 on km6KELW8NB), and the
+      // only control near ul.chapter-list is a client-side [倒序] toggle.
+      expect(
+          source.parseChapterList(detailHtml, '4aNek4246W').chapters, isEmpty);
+      expect(source.parseChapterList(detailHtml, '4aNek4246W').canLoadMore,
+          isFalse);
     });
   });
 }

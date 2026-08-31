@@ -1,4 +1,5 @@
 import 'package:html/parser.dart' as html_parser;
+import 'package:html/dom.dart';
 
 import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/data/sources/manga_source.dart';
@@ -203,7 +204,80 @@ class Manga51 extends MangaSource {
 
   @override
   MangaDetail parseMangaInfo(dynamic response, String mangaId) {
-    throw UnimplementedError();
+    final document = html_parser.parse(response as String);
+
+    final title = _cleanText(document.querySelector('h1.name')?.text) ??
+        _cleanText(document.querySelector('header .title h2')?.text) ??
+        '';
+    if (title.isEmpty) {
+      // A missing/deleted id 302s to `/err/comic`, a 259-byte stub reading
+      // 「很遗憾，该漫画不存在或章节已被删除。」 with no title element of either
+      // kind. This is reachable from live listings — a card on
+      // /category/finish/1/page/1 resolved to exactly that stub (2026-08-31) —
+      // so throwing beats returning a titleless shell the UI would render as a
+      // blank detail screen.
+      throw Exception('51manga: 该漫画不存在或已被删除 (mangaId=$mangaId)');
+    }
+
+    // Only ONE `span.tags_last` exists per detail page (24/24 sampled), so the
+    // `.diy_tags` half of the class is dropped as redundant. The href filter is
+    // NOT redundant: pages whose tags were never split into real tag links
+    // carry `href="/category/"` anchors holding several tag names mashed
+    // together with no separator (e.g. 「热血玄幻古风魔幻魔法」 on r368n70WNX).
+    // Those are unusable as individual tags, so they are dropped rather than
+    // surfaced as one giant nonsense chip.
+    final tags = <String>[];
+    for (final a in document
+        .querySelectorAll('span.tags_last a[href^="/category/tags/"]')) {
+      final text = _cleanText(a.text);
+      if (text != null) tags.add(text);
+    }
+
+    final zuixin = document.querySelector('div.zuixin');
+    // Reads 「最新话：<name>」; strip the label. Chapterless entries say
+    // 「最新话：待浏览」, which is passed through as the site's own wording.
+    final latestChapter = _cleanText(zuixin?.querySelector('p')?.text)
+        ?.replaceFirst(RegExp(r'^最新话[:：]\s*'), '');
+
+    // The whole chapter list ships with this page, which is why
+    // prepareChapterListFetch returns null.
+    // Ascending (earliest first): on all 15 chapter-bearing pages sampled the
+    // final row equals div.zuixin's 最新话, at up to 1328 rows (verified live
+    // 2026-08-31). Emitted in document order, so callers get that same order.
+    final chapters = <ChapterItem>[];
+    for (final a in document.querySelectorAll('ul.chapter-list li a')) {
+      // Match the parsed PATH, anchored — same contract as [_mangaIdPattern],
+      // for the same reasons. Uri.tryParse never throws: it returns null on a
+      // malformed href, and for `javascript:void(0);` yields the path
+      // `void(0);`, which the anchor rejects. 4436 of 4436 live chapter hrefs
+      // sampled match this exactly (verified 2026-08-31).
+      final path = Uri.tryParse(a.attributes['href'] ?? '')?.path ?? '';
+      final chapterId = _chapterIdPattern.firstMatch(path)?.group(1);
+      if (chapterId == null) continue;
+      chapters.add(ChapterItem(
+        id: chapterId,
+        mangaId: mangaId,
+        title: _cleanText(a.text) ?? chapterId,
+        href: '$_pcBaseUrl/show/$chapterId.html',
+      ));
+    }
+
+    return MangaDetail(
+      id: mangaId,
+      sourceId: sourceId,
+      title: title,
+      coverUrl: _extractCoverUrl(document) ?? '',
+      description: _extractDescription(document),
+      author: _cleanText(document.querySelector('div.comic_hot')?.text) ?? '',
+      tags: tags,
+      status: _statusFromTags(tags),
+      latestChapter:
+          (latestChapter != null && latestChapter.isEmpty) ? null : latestChapter,
+      updateTime: _cleanText(zuixin?.querySelector('time')?.text),
+      chapters: chapters,
+      // The cover CDN 403s without the Referer.
+      headers: _imageHeaders,
+    );
   }
 
   // --- Chapter List (embedded in the info page) ---
@@ -249,6 +323,27 @@ class Manga51 extends MangaSource {
   /// quantifier deliberately accepts more than that: over-accepting an id is
   /// safe, whereas a length rule would drop real cards the day the site widens.
   static final RegExp _mangaIdPattern = RegExp(r'^/mh/([A-Za-z0-9]+)$');
+
+  /// A chapter row's id. Deliberately the same shape as [_mangaIdPattern] —
+  /// matched against the href's PATH, anchored at both ends — because the same
+  /// two failure modes apply. Measured against the unanchored-on-raw-href form:
+  /// `/show/abc_123.html` TRUNCATES to `abc` (a plausible id that 404s on tap,
+  /// silently) and `/go?to=/show/spam1.html` mines `spam1` out of a query
+  /// string. Both become a clean skip here, which is the safer loss.
+  ///
+  /// Every live chapter href sampled is exactly `/show/<10 alnum>.html`
+  /// (4436/4436 across 15 chapter-bearing pages, and the captured id is 10 chars
+  /// on all 24 pages, verified live 2026-08-31); the `+` quantifier
+  /// over-accepts on purpose, since a length rule would start dropping real
+  /// chapters the day the site widens its ids.
+  ///
+  /// NOTE: no test currently distinguishes this from the unanchored form — the
+  /// detail fixture's only junk href is `javascript:void(0);`, which both
+  /// reject. See the `manga id must be the whole path` test for the adversarial
+  /// href table this pattern deserves.
+  static final RegExp _chapterIdPattern =
+      RegExp(r'^/show/([A-Za-z0-9]+)\.html$');
+
   static final RegExp _whitespacePattern = RegExp(r'\s+');
 
   /// Parse `.comic-item` cards, shared by /category and /search.
@@ -332,5 +427,65 @@ class Manga51 extends MangaSource {
     if (raw == null) return null;
     final cleaned = raw.replaceAll(_whitespacePattern, ' ').trim();
     return cleaned.isEmpty ? null : cleaned;
+  }
+
+  static final RegExp _coverUrlPattern =
+      RegExp(r'''background-image:\s*url\(\s*['"]?(.*?)['"]?\s*\)''');
+
+  /// The detail cover is an inline style, not an `<img>`:
+  /// `style="background-image: url('...'); display: block;"`.
+  ///
+  /// The URL is emitted verbatim. Every cover sampled is absolute, but the host
+  /// and path both vary widely — `img1.baipiaoguai.org/static/upload{,2,3}/`,
+  /// `cover1.baozimh.org/cover/kuaikan/`, `s2.325784.xyz/<base64>/`, and the
+  /// site's own `www.51manga.com/packs/mccms/` placeholder all occur across 24
+  /// pages (verified live 2026-08-31) — so nothing here may assume a fixed CDN
+  /// path.
+  static String? _extractCoverUrl(Document document) {
+    final style =
+        document.querySelector('div.comic_cover')?.attributes['style'] ?? '';
+    final url = _coverUrlPattern.firstMatch(style)?.group(1);
+    if (url == null || url.isEmpty) return null;
+    return url;
+  }
+
+  /// `div.metas-desc` opens with a `div.download-app` advert whose own `<p>`
+  /// reads 「下载APP，免费看更多精彩漫画」, on every detail page sampled (24/24,
+  /// verified live 2026-08-31) — so taking the FIRST `<p>` would yield the
+  /// advert for every single manga. Hence `.last`.
+  ///
+  /// Removing the `.download-app` subtree is then a second, narrower guard, and
+  /// mutation testing pins exactly how narrow: with `.last` already in place the
+  /// removal only changes the outcome when there is NO real paragraph, where it
+  /// turns the advert text into a null description instead of a fake blurb.
+  static String? _extractDescription(Document document) {
+    final container = document.querySelector('div.metas-desc');
+    if (container == null) return null;
+    for (final ad in container.querySelectorAll('.download-app')) {
+      ad.remove();
+    }
+    final paragraphs = container.querySelectorAll('p');
+    if (paragraphs.isEmpty) return null;
+    return _cleanText(paragraphs.last.text);
+  }
+
+  /// The mobile detail page carries no status field, so status is inferred from
+  /// the tag texts. Be aware this almost always yields [MangaStatus.unknown]:
+  /// only 1 of 24 sampled detail pages had a status-bearing tag (`已完结`,
+  /// tag id 1025). That is a genuine ceiling rather than a weak selector — the
+  /// substring `完结` occurs ANYWHERE in the raw HTML of just 3 of those 24
+  /// pages, and `连载` in 2, so no better signal exists to switch to
+  /// (verified live 2026-08-31). `div.mask` is emphatically not it: it is
+  /// present and EMPTY on all 24.
+  ///
+  /// The `完结`-before-`连载` order is arbitrary and untested — no sampled tag
+  /// contains both substrings, so no evidence says which should win. Do not
+  /// read intent into it.
+  static MangaStatus _statusFromTags(List<String> tags) {
+    for (final tag in tags) {
+      if (tag.contains('完结')) return MangaStatus.completed;
+      if (tag.contains('连载')) return MangaStatus.ongoing;
+    }
+    return MangaStatus.unknown;
   }
 }
