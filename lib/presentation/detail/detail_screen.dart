@@ -131,6 +131,7 @@ class _DetailView extends StatelessWidget {
                   _buildInfo(context, manga),
                   _buildChapterHeader(context, state),
                   _buildChapterGrid(context, state),
+                  _buildChaptersErrorBanner(context, state),
                 ],
               ),
             ),
@@ -371,6 +372,49 @@ class _DetailView extends StatelessWidget {
             );
           },
           childCount: chapters.length,
+        ),
+      ),
+    );
+  }
+
+  /// Shows an error banner with a retry button when the most recent
+  /// chapter-list page fetch (initial or "load more") failed. Successfully
+  /// loaded chapters from earlier pages are preserved and still shown by
+  /// `_buildChapterGrid` above this banner.
+  Widget _buildChaptersErrorBanner(BuildContext context, DetailState state) {
+    if (state.chaptersError == null || state.chaptersLoading) {
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
+    }
+    return SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.errorContainer,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                Icons.error_outline,
+                color: Theme.of(context).colorScheme.onErrorContainer,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  '章节加载失败，可能是网络问题',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () => context.read<DetailCubit>().loadMoreChapters(),
+                child: const Text('重试'),
+              ),
+            ],
+          ),
         ),
       ),
     );

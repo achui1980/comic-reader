@@ -75,18 +75,6 @@ class ReaderEnhancementsSection extends StatelessWidget {
           value: s.tapZonesInvert,
           onChanged: cubit.setTapZonesInvert,
         ),
-        SwitchListTile(
-          title: const Text('裁剪白边'),
-          subtitle: const Text('自动裁掉图片周围的空白边缘'),
-          value: s.cropBorders,
-          onChanged: cubit.setCropBorders,
-        ),
-        SwitchListTile(
-          title: const Text('拆分宽图'),
-          subtitle: const Text('将横向宽图拆分为两页显示'),
-          value: s.splitWidePages,
-          onChanged: cubit.setSplitWidePages,
-        ),
         if (isAndroid)
           SwitchListTile(
             title: const Text('音量键翻页'),

@@ -51,7 +51,12 @@ class DetailCubit extends Cubit<DetailState> {
   }
 
   Future<void> loadChapters() async {
-    emit(state.copyWith(chaptersLoading: true));
+    emit(state.copyWith(chaptersLoading: true, clearChaptersError: true));
+    // Tracks whether at least the first page succeeded during *this* call,
+    // so the catch block below knows whether to reset pagination back to
+    // "retry from page 1" or leave the already-correct in-progress
+    // pagination state (canLoadMoreChapters/chapterPage) alone.
+    var firstPageSucceeded = false;
     try {
       // Some sources embed chapters directly in manga info (e.g., ManhuaGui)
       if (state.manga != null && state.manga!.chapters.isNotEmpty) {
@@ -65,6 +70,7 @@ class DetailCubit extends Cubit<DetailState> {
       }
 
       final result = await _repository.getChapterList(sourceId, mangaId, 1);
+      firstPageSucceeded = true;
       var allChapters = result.chapters;
       var canLoadMore = result.canLoadMore;
       var page = 1;
@@ -113,13 +119,37 @@ class DetailCubit extends Cubit<DetailState> {
         chapterPage: page,
       ));
     } catch (e) {
-      emit(state.copyWith(chaptersLoading: false));
+      if (firstPageSucceeded) {
+        // A later page failed mid-pagination. The state already has the
+        // correct canLoadMoreChapters/chapterPage from the last successful
+        // page emit above, so leave them alone — loadMoreChapters() will
+        // retry the exact page that just failed.
+        emit(state.copyWith(chaptersLoading: false, chaptersError: e.toString()));
+      } else {
+        // Not even page 1 succeeded. Force canLoadMoreChapters back to
+        // true and chapterPage to 0 so loadMoreChapters() retries page 1
+        // (chapterPage + 1), regardless of whatever stale pagination state
+        // may be left over from a previous successful load (e.g. refresh()
+        // re-calling loadChapters() after chapters were already fully
+        // loaded once).
+        emit(state.copyWith(
+          chaptersLoading: false,
+          chaptersError: e.toString(),
+          canLoadMoreChapters: true,
+          chapterPage: 0,
+        ));
+      }
     }
   }
 
+  /// Retries/continues fetching the next page of chapters. Used both for
+  /// (currently unused, no scroll-triggered lazy loading in the UI beyond
+  /// this) continued pagination and — more importantly — as the manual
+  /// "retry" action surfaced in the UI when [DetailState.chaptersError] is
+  /// set, since it naturally re-fetches whichever page last failed.
   Future<void> loadMoreChapters() async {
     if (state.chaptersLoading || !state.canLoadMoreChapters) return;
-    emit(state.copyWith(chaptersLoading: true));
+    emit(state.copyWith(chaptersLoading: true, clearChaptersError: true));
     try {
       final nextPage = state.chapterPage + 1;
       final result = await _repository.getChapterList(sourceId, mangaId, nextPage);
@@ -130,7 +160,7 @@ class DetailCubit extends Cubit<DetailState> {
         chapterPage: nextPage,
       ));
     } catch (e) {
-      emit(state.copyWith(chaptersLoading: false));
+      emit(state.copyWith(chaptersLoading: false, chaptersError: e.toString()));
     }
   }
 

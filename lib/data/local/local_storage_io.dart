@@ -19,10 +19,22 @@ class StorageBackend {
     return null;
   }
 
+  /// Writes [content] to the storage file for [name] atomically.
+  ///
+  /// Writes to a temporary sibling file first (flushing to disk), then
+  /// renames it over the destination. Rename within the same directory is
+  /// atomic on the mainstream filesystems this app targets, so a crash or
+  /// kill mid-write can never leave the destination file truncated or
+  /// empty — it either has the old content or the new content.
   Future<void> writeString(String name, String content) async {
     final dir = await _path;
     final file = File('$dir/$name.json');
-    await file.writeAsString(content);
+    final tmpFile = File('$dir/$name.json.tmp');
+    final sink = tmpFile.openWrite();
+    sink.write(content);
+    await sink.flush();
+    await sink.close();
+    await tmpFile.rename(file.path);
   }
 
   Future<void> deleteKey(String name) async {
