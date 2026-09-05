@@ -13,8 +13,15 @@ class CorsProxyInterceptor extends Interceptor {
   /// Default uses a local proxy at localhost:9090.
   final String proxyBaseUrl;
 
+  /// Whether to treat this run as "web" for the purposes of proxy routing.
+  /// Defaults to the real [kIsWeb] compile-time constant so production
+  /// behavior is unchanged; tests can override this to exercise the web
+  /// code path from a non-web (VM) test environment.
+  final bool isWeb;
+
   CorsProxyInterceptor({
     this.proxyBaseUrl = 'http://localhost:9090/',
+    this.isWeb = kIsWeb,
   });
 
   /// Headers that browsers refuse to set on XMLHttpRequest/fetch.
@@ -32,7 +39,7 @@ class CorsProxyInterceptor extends Interceptor {
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
-    if (kIsWeb) {
+    if (isWeb) {
       // Build the full original URL including query parameters
       final originalUrl = options.uri.toString();
 
