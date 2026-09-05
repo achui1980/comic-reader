@@ -1,5 +1,12 @@
 # AGENTS.md
 
+## Language (highest priority — applies to every task)
+- **All responses to the user MUST be written in Chinese (简体中文).** This applies to explanations, summaries, plans, questions, and progress updates — regardless of the language the user writes in.
+- **All git commit messages MUST be written in Chinese (简体中文).** Subject line in Chinese, body (if any) in Chinese. Conventional-commit prefixes (`feat:`, `fix:`, `refactor:`, ...) may stay in English; the description after the prefix is Chinese.
+- PR titles/descriptions and issue comments created via `gh` also use Chinese.
+- Keep code identifiers, file paths, CLI commands, log strings, and API field names in their original language — do NOT translate code.
+- Code comments: match the surrounding file's existing convention; do not mass-translate existing comments.
+
 ## Start Here (read this first, then TRUST it)
 - **This file is the authoritative architecture snapshot. On a fresh session, DO NOT spin up an explore/search agent to "rediscover" how the codebase is laid out — the map below (Architecture + Adding A New Data Source + the file index) is already the answer.** Only read specific source files when you are about to edit them or need an exact selector/signature. Reserve exploration for genuinely new/undocumented areas.
 - `README.md` is still the stock Flutter template. Treat `pubspec.yaml`, `lib/main.dart`, and `lib/app/di/injection.dart` as the real source of truth.

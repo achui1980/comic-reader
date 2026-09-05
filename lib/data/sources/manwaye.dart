@@ -6,7 +6,11 @@ import 'package:comic_reader/data/sources/manga_source.dart';
 import 'package:comic_reader/data/sources/manwaye_image_decoder.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 
-/// 漫蛙漫画 / MANWA — https://manwaye.cc
+/// 漫蛙漫画 / MANWA — https://manwari.cc
+///
+/// The site's previous domain (manwaye.cc) now 301-redirects here; Dio does
+/// not automatically follow the redirect for the POST discovery request, so
+/// the base URL must track whatever domain the site is currently live on.
 ///
 /// Pure JSON-API source: every endpoint returns JSON, so there is no HTML
 /// parsing at all. The site has no Cloudflare / TLS-fingerprint check, needs no
@@ -21,7 +25,7 @@ import 'package:comic_reader/domain/entities/entities.dart';
 ///   images       GET  /api/comic/image/{cid}?page=&page_size=&image_source=
 class Manwaye extends MangaSource {
   static const String sourceId = 'manwaye';
-  static const String _baseUrl = 'https://manwaye.cc';
+  static const String _baseUrl = 'https://manwari.cc';
 
   /// Chapter image CDN. `window.IMAGE_SOURCES` on the reader page labels this
   /// one 高速源 (fastest); the documented alternates are `https://mwtuwu.cc`
