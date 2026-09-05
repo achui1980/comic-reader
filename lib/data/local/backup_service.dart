@@ -10,11 +10,24 @@ class BackupService {
   final LocalStorage _storage;
 
   static const _version = 1;
+
+  /// Storage keys included in backup export/import.
+  ///
+  /// Intentionally excluded:
+  /// - `auth`: contains per-source login/session credentials. Exporting
+  ///   these in a plaintext JSON backup would be a security risk.
+  /// - `download_tasks`: the download queue is transient, device-local
+  ///   state. Restoring it on another device (or after reinstall) has no
+  ///   useful meaning, since the underlying cached files don't travel
+  ///   with the backup.
   static const _storageKeys = [
     'favorites',
     'reading_history',
     'settings',
     'update_status',
+    'categories',
+    'ai_metadata',
+    'work_groups',
   ];
 
   BackupService({required LocalStorage storage}) : _storage = storage;
