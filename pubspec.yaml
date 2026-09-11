@@ -83,6 +83,15 @@ dev_dependencies:
   bloc_test: ^10.0.0
   mocktail: ^1.0.3
 
+# wasm_run_flutter (added in Task 1) bundles generated flutter_rust_bridge
+# glue code codegen'd against 2.12.0 exactly, and does a strict runtime
+# equality check against that version. wasm_run's own pubspec constraint
+# (^2.12.0) permissively resolves to a newer compatible version (2.13.0 in
+# this project's dependency graph), which fails that check at runtime. Pin
+# the transitive dependency to the exact version wasm_run_flutter expects.
+dependency_overrides:
+  flutter_rust_bridge: 2.12.0
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
