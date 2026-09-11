@@ -260,6 +260,34 @@ void main() {
       );
     });
 
+    test(
+      'prepareSearchFetch sends Bearer anon key when not logged in',
+      () {
+        final source = HanabiManga();
+        final config = source.prepareSearchFetch('尼古', 1, const {});
+        expect(
+          config.headers?['authorization'],
+          'Bearer ${config.headers?['apikey']}',
+        );
+      },
+    );
+
+    test(
+      'prepareSearchFetch sends Bearer access token when logged in',
+      () {
+        final source = HanabiManga();
+        final nowSeconds = DateTime.now().toUtc().millisecondsSinceEpoch ~/ 1000;
+        source.syncExtraData({
+          'cookie': 'sb-uhkvqrxmcapgtpspglrp-auth-token=base64-x',
+          'accessToken': 'user-access-tok',
+          'refreshToken': 'r',
+          'expiresAt': nowSeconds + 3600,
+        });
+        final config = source.prepareSearchFetch('尼古', 1, const {});
+        expect(config.headers?['authorization'], 'Bearer user-access-tok');
+      },
+    );
+
     test('parseSearch extracts MangaSummary from the Supabase RPC response', () {
       final source = HanabiManga();
       const response = [

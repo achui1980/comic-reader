@@ -78,6 +78,16 @@ Map<String, dynamic>? extractHanabiBookLdJson(String html) {
 /// script tag. Square brackets themselves are NOT escaped, so the array's
 /// extent can be found by simple bracket-depth counting; only the quotes
 /// inside need unescaping before `jsonDecode`.
+///
+/// KNOWN LATENT RISK: the bracket-depth-matching below assumes chapter
+/// `title` strings (and every other string value inside the `chapters`
+/// array) never contain a literal `[` or `]` character. This mirrors the
+/// site's own JSON structure -- only quotes are backslash-escaped inside
+/// the RSC payload, brackets are not -- so a chapter titled e.g. `"第1话
+/// [番外]"` would throw off the depth count and break extraction for that
+/// comic. This is a documented assumption inherited from hanabimanga.com's
+/// actual output, not something fixed algorithmically here; if the site
+/// ever titles a chapter with a literal bracket, this needs revisiting.
 List<Map<String, dynamic>> extractHanabiChapters(String html) {
   const marker = r'\"chapters\":[';
   final markerIndex = html.indexOf(marker);
@@ -358,11 +368,18 @@ class HanabiManga extends MangaSource {
 
   @override
   FetchConfig prepareSearchFetch(String keyword, int page, Map<String, String> filters) {
+    final bearerToken =
+        (_accessToken != null &&
+                _expiresAt != null &&
+                DateTime.now().toUtc().isBefore(_expiresAt!))
+            ? _accessToken!
+            : _hanabiAnonKey;
     return FetchConfig(
       url: '$_hanabiSupabaseUrl/rest/v1/rpc/search_comics_pgroonga',
       method: HttpMethod.post,
-      headers: const {
+      headers: {
         'apikey': _hanabiAnonKey,
+        'authorization': 'Bearer $bearerToken',
         'Content-Type': 'application/json',
         'Content-Profile': 'public',
       },
