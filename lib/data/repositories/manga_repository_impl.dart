@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:comic_reader/data/remote/http_client.dart';
+import 'package:comic_reader/data/repositories/hanabi_chapter_decryptor.dart';
 import 'package:comic_reader/data/sources/hitomi.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
@@ -15,8 +16,13 @@ class MangaRepositoryImpl implements MangaRepository {
   final SourceRegistry _sourceRegistry;
   late final FetchPipeline _pipeline = FetchPipeline(_httpClient);
   late final Wu55ChapterDecryptor _wu55Decryptor = Wu55ChapterDecryptor(_httpClient, _pipeline);
-  late final ChapterImagePipeline _chapterPipeline =
-      ChapterImagePipeline(_httpClient, _pipeline, _wu55Decryptor);
+  late final HanabiChapterDecryptor _hanabiDecryptor = HanabiChapterDecryptor(_httpClient, _pipeline);
+  late final ChapterImagePipeline _chapterPipeline = ChapterImagePipeline(
+    _httpClient,
+    _pipeline,
+    _wu55Decryptor,
+    _hanabiDecryptor,
+  );
 
   MangaRepositoryImpl({
     required HttpClient httpClient,

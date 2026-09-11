@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/data/remote/http_client.dart';
+import 'package:comic_reader/data/repositories/hanabi_chapter_decryptor.dart';
+import 'package:comic_reader/data/sources/hanabi_manga.dart';
 import 'package:comic_reader/data/sources/hitomi.dart';
 import 'package:comic_reader/data/sources/jm_comic.dart';
 import 'package:comic_reader/data/sources/manga_source.dart';
@@ -31,8 +33,14 @@ class ChapterImagePipeline {
   final HttpClient _httpClient;
   final FetchPipeline _pipeline;
   final Wu55ChapterDecryptor _wu55Decryptor;
+  final HanabiChapterDecryptor _hanabiDecryptor;
 
-  ChapterImagePipeline(this._httpClient, this._pipeline, this._wu55Decryptor);
+  ChapterImagePipeline(
+    this._httpClient,
+    this._pipeline,
+    this._wu55Decryptor,
+    this._hanabiDecryptor,
+  );
 
   Future<ChapterResult> getChapter(
     String mangaId,
@@ -131,6 +139,22 @@ class ChapterImagePipeline {
         debugPrint('[getChapter] Wu55: Batch $batchNum done (${decryptedImages.length}/${result.chapter.images.length})');
       }
 
+      result = ChapterResult(
+        chapter: Chapter(
+          id: result.chapter.id,
+          mangaId: result.chapter.mangaId,
+          title: result.chapter.title,
+          images: decryptedImages,
+          headers: result.chapter.headers,
+        ),
+        canLoadMore: false,
+      );
+    }
+
+    if (source is HanabiManga && result.chapter.images.isNotEmpty) {
+      final decryptedImages = await Future.wait(
+        result.chapter.images.map((img) => _hanabiDecryptor.decrypt(img, source)),
+      );
       result = ChapterResult(
         chapter: Chapter(
           id: result.chapter.id,
@@ -274,6 +298,23 @@ class ChapterImagePipeline {
         );
         debugPrint('[getChapterStream] Wu55: ${partial.length}/${result.chapter.images.length} decrypted');
       }
+      return;
+    }
+
+    if (source is HanabiManga && result.chapter.images.isNotEmpty) {
+      final decryptedImages = await Future.wait(
+        result.chapter.images.map((img) => _hanabiDecryptor.decrypt(img, source)),
+      );
+      yield ChapterResult(
+        chapter: Chapter(
+          id: result.chapter.id,
+          mangaId: result.chapter.mangaId,
+          title: result.chapter.title,
+          images: decryptedImages,
+          headers: result.chapter.headers,
+        ),
+        canLoadMore: false,
+      );
       return;
     }
 
