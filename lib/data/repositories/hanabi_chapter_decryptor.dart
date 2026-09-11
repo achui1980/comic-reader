@@ -42,10 +42,19 @@ class HanabiChapterDecryptor {
     }
 
     try {
-      final config = _pipeline.mergeHeaders(
+      var config = _pipeline.mergeHeaders(
         FetchConfig(url: chapterImage.url, responseType: ResponseType.bytes),
         source,
       );
+      // `mergeHeaders` unconditionally attaches `source.extraHeaders`
+      // (which includes the `web.hanabimanga.com` session Cookie) to every
+      // request. This image download goes to a *different* host
+      // (`cdn.hanabimanga.top`), which doesn't need -- and shouldn't
+      // receive -- that session cookie. Strip it here without touching
+      // how any other Hanabi request (login/search/discovery/chapter
+      // manifest) builds its headers.
+      final headers = {...config.headers ?? {}}..remove('Cookie');
+      config = config.copyWith(headers: headers);
       final response = await _httpClient.execute(config);
       final scrambledBytes = response.data as Uint8List;
 

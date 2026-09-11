@@ -1310,7 +1310,7 @@ packages:
     source: hosted
     version: "1.5.1"
   wasm_run:
-    dependency: transitive
+    dependency: "direct main"
     description:
       name: wasm_run
       sha256: a3e17ebfa17ca002265cbc57e2acb71411154fe81dce09b97d809410c92a0537
