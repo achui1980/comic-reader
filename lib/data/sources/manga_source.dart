@@ -117,6 +117,47 @@ abstract class MangaSource {
   /// Whether this source currently has valid auth data.
   bool get isAuthenticated => false;
 
+  /// Whether this source can silently auto-login with built-in test
+  /// credentials (e.g. PicaComic). Sources requiring the user's own account
+  /// (e.g. HanabiManga) must leave this false and rely on the login dialog.
+  bool get supportsAutoLogin => false;
+
+  /// Built-in credentials for [supportsAutoLogin] sources. Null when not
+  /// applicable.
+  String? get autoLoginEmail => null;
+  String? get autoLoginPassword => null;
+
+  /// Optional description shown above the email/password fields in the
+  /// generic login dialog (see lib/presentation/common/login_dialog.dart).
+  String? get loginDescription => null;
+
+  /// Build the FetchConfig for signing in with email/password.
+  /// Only relevant when [requiresLogin] is true.
+  FetchConfig buildSignInRequest(String email, String password) {
+    throw UnimplementedError('$id does not support login');
+  }
+
+  /// Parse a sign-in response into a data map to persist via
+  /// [syncExtraData] and AuthStore.saveExtra. Return null on failed login.
+  Map<String, dynamic>? parseSignIn(dynamic response) {
+    throw UnimplementedError('$id does not support login');
+  }
+
+  /// Whether the current session needs a proactive refresh (e.g. an access
+  /// token nearing expiry). Default false; override for sources with
+  /// short-lived sessions (e.g. HanabiManga's Supabase session).
+  bool get needsSessionRefresh => false;
+
+  /// Build the FetchConfig for refreshing the current session.
+  /// Only relevant when [needsSessionRefresh] can return true.
+  FetchConfig buildRefreshRequest() {
+    throw UnimplementedError('$id does not support session refresh');
+  }
+
+  /// Parse a refresh response. Defaults to [parseSignIn] since most refresh
+  /// endpoints return the same shape as sign-in.
+  Map<String, dynamic>? parseRefresh(dynamic response) => parseSignIn(response);
+
   /// Build PluginInfo from this source
   PluginInfo get info => PluginInfo(
     id: id,
