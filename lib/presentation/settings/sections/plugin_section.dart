@@ -5,7 +5,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:comic_reader/app/router/routes.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
-import 'package:comic_reader/presentation/common/pica_login_dialog.dart';
+import 'package:comic_reader/presentation/common/login_dialog.dart';
 import '../bloc/settings_cubit.dart';
 import '../bloc/settings_state.dart';
 import 'section_widgets.dart';
@@ -76,7 +76,7 @@ void _navigateToVerify(BuildContext context, String sourceId) {
   final source = registry.get(sourceId);
   if (source != null && source.requiresLogin) {
     // Show login dialog for sources that need email/password
-    showPicaLoginDialog(context);
+    showLoginDialog(context, source);
   } else {
     context.push(AppRoutes.webviewPath(sourceId));
   }

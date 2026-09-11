@@ -12,8 +12,7 @@ import 'package:comic_reader/data/local/chapter_cache_service.dart';
 import 'package:comic_reader/data/local/download_manager.dart';
 import 'package:comic_reader/data/local/library_update_service.dart';
 import 'package:comic_reader/data/sources/source_registry.dart';
-import 'package:comic_reader/data/sources/pica_comic.dart';
-import 'package:comic_reader/presentation/common/pica_login_dialog.dart';
+import 'package:comic_reader/presentation/common/login_dialog.dart';
 import 'package:comic_reader/app/router/app_router.dart';
 import 'package:comic_reader/core/update/app_update_service.dart';
 import 'package:comic_reader/presentation/common/app_update_dialog.dart';
@@ -117,11 +116,12 @@ void main() async {
     }
   }
 
-  // Auto-login PicaComic if no token stored
-  final picaSource = registry.get(PicaComic.sourceId);
-  if (picaSource != null && !picaSource.isAuthenticated) {
-    // Fire and forget - don't block app startup
-    picaAutoLogin();
+  // Auto-login sources that support silent login (e.g. PicaComic) if needed.
+  for (final source in registry.all) {
+    if (source.supportsAutoLogin && !source.isAuthenticated) {
+      // Fire and forget - don't block app startup
+      tryAutoLogin(source);
+    }
   }
 
   // Load settings and apply

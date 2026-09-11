@@ -8,7 +8,7 @@ import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/data/local/settings_store.dart';
 import 'package:comic_reader/core/utils/responsive.dart';
 import 'package:comic_reader/presentation/common/manga_card.dart';
-import 'package:comic_reader/presentation/common/pica_login_dialog.dart';
+import 'package:comic_reader/presentation/common/login_dialog.dart';
 import 'package:comic_reader/app/router/routes.dart';
 import 'package:comic_reader/presentation/common/cloudflare_dialog.dart';
 import 'bloc/discovery_cubit.dart';
@@ -137,11 +137,11 @@ class _DiscoveryView extends StatelessWidget {
             Navigator.pop(ctx);
             // If source requires login and is not authenticated, try auto-login
             if (sources[i].requiresLogin && !sources[i].isAuthenticated) {
-              final result = await picaAutoLogin();
+              final result = await tryAutoLogin(sources[i]);
               if (!result) {
                 // Auto-login failed, show manual dialog
                 if (!context.mounted) return;
-                final manual = await showPicaLoginDialog(context);
+                final manual = await showLoginDialog(context, sources[i]);
                 if (manual != true) return;
               }
             }
