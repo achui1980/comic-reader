@@ -254,8 +254,34 @@ class _AiToggle extends StatelessWidget {
 }
 
 /// Single-source result list (original behavior).
-class _SingleSourceResults extends StatelessWidget {
+class _SingleSourceResults extends StatefulWidget {
   const _SingleSourceResults();
+
+  @override
+  State<_SingleSourceResults> createState() => _SingleSourceResultsState();
+}
+
+class _SingleSourceResultsState extends State<_SingleSourceResults> {
+  final _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  /// When the first page returns fewer results than fill a screen, the list is
+  /// not scrollable, so no ScrollEndNotification will ever fire and the
+  /// "loading more" spinner would spin forever. Probe for the next page once
+  /// after layout so the cubit can settle `hasMore` to false.
+  void _autoLoadIfNotScrollable(SearchState state) {
+    if (!state.hasMore || state.status != SearchStatus.loaded) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      if (_scrollController.position.maxScrollExtent > 0) return;
+      context.read<SearchCubit>().loadMore();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -277,6 +303,7 @@ class _SingleSourceResults extends StatelessWidget {
             child: Text('没有找到结果', style: TextStyle(color: Colors.grey)),
           );
         }
+        _autoLoadIfNotScrollable(state);
         return NotificationListener<ScrollNotification>(
           onNotification: (notification) {
             if (notification is ScrollEndNotification &&
@@ -288,6 +315,7 @@ class _SingleSourceResults extends StatelessWidget {
           child: RefreshIndicator(
             onRefresh: () => context.read<SearchCubit>().refresh(),
             child: ListView.builder(
+              controller: _scrollController,
               itemCount: state.results.length + (state.hasMore ? 1 : 0),
               itemBuilder: (context, index) {
                 if (index >= state.results.length) {
