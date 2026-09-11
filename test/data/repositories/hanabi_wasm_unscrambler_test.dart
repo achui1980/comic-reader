@@ -76,11 +76,14 @@ void main() {
           '410f8598a95efb975e3ce55f441b6fee551a6b9d049fedf8464e3eebb3cd29d3';
 
       // Call unscramble() 3 times sequentially against the SAME loaded
-      // instance, re-using the same source bytes each time. Before the
-      // dealloc fix, each call leaked its three input buffers (ticket,
-      // nonce, image RGBA) in WASM linear memory; this proves repeated
-      // calls still produce the correct result and don't crash/corrupt
-      // due to the added dealloc calls freeing memory that's still in use.
+      // instance, re-using the same source bytes each time. This was
+      // added while investigating a suspected leak of the ticket/nonce/
+      // image input buffers; verification proved the WASM `unscramble`
+      // export already frees those buffers internally (adding a caller-
+      // side dealloc call double-frees and traps). This test guards
+      // against a regression of that ownership assumption by proving
+      // repeated calls against the same instance keep succeeding with
+      // the correct result.
       for (var i = 0; i < 3; i++) {
         final result = await unscrambler.unscramble(
           Uint8List.fromList(rgba), // fresh copy each call, like real usage
