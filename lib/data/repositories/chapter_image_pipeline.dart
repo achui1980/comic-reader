@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -374,33 +375,77 @@ class ChapterImagePipeline {
     }
   }
 
-  /// Downloads + WASM-unscrambles HanabiManga's chapter images in small
-  /// concurrent batches, yielding the growing decrypted-prefix list after
-  /// each batch (mirrors [_resolveWu55Images]'s batching so the reader can
-  /// display pages progressively).
+  /// Downloads + WASM-unscrambles HanabiManga's chapter images with a
+  /// bounded sliding window of concurrent in-flight decrypts, yielding the
+  /// growing decrypted prefix as soon as it becomes contiguous.
   ///
-  /// Batching (rather than a single `Future.wait` over every page) is not
-  /// just about progressive display: HanabiManga's chapter images are all
-  /// signed CDN URLs on `cdn.hanabimanga.top` sharing the same short-lived
-  /// signature window, so firing every page's HTTP request at once for a
-  /// 40-70 page chapter has been observed in practice to overwhelm the CDN
-  /// and cause `DioException [receive timeout]` failures on some pages that
-  /// simply had to wait too long in the connection queue.
+  /// This intentionally does *not* use lockstep batches (start N, wait for
+  /// all N, yield, repeat) like [_resolveWu55Images]: HanabiManga's per-page
+  /// decrypt is much heavier than Wu55Comic's (webp decode + a WASM FFI call
+  /// + a full raw-pixel PNG re-encode, vs. Wu55's lighter AES-decrypt of an
+  /// already-compressed container), so lockstep batching was observed in
+  /// practice to cause a visible stall/"flash" every [_hanabiMaxConcurrent]
+  /// pages while the reader waits for an entire batch's slowest straggler,
+  /// plus perceptibly less smooth scrolling. A sliding window keeps exactly
+  /// [_hanabiMaxConcurrent] decrypts running at all times (immediately
+  /// starting the next page as soon as any slot frees up, rather than
+  /// waiting for the whole batch to drain) and yields one page at a time as
+  /// results arrive, in page order -- out-of-order completions are held
+  /// back until every earlier page is also ready, since the reader can't
+  /// display page N+1 before page N.
+  ///
+  /// The concurrency bound itself is still necessary and unrelated to the
+  /// smoothness fix: HanabiManga's chapter images are all signed CDN URLs
+  /// on `cdn.hanabimanga.top` sharing the same short-lived signature
+  /// window, so firing every page's HTTP request at once for a 40-70 page
+  /// chapter has been observed in practice to overwhelm the CDN and cause
+  /// `DioException [receive timeout]` failures on some pages that simply
+  /// had to wait too long in the connection queue.
   Stream<List<ChapterImage>> _resolveHanabiImages(
     List<ChapterImage> images,
     HanabiManga source,
   ) async* {
-    final decrypted = <ChapterImage>[];
-    const batchSize = 3;
-    for (int batchStart = 0; batchStart < images.length; batchStart += batchSize) {
-      final batchEnd = (batchStart + batchSize).clamp(0, images.length);
-      final futures = <Future<ChapterImage>>[];
-      for (int i = batchStart; i < batchEnd; i++) {
-        futures.add(_hanabiDecryptor.decrypt(images[i], source));
+    const maxConcurrent = 4;
+    if (images.isEmpty) return;
+
+    final results = List<ChapterImage?>.filled(images.length, null);
+    var nextToStart = 0;
+    var readyPrefixLength = 0;
+    final active = <Future<void>>{};
+    // Signals "at least one decrypt finished since we last checked" so the
+    // main loop below can wake up, refill the window, and re-check how far
+    // the contiguous "ready" prefix has advanced. Recreated fresh each
+    // round (see loop) rather than using a Stream, since a Stream's
+    // single-subscription `.first` can only be awaited once per
+    // controller.
+    Completer<void>? wakeUp;
+
+    void startNext() {
+      while (nextToStart < images.length && active.length < maxConcurrent) {
+        final i = nextToStart++;
+        final future = _hanabiDecryptor.decrypt(images[i], source).then((img) {
+          results[i] = img;
+        });
+        active.add(future);
+        unawaited(future.whenComplete(() {
+          active.remove(future);
+          final w = wakeUp;
+          if (w != null && !w.isCompleted) w.complete();
+        }));
       }
-      final batchResults = await Future.wait(futures);
-      decrypted.addAll(batchResults);
-      yield List<ChapterImage>.from(decrypted);
+    }
+
+    startNext();
+    while (readyPrefixLength < images.length) {
+      wakeUp ??= Completer<void>();
+      await wakeUp.future;
+      wakeUp = null;
+      startNext();
+      while (readyPrefixLength < images.length &&
+          results[readyPrefixLength] != null) {
+        readyPrefixLength++;
+      }
+      yield results.sublist(0, readyPrefixLength).cast<ChapterImage>();
     }
   }
 

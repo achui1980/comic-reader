@@ -105,13 +105,14 @@ void main() {
   );
 
   test(
-    'ChapterImagePipeline batches HanabiManga image decryption instead of '
-    'firing every page at once (regression guard for the CDN receive-timeout '
-    'bug caused by an earlier unbounded Future.wait over the whole chapter)',
+    'ChapterImagePipeline bounds HanabiManga image-decryption concurrency '
+    'instead of firing every page at once (regression guard for the CDN '
+    'receive-timeout bug caused by an earlier unbounded Future.wait over '
+    'the whole chapter), and yields progressively rather than in one lump',
     () async {
       const readerApiUrl =
           'https://web.hanabimanga.com/api/reader/comic/3361/chapter-1';
-      const pageCount = 7; // > one batch (batchSize=3), < two full batches x3
+      const pageCount = 7; // > the sliding window's maxConcurrent (4)
 
       final wasmBytes = await File('test/fixtures/hanabi/reader.wasm').readAsBytes();
       final scrambledBytes =
@@ -202,7 +203,7 @@ void main() {
         emittedResultLengths.add(partial.chapter.images.length);
       }
 
-      expect(maxConcurrentCdnRequests, lessThanOrEqualTo(3));
+      expect(maxConcurrentCdnRequests, lessThanOrEqualTo(4));
       expect(
         emittedResultLengths.length,
         greaterThan(1),
