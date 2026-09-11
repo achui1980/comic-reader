@@ -73,7 +73,18 @@ class _VerticalReaderState extends State<VerticalReader> {
 
       final maxScroll = _scrollController.position.maxScrollExtent;
       if (scrollOffset >= maxScroll - viewportHeight * 0.5) {
-        if (!bloc.state.isAppendingNext && bloc.state.canAppendNext) {
+        // Guard against a false "end of chapter" while the current chapter
+        // is still progressively streaming in (e.g. HanabiManga, whose
+        // per-page decrypt is slow enough that a fast reader can genuinely
+        // catch up to the currently-loaded prefix well before the chapter
+        // is fully resolved). `maxScrollExtent` only reflects the images
+        // loaded *so far*, so without this guard, catching up to that
+        // temporary boundary was mistaken for reaching the real end of the
+        // chapter, prematurely firing AppendNextChapter and visibly
+        // disrupting the current read (observed as a jump back to page 1).
+        if (!bloc.state.isProgressiveLoading &&
+            !bloc.state.isAppendingNext &&
+            bloc.state.canAppendNext) {
           bloc.add(const AppendNextChapter());
         }
       }
