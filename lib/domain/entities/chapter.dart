@@ -1,6 +1,6 @@
 import 'package:equatable/equatable.dart';
 
-enum ScrambleType { none, jmc, rm5, wu55 }
+enum ScrambleType { none, jmc, rm5, wu55, hanabi }
 
 /// How the image endpoint represents image bytes in its HTTP response.
 enum ImageResponseEncoding { binary, base64OrBinary }
@@ -36,6 +36,19 @@ class ChapterImage extends Equatable {
   /// wu55comic page number (1-based index), used for slice count calculation.
   /// Only relevant when scrambleType == ScrambleType.wu55.
   final int? wu55PageNumber;
+  /// Base64-encoded WASM unscramble ticket, from the reader API's
+  /// metadata.scrambleInfo.ticket field. Only relevant when
+  /// scrambleType == ScrambleType.hanabi.
+  final String? hanabiTicket;
+  /// Base64-encoded WASM unscramble nonce, from metadata.scrambleInfo.nonce.
+  /// Only relevant when scrambleType == ScrambleType.hanabi.
+  final String? hanabiNonce;
+  /// Scramble grid column count, from metadata.scrambleInfo.cols.
+  /// Only relevant when scrambleType == ScrambleType.hanabi.
+  final int? hanabiCols;
+  /// Scramble grid row count, from metadata.scrambleInfo.rows.
+  /// Only relevant when scrambleType == ScrambleType.hanabi.
+  final int? hanabiRows;
 
   const ChapterImage({
     required this.url,
@@ -45,6 +58,10 @@ class ChapterImage extends Equatable {
     this.scrambleId,
     this.wu55BookId,
     this.wu55PageNumber,
+    this.hanabiTicket,
+    this.hanabiNonce,
+    this.hanabiCols,
+    this.hanabiRows,
   });
 
   @override
@@ -55,6 +72,10 @@ class ChapterImage extends Equatable {
     scrambleId,
     wu55BookId,
     wu55PageNumber,
+    hanabiTicket,
+    hanabiNonce,
+    hanabiCols,
+    hanabiRows,
   ];
 }
 
