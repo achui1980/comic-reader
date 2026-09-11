@@ -16,16 +16,14 @@ void main() {
     expect(source.parseRefresh(<String, dynamic>{}), isNull);
   });
 
-  test('supportsAutoLogin/autoLoginEmail/autoLoginPassword/loginDescription default to null/false', () {
-    // A source that does not override these (e.g. a hypothetical bare
-    // MangaSource subclass) would see these defaults. PicaComic overrides
-    // some of them via requiresLogin, but does NOT override
-    // supportsAutoLogin/autoLoginEmail/autoLoginPassword/loginDescription,
-    // so we can assert the base-class defaults through it.
+  test('PicaComic overrides supportsAutoLogin/autoLoginEmail/autoLoginPassword with its built-in credentials', () {
+    // PicaComic overrides these to preserve its pre-refactor behavior of
+    // auto-logging in with built-in credentials. loginDescription is not
+    // overridden, so it still falls back to the base-class default.
     final source = PicaComic();
-    expect(source.supportsAutoLogin, isFalse);
-    expect(source.autoLoginEmail, isNull);
-    expect(source.autoLoginPassword, isNull);
+    expect(source.supportsAutoLogin, isTrue);
+    expect(source.autoLoginEmail, PicaComic.defaultEmail);
+    expect(source.autoLoginPassword, PicaComic.defaultPassword);
     expect(source.loginDescription, isNull);
   });
 }

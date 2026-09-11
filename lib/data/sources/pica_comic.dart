@@ -71,6 +71,15 @@ class PicaComic extends MangaSource {
   bool get isAuthenticated => _authToken.isNotEmpty;
 
   @override
+  bool get supportsAutoLogin => true;
+
+  @override
+  String? get autoLoginEmail => defaultEmail;
+
+  @override
+  String? get autoLoginPassword => defaultPassword;
+
+  @override
   void syncExtraData(Map<String, dynamic> data) {
     super.syncExtraData(data);
     final token = data['token'] as String?;
