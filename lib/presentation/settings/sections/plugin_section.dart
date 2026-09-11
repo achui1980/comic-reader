@@ -71,12 +71,18 @@ class PluginSection extends StatelessWidget {
   }
 }
 
-void _navigateToVerify(BuildContext context, String sourceId) {
+void _navigateToVerify(BuildContext context, String sourceId) async {
   final registry = GetIt.instance<SourceRegistry>();
   final source = registry.get(sourceId);
   if (source != null && source.requiresLogin) {
+    if (source.isAuthenticated && source.needsSessionRefresh) {
+      // Already authenticated but the token is nearing expiry: proactively
+      // refresh silently before showing the dialog below. A failed refresh
+      // just falls through to the normal login flow, per design spec §3.3.
+      await tryRefreshSession(source);
+    }
     // Show login dialog for sources that need email/password
-    showLoginDialog(context, source);
+    if (context.mounted) showLoginDialog(context, source);
   } else {
     context.push(AppRoutes.webviewPath(sourceId));
   }

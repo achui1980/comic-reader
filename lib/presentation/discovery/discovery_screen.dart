@@ -144,6 +144,12 @@ class _DiscoveryView extends StatelessWidget {
                 final manual = await showLoginDialog(context, sources[i]);
                 if (manual != true) return;
               }
+            } else if (sources[i].isAuthenticated && sources[i].needsSessionRefresh) {
+              // Already authenticated but the token is nearing expiry:
+              // proactively refresh silently. A failed refresh just falls
+              // through to the normal lazy isAuthenticated check on the
+              // next real API call, per design spec §3.3.
+              await tryRefreshSession(sources[i]);
             }
             cubit.changeSource(sources[i].id);
           },
