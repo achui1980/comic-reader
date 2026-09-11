@@ -1,4 +1,7 @@
 import 'dart:convert' show base64Decode;
+// Safe on web builds: this library already depends on ChapterCacheService,
+// which imports dart:io directly.
+import 'dart:io' show File;
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart' show Headers, Response, ResponseType;
@@ -34,6 +37,14 @@ Future<Uint8List> loadAndCacheImageBytes({
   String? chapterId,
   int? imageIndex,
 }) async {
+  // Already decrypted straight into the on-disk chapter cache (HanabiManga):
+  // the bytes are on disk, so read them instead of handing a `file://` URL to
+  // HttpClient/Dio (which would fail 3x with backoff) -- and don't re-save,
+  // since this *is* the cache file.
+  if (image.url.startsWith('file://')) {
+    return File(Uri.parse(image.url).toFilePath()).readAsBytes();
+  }
+
   // Pre-decoded in-memory images (e.g. HanabiManga/wu55comic after their
   // own WASM/AES decryption step already ran) carry their bytes directly
   // in a `data:` URI rather than a fetchable network URL. Decode locally

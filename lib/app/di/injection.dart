@@ -212,6 +212,7 @@ void configureDependencies() {
     MangaRepositoryImpl(
       httpClient: getIt<HttpClient>(),
       sourceRegistry: getIt<SourceRegistry>(),
+      chapterCache: getIt<ChapterCacheService>(),
     ),
   );
 

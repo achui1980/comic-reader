@@ -339,6 +339,22 @@ class _MangaImageState extends State<MangaImage> {
     }
 
     // Load from network
+    // Already-decrypted page written to the on-disk chapter cache (hanabi).
+    // Normally `_localPath` above already covers this, but that path depends
+    // on `_canCache` (i.e. the widget being given a full cache identity);
+    // render the file directly so a `file://` URL never reaches the network
+    // stack.
+    if (widget.image.url.startsWith('file://')) {
+      return buildFileImage(
+        path: Uri.parse(widget.image.url).toFilePath(),
+        fit: widget.fit,
+        // Nothing to retry with: the decrypted page only exists on disk (the
+        // original CDN bytes are still scrambled and the wasm ticket is
+        // single-use), so let buildFileImage show its own error state.
+        onFailed: () {},
+      );
+    }
+
     // Handle data: URIs (pre-decoded binary, e.g. wu55comic)
     if (widget.image.url.startsWith('data:')) {
       return _buildMemoryImage();

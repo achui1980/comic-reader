@@ -154,7 +154,12 @@ class ChapterImagePipeline {
 
     if (source is HanabiManga && result.chapter.images.isNotEmpty) {
       List<ChapterImage> decryptedImages = const [];
-      await for (final partial in _resolveHanabiImages(result.chapter.images, source)) {
+      await for (final partial in _resolveHanabiImages(
+        result.chapter.images,
+        source,
+        mangaId: mangaId,
+        chapterId: chapterId,
+      )) {
         decryptedImages = partial;
       }
       result = ChapterResult(
@@ -304,7 +309,12 @@ class ChapterImagePipeline {
     }
 
     if (source is HanabiManga && result.chapter.images.isNotEmpty) {
-      await for (final partial in _resolveHanabiImages(result.chapter.images, source)) {
+      await for (final partial in _resolveHanabiImages(
+        result.chapter.images,
+        source,
+        mangaId: mangaId,
+        chapterId: chapterId,
+      )) {
         yield ChapterResult(
           chapter: Chapter(
             id: result.chapter.id,
@@ -401,10 +411,17 @@ class ChapterImagePipeline {
   /// chapter has been observed in practice to overwhelm the CDN and cause
   /// `DioException [receive timeout]` failures on some pages that simply
   /// had to wait too long in the connection queue.
+  ///
+  /// [mangaId]/[chapterId] are forwarded to the decryptor purely as the
+  /// on-disk cache key, so a revisited chapter costs neither a download nor a
+  /// wasm round trip. Hanabi always returns a whole chapter in one response
+  /// (`canLoadMore: false`), so the list index is also the global page index.
   Stream<List<ChapterImage>> _resolveHanabiImages(
     List<ChapterImage> images,
-    HanabiManga source,
-  ) async* {
+    HanabiManga source, {
+    String? mangaId,
+    String? chapterId,
+  }) async* {
     const maxConcurrent = 4;
     if (images.isEmpty) return;
 
@@ -423,9 +440,17 @@ class ChapterImagePipeline {
     void startNext() {
       while (nextToStart < images.length && active.length < maxConcurrent) {
         final i = nextToStart++;
-        final future = _hanabiDecryptor.decrypt(images[i], source).then((img) {
-          results[i] = img;
-        });
+        final future = _hanabiDecryptor
+            .decrypt(
+              images[i],
+              source,
+              mangaId: mangaId,
+              chapterId: chapterId,
+              imageIndex: i,
+            )
+            .then((img) {
+              results[i] = img;
+            });
         active.add(future);
         unawaited(future.whenComplete(() {
           active.remove(future);

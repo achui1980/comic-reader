@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:comic_reader/data/local/chapter_cache_service.dart';
 import 'package:comic_reader/data/remote/http_client.dart';
 import 'package:comic_reader/data/repositories/hanabi_chapter_decryptor.dart';
 import 'package:comic_reader/data/sources/hitomi.dart';
@@ -14,9 +15,15 @@ import 'wu55_chapter_decryptor.dart';
 class MangaRepositoryImpl implements MangaRepository {
   final HttpClient _httpClient;
   final SourceRegistry _sourceRegistry;
+  final ChapterCacheService? _chapterCache;
   late final FetchPipeline _pipeline = FetchPipeline(_httpClient);
   late final Wu55ChapterDecryptor _wu55Decryptor = Wu55ChapterDecryptor(_httpClient, _pipeline);
-  late final HanabiChapterDecryptor _hanabiDecryptor = HanabiChapterDecryptor(_httpClient, _pipeline);
+  late final HanabiChapterDecryptor _hanabiDecryptor = HanabiChapterDecryptor(
+    _httpClient,
+    _pipeline,
+    null,
+    _chapterCache,
+  );
   late final ChapterImagePipeline _chapterPipeline = ChapterImagePipeline(
     _httpClient,
     _pipeline,
@@ -27,8 +34,10 @@ class MangaRepositoryImpl implements MangaRepository {
   MangaRepositoryImpl({
     required HttpClient httpClient,
     required SourceRegistry sourceRegistry,
+    ChapterCacheService? chapterCache,
   })  : _httpClient = httpClient,
-        _sourceRegistry = sourceRegistry;
+        _sourceRegistry = sourceRegistry,
+        _chapterCache = chapterCache;
 
   @override
   Future<List<MangaSummary>> getDiscovery(String sourceId, int page, Map<String, String> filters) async {
