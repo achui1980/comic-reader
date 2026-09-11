@@ -1,0 +1,17 @@
+# CocoaPods & 原生构建产物
+ios/Pods/
+macos/Pods/
+ios/Podfile.lock
+macos/Podfile.lock
+ios/.symlinks/
+
+# Flutter 构建与依赖缓存
+build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# 其他通用噪音
+node_modules/
+.git/
+*.log
