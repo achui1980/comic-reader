@@ -60,6 +60,27 @@ class _MangaImageState extends State<MangaImage> {
   /// parsed [ChapterImage] and doesn't need this.
   ChapterImage? _manifestImage;
 
+  /// Cache of the bytes decoded from a `data:` URI, plus the exact url
+  /// String instance they came from.
+  ///
+  /// Sources that pre-decode images in the repository layer (HanabiManga,
+  /// wu55comic) hand us a `data:image/...;base64,<payload>` URI whose
+  /// payload is the entire image -- for HanabiManga (raw-pixel PNG
+  /// re-encode) that is routinely multiple megabytes. Without this cache,
+  /// every single widget rebuild re-ran `base64Decode` over that whole
+  /// payload *and* produced a fresh `Uint8List`, which meant a fresh
+  /// `MemoryImage` identity, which meant Flutter's image cache missed and
+  /// re-decoded the PNG from scratch. That combination burned huge amounts
+  /// of CPU while scrolling and made every page visibly flash each time
+  /// the widget rebuilt (e.g. on every progressive-loading state emission).
+  ///
+  /// Keyed by `identical()` on the url String rather than `==` on purpose:
+  /// comparing multi-megabyte strings for equality is itself expensive, and
+  /// the ChapterImage objects we get from ReaderBloc's state are stable
+  /// instances, so reference identity is both correct and O(1) here.
+  Uint8List? _dataUriBytes;
+  String? _dataUriSource;
+
   bool get _canCache =>
       !kIsWeb &&
       widget.sourceId != null &&
@@ -80,12 +101,22 @@ class _MangaImageState extends State<MangaImage> {
   @override
   void didUpdateWidget(covariant MangaImage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.image.url == widget.image.url &&
+    // Compare by reference first: for pre-decoded `data:` URI sources the
+    // url is a multi-megabyte string, so falling straight through to `==`
+    // on every widget update was itself a measurable CPU cost while
+    // scrolling. ReaderBloc hands out stable ChapterImage instances, so an
+    // identical url almost always short-circuits here; `==` remains as the
+    // correctness fallback for genuinely-distinct-but-equal strings.
+    final sameUrl = identical(oldWidget.image.url, widget.image.url) ||
+        oldWidget.image.url == widget.image.url;
+    if (sameUrl &&
         oldWidget.image.responseEncoding == widget.image.responseEncoding) {
       return;
     }
     _localPath = null;
     _manifestImage = null;
+    _dataUriBytes = null;
+    _dataUriSource = null;
     if (_canCache) {
       _checkedCache = false;
       _checkCache();
@@ -196,18 +227,23 @@ class _MangaImageState extends State<MangaImage> {
   Widget _buildMemoryImage() {
     try {
       final uri = widget.image.url;
-      // Parse "data:image/jpeg;base64,XXXXX"
-      final commaIdx = uri.indexOf(',');
-      if (commaIdx < 0) {
-        return const Center(child: Text('Invalid data URI'));
+      // Reuse the previously-decoded bytes when this build is for the same
+      // url instance (see [_dataUriBytes] for why this matters so much).
+      var bytes = _dataUriBytes;
+      if (bytes == null || !identical(_dataUriSource, uri)) {
+        final commaIdx = uri.indexOf(',');
+        if (commaIdx < 0) {
+          return const Center(child: Text('Invalid data URI'));
+        }
+        bytes = base64Decode(uri.substring(commaIdx + 1));
+        _dataUriBytes = bytes;
+        _dataUriSource = uri;
       }
-      final base64Data = uri.substring(commaIdx + 1);
-      final bytes = base64Decode(base64Data);
 
       // If wu55 scrambled, use custom unscramble painter
       if (widget.image.scrambleType == ScrambleType.wu55) {
         return Wu55MemoryImage(
-          imageBytes: Uint8List.fromList(bytes),
+          imageBytes: bytes,
           fit: widget.fit,
           alignment: widget.jmcAlignment,
           bookId: widget.image.wu55BookId ?? 0,
@@ -215,9 +251,12 @@ class _MangaImageState extends State<MangaImage> {
         );
       }
 
-      // Not scrambled, render directly
+      // Not scrambled, render directly. Passing the cached Uint8List
+      // straight through (rather than copying it via Uint8List.fromList)
+      // keeps the MemoryImage identity stable across rebuilds so Flutter's
+      // image cache hits instead of re-decoding the PNG every time.
       return Image.memory(
-        Uint8List.fromList(bytes),
+        bytes,
         fit: widget.fit,
         errorBuilder: (_, error, __) => const Center(
           child: Column(
@@ -301,8 +340,6 @@ class _MangaImageState extends State<MangaImage> {
     // Load from network
     // Handle data: URIs (pre-decoded binary, e.g. wu55comic)
     if (widget.image.url.startsWith('data:')) {
-      debugPrint('[MangaImage] data: URI detected, scrambleType=${widget.image.scrambleType}, '
-          'bookId=${widget.image.wu55BookId}, pageNumber=${widget.image.wu55PageNumber}');
       return _buildMemoryImage();
     }
 
