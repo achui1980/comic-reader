@@ -1,3 +1,4 @@
+import 'dart:convert' show base64Decode;
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart' show Headers, Response, ResponseType;
@@ -32,6 +33,46 @@ Future<Uint8List> loadAndCacheImageBytes({
   String? chapterId,
   int? imageIndex,
 }) async {
+  // Pre-decoded in-memory images (e.g. HanabiManga/wu55comic after their
+  // own WASM/AES decryption step already ran) carry their bytes directly
+  // in a `data:` URI rather than a fetchable network URL. Decode locally
+  // instead of handing this to HttpClient/Dio: passing a `data:` string as
+  // a request URL always fails, and the resulting retry loop below would
+  // pointlessly retry 3x with backoff while debug-printing the *entire*
+  // (potentially multi-MB) base64 payload on every failed attempt.
+  if (image.url.startsWith('data:')) {
+    final commaIdx = image.url.indexOf(',');
+    if (commaIdx < 0) {
+      throw const FormatException('Invalid data: URI (no comma separator)');
+    }
+    final bytes = base64Decode(image.url.substring(commaIdx + 1));
+    final canCache = sourceId != null &&
+        mangaId != null &&
+        chapterId != null &&
+        imageIndex != null;
+    if (canCache) {
+      await GetIt.instance<ChapterCacheService>().saveImage(
+        sourceId,
+        mangaId,
+        chapterId,
+        imageIndex,
+        bytes,
+        // Preserve the image's own scrambleType/scrambleId as-is: a data:
+        // URI can still be `wu55` (wu55comic wraps its still-canvas-
+        // scrambled container bytes in a data: URI; the actual pixel-level
+        // unscramble happens later, at render time, via Wu55MemoryImage) --
+        // forcing `none` here would corrupt the on-disk cache's scramble
+        // metadata for that case. HanabiManga's data: URIs are always
+        // already `none` by the time they reach here (its own decryptor
+        // fully unscrambles before constructing the ChapterImage), so this
+        // is a correct no-op for that source.
+        scrambleType: image.scrambleType,
+        scrambleId: image.scrambleId,
+      );
+    }
+    return bytes;
+  }
+
   Object? lastError;
   for (var attempt = 1; attempt <= kMangaImageMaxLoadAttempts; attempt++) {
     try {
