@@ -5,57 +5,87 @@ import 'package:dio/dio.dart';
 
 import 'package:comic_reader/data/local/auth_store.dart';
 import 'package:comic_reader/data/remote/http_client.dart';
+import 'package:comic_reader/data/sources/manga_source.dart';
 import 'package:comic_reader/data/sources/pica_comic.dart';
-import 'package:comic_reader/data/sources/source_registry.dart';
 
-/// Attempts auto-login with built-in credentials.
-/// Returns true if login succeeded.
-Future<bool> picaAutoLogin() async {
+/// Attempts auto-login for [source] using its built-in credentials.
+/// Returns true if login succeeded (or the source was already authenticated).
+/// Returns false immediately (without any network call) if [source] does
+/// not support auto-login.
+Future<bool> tryAutoLogin(MangaSource source) async {
   try {
-    final registry = GetIt.instance<SourceRegistry>();
-    final source = registry.get(PicaComic.sourceId);
-    if (source is! PicaComic) return false;
+    if (!source.supportsAutoLogin) return false;
     if (source.isAuthenticated) return true;
 
+    final email = source.autoLoginEmail;
+    final password = source.autoLoginPassword;
+    if (email == null || password == null) return false;
+
     final httpClient = GetIt.instance<HttpClient>();
-    final config = source.buildSignInRequest(
-      PicaComic.defaultEmail,
-      PicaComic.defaultPassword,
-    );
+    final config = source.buildSignInRequest(email, password);
     final response = await httpClient.execute(config);
-    final token = source.parseSignIn(response.data);
-    if (token != null) {
-      final authStore = GetIt.instance<AuthStore>();
-      await authStore.saveExtra(PicaComic.sourceId, {'token': token});
-      // On web, register the token with the CORS proxy for CDN image access
-      await _registerProxyToken(token);
-      return true;
+    final data = source.parseSignIn(response.data);
+    if (data == null) return false;
+
+    source.syncExtraData(data);
+    final authStore = GetIt.instance<AuthStore>();
+    await authStore.saveExtra(source.id, data);
+
+    if (source is PicaComic) {
+      final token = data['token'] as String?;
+      if (token != null) await _registerProxyToken(token);
     }
-    return false;
+    return true;
   } catch (_) {
     return false;
   }
 }
 
-/// Shows a login dialog for PicaComic.
+/// Attempts to refresh [source]'s session if it reports
+/// [MangaSource.needsSessionRefresh]. Returns true if no refresh was needed
+/// or the refresh succeeded; false if a refresh was needed but failed.
+Future<bool> tryRefreshSession(MangaSource source) async {
+  if (!source.needsSessionRefresh) return true;
+  try {
+    final httpClient = GetIt.instance<HttpClient>();
+    final config = source.buildRefreshRequest();
+    final response = await httpClient.execute(config);
+    final data = source.parseRefresh(response.data);
+    if (data == null) return false;
+
+    source.syncExtraData(data);
+    final authStore = GetIt.instance<AuthStore>();
+    await authStore.saveExtra(source.id, data);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Shows a generic email/password login dialog for [source].
 /// Returns true if login succeeded, false/null otherwise.
-Future<bool?> showPicaLoginDialog(BuildContext context) {
+Future<bool?> showLoginDialog(BuildContext context, MangaSource source) {
   return showDialog<bool>(
     context: context,
-    builder: (ctx) => const _PicaLoginDialog(),
+    builder: (ctx) => _LoginDialog(source: source),
   );
 }
 
-class _PicaLoginDialog extends StatefulWidget {
-  const _PicaLoginDialog();
+class _LoginDialog extends StatefulWidget {
+  final MangaSource source;
+  const _LoginDialog({required this.source});
 
   @override
-  State<_PicaLoginDialog> createState() => _PicaLoginDialogState();
+  State<_LoginDialog> createState() => _LoginDialogState();
 }
 
-class _PicaLoginDialogState extends State<_PicaLoginDialog> {
-  final _emailController = TextEditingController(text: PicaComic.defaultEmail);
-  final _passwordController = TextEditingController(text: PicaComic.defaultPassword);
+class _LoginDialogState extends State<_LoginDialog> {
+  late final TextEditingController _emailController = TextEditingController(
+    text: widget.source.autoLoginEmail ?? '',
+  );
+  late final TextEditingController _passwordController = TextEditingController(
+    text: widget.source.autoLoginPassword ?? '',
+  );
   bool _loading = false;
   String? _error;
   bool _obscurePassword = true;
@@ -82,27 +112,21 @@ class _PicaLoginDialogState extends State<_PicaLoginDialog> {
     });
 
     try {
-      final registry = GetIt.instance<SourceRegistry>();
-      final source = registry.get(PicaComic.sourceId);
-      if (source is! PicaComic) {
-        setState(() {
-          _loading = false;
-          _error = '插件未找到';
-        });
-        return;
-      }
-
+      final source = widget.source;
       final httpClient = GetIt.instance<HttpClient>();
       final config = source.buildSignInRequest(email, password);
       final response = await httpClient.execute(config);
 
-      final token = source.parseSignIn(response.data);
-      if (token != null) {
-        // Save token to persistent store
+      final data = source.parseSignIn(response.data);
+      if (data != null) {
+        source.syncExtraData(data);
         final authStore = GetIt.instance<AuthStore>();
-        await authStore.saveExtra(PicaComic.sourceId, {'token': token});
-        // Register with CORS proxy for CDN image access
-        await _registerProxyToken(token);
+        await authStore.saveExtra(source.id, data);
+
+        if (source is PicaComic) {
+          final token = data['token'] as String?;
+          if (token != null) await _registerProxyToken(token);
+        }
 
         if (mounted) {
           Navigator.of(context).pop(true);
@@ -116,7 +140,10 @@ class _PicaLoginDialogState extends State<_PicaLoginDialog> {
     } catch (e) {
       final msg = e.toString();
       String errorText;
-      if (msg.contains('1004') || msg.contains('invalid email')) {
+      if (msg.contains('1004') ||
+          msg.contains('invalid email') ||
+          msg.contains('invalid_credentials') ||
+          msg.contains('Invalid login credentials')) {
         errorText = '邮箱或密码错误';
       } else if (msg.contains('timeout') || msg.contains('SocketException')) {
         errorText = '网络连接失败，请检查代理设置';
@@ -132,12 +159,13 @@ class _PicaLoginDialogState extends State<_PicaLoginDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final source = widget.source;
     return AlertDialog(
-      title: const Row(
+      title: Row(
         children: [
-          Icon(Icons.login, color: Colors.deepPurple),
-          SizedBox(width: 8),
-          Text('哔咔漫画登录'),
+          const Icon(Icons.login, color: Colors.deepPurple),
+          const SizedBox(width: 8),
+          Text('${source.name} 登录'),
         ],
       ),
       content: SizedBox(
@@ -145,9 +173,9 @@ class _PicaLoginDialogState extends State<_PicaLoginDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
-              '使用哔咔漫画账号登录后即可浏览',
-              style: TextStyle(fontSize: 13, color: Colors.grey),
+            Text(
+              source.loginDescription ?? '使用账号登录后即可浏览',
+              style: const TextStyle(fontSize: 13, color: Colors.grey),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -171,9 +199,7 @@ class _PicaLoginDialogState extends State<_PicaLoginDialog> {
                 border: const OutlineInputBorder(),
                 suffixIcon: IconButton(
                   icon: Icon(
-                    _obscurePassword
-                        ? Icons.visibility_off
-                        : Icons.visibility,
+                    _obscurePassword ? Icons.visibility_off : Icons.visibility,
                   ),
                   onPressed: () {
                     setState(() => _obscurePassword = !_obscurePassword);
@@ -214,7 +240,7 @@ class _PicaLoginDialogState extends State<_PicaLoginDialog> {
 }
 
 /// Register PICA auth token with CORS proxy so CDN images can be served.
-/// Only needed on web platform.
+/// Only needed on web platform. No-op for other sources.
 Future<void> _registerProxyToken(String token) async {
   if (!kIsWeb) return;
   try {
