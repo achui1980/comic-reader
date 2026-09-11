@@ -82,6 +82,7 @@ class PicaComic extends MangaSource {
   /// Sign in with email and password.
   /// Returns a FetchConfig for the sign-in request.
   /// The caller should execute this and pass the response to [parseSignIn].
+  @override
   FetchConfig buildSignInRequest(String email, String password) {
     const path = 'auth/sign-in';
     return FetchConfig(
@@ -92,15 +93,16 @@ class PicaComic extends MangaSource {
     );
   }
 
-  /// Parse sign-in response and return the token, or null on failure.
-  /// Also stores the token internally.
-  String? parseSignIn(dynamic response) {
+  /// Parse sign-in response and return a data map containing the token,
+  /// or null on failure. Also stores the token internally.
+  @override
+  Map<String, dynamic>? parseSignIn(dynamic response) {
     final data = _parseJsonResponse(response);
     if (data == null) return null;
     final token = data['token'] as String?;
     if (token != null && token.isNotEmpty) {
       _authToken = token;
-      return token;
+      return {'token': token};
     }
     return null;
   }

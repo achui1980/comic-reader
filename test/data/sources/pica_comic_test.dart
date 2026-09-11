@@ -103,4 +103,17 @@ void main() {
       expect(result[0].popularityText, isNull);
     });
   });
+
+  test('parseSignIn returns a data map (not a bare token string)', () {
+    final source = PicaComic();
+    final result = source.parseSignIn({'token': 'abc123'});
+    expect(result, isA<Map<String, dynamic>>());
+    expect(result!['token'], 'abc123');
+    expect(source.isAuthenticated, isTrue);
+  });
+
+  test('parseSignIn returns null when token is missing', () {
+    final source = PicaComic();
+    expect(source.parseSignIn({'code': 200}), isNull);
+  });
 }
