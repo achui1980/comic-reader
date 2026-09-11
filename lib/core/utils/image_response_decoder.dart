@@ -8,7 +8,7 @@ Uint8List decodeImageResponseBytes(
   ImageResponseEncoding responseEncoding,
 ) {
   if (responseEncoding == ImageResponseEncoding.binary ||
-      _hasImageSignature(bytes)) {
+      hasImageSignature(bytes)) {
     return bytes;
   }
 
@@ -52,7 +52,14 @@ bool isJpegBytesComplete(Uint8List bytes) {
   return false;
 }
 
-bool _hasImageSignature(Uint8List bytes) {
+/// Returns whether [bytes] begin with the magic-number signature of one of the
+/// image formats this app handles (JPEG, PNG, GIF, WEBP).
+///
+/// This is a cheap "does the payload already look like a real image" probe. It
+/// is used both to decide whether a response needs base64 decoding and by
+/// per-source byte decryptors to detect payloads that are already plaintext
+/// (which makes those transforms safely idempotent).
+bool hasImageSignature(Uint8List bytes) {
   if (bytes.length >= 3 && bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff) {
     return true;
   }

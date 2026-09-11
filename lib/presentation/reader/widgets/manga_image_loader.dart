@@ -7,6 +7,7 @@ import 'package:get_it/get_it.dart' hide Disposable;
 
 import '../../../data/local/chapter_cache_service.dart';
 import '../../../data/remote/http_client.dart';
+import '../../../data/sources/source_image_transform.dart';
 import '../../../core/models/fetch_config.dart';
 import '../../../core/utils/image_response_decoder.dart';
 import '../../../domain/entities/chapter.dart';
@@ -89,7 +90,13 @@ Future<Uint8List> loadAndCacheImageBytes({
       }
       final rawBytes = Uint8List.fromList(responseData);
       _verifyResponseIntegrity(response, rawBytes);
-      final bytes = decodeImageResponseBytes(rawBytes, image.responseEncoding);
+      final decoded = decodeImageResponseBytes(rawBytes, image.responseEncoding);
+      // Some sites store their images encrypted at rest and decrypt them in the
+      // browser. Apply that per-source transform here, before the integrity and
+      // emptiness checks below (which must see a real image) and before the
+      // bytes are handed to the disk cache, so everything downstream — live
+      // render, prefetch, offline cache, OCR/translation — sees plaintext.
+      final bytes = applySourceImageTransform(decoded, sourceId);
       if (bytes.isEmpty) {
         throw const FormatException('Decoded image is empty');
       }

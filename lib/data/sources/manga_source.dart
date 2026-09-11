@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 
@@ -85,6 +87,33 @@ abstract class MangaSource {
   /// Override when the CF-protected domain differs from [href].
   /// Returns null to use [href] as default.
   String? get cloudflareUrl => null;
+
+  /// Whether raw image bytes downloaded from this source need a per-source
+  /// transform (typically decryption) before they can be decoded or cached.
+  ///
+  /// Some sites store their images encrypted at rest and decrypt them in the
+  /// browser with JavaScript: the HTTP response is a normal 200 with an image
+  /// `Content-Type`, but the body is ciphertext, so an image decoder fails with
+  /// "Invalid image data". Set this to true and override [transformImageBytes]
+  /// to port that decryption step.
+  ///
+  /// This is orthogonal to [ChapterImage.scrambleType]: scrambling is applied
+  /// to the *decoded* image (by repainting tiles), whereas this hook operates on
+  /// the raw bytes before any decoding happens.
+  bool get transformsImageBytes => false;
+
+  /// Transforms raw downloaded image bytes. Defaults to the identity function.
+  ///
+  /// Only called when [transformsImageBytes] is true. Applies to covers,
+  /// chapter pages, downloaded chapters, and save-to-gallery alike.
+  ///
+  /// Implementations MUST be:
+  ///  * **idempotent** — they may be handed already-transformed bytes, so they
+  ///    should detect that case and return the input unchanged; and
+  ///  * **total** — they must never throw. Return [bytes] unchanged when the
+  ///    payload cannot be transformed, so the caller surfaces an ordinary image
+  ///    error rather than crashing.
+  Uint8List transformImageBytes(Uint8List bytes) => bytes;
 
   /// Extra headers from stored auth data (cookies, etc.)
   /// These are merged into every request's headers.

@@ -9,6 +9,7 @@ import 'package:dio/dio.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/core/utils/image_proxy.dart';
 import 'package:comic_reader/core/utils/image_response_decoder.dart';
+import 'package:comic_reader/data/sources/source_image_transform.dart';
 
 final _log = Logger('ChapterCacheService');
 
@@ -473,9 +474,17 @@ class ChapterCacheService {
           );
           if (response.data != null) {
             final contentType = response.headers.value('content-type');
-            final bytes = decodeImageResponseBytes(
-              Uint8List.fromList(response.data as List<int>),
-              images[i].responseEncoding,
+            // This download path has its own Dio and never goes through
+            // manga_image_loader, so the per-source byte transform has to be
+            // applied here as well — otherwise sources that serve encrypted
+            // images would write ciphertext to disk permanently (the offline
+            // read path renders files as-is and has no byte hook to recover).
+            final bytes = applySourceImageTransform(
+              decodeImageResponseBytes(
+                Uint8List.fromList(response.data as List<int>),
+                images[i].responseEncoding,
+              ),
+              sourceId,
             );
             await saveImage(
               sourceId,
