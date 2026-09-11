@@ -152,9 +152,10 @@ class ChapterImagePipeline {
     }
 
     if (source is HanabiManga && result.chapter.images.isNotEmpty) {
-      final decryptedImages = await Future.wait(
-        result.chapter.images.map((img) => _hanabiDecryptor.decrypt(img, source)),
-      );
+      List<ChapterImage> decryptedImages = const [];
+      await for (final partial in _resolveHanabiImages(result.chapter.images, source)) {
+        decryptedImages = partial;
+      }
       result = ChapterResult(
         chapter: Chapter(
           id: result.chapter.id,
@@ -302,19 +303,18 @@ class ChapterImagePipeline {
     }
 
     if (source is HanabiManga && result.chapter.images.isNotEmpty) {
-      final decryptedImages = await Future.wait(
-        result.chapter.images.map((img) => _hanabiDecryptor.decrypt(img, source)),
-      );
-      yield ChapterResult(
-        chapter: Chapter(
-          id: result.chapter.id,
-          mangaId: result.chapter.mangaId,
-          title: result.chapter.title,
-          images: decryptedImages,
-          headers: result.chapter.headers,
-        ),
-        canLoadMore: false,
-      );
+      await for (final partial in _resolveHanabiImages(result.chapter.images, source)) {
+        yield ChapterResult(
+          chapter: Chapter(
+            id: result.chapter.id,
+            mangaId: result.chapter.mangaId,
+            title: result.chapter.title,
+            images: partial,
+            headers: result.chapter.headers,
+          ),
+          canLoadMore: false,
+        );
+      }
       return;
     }
 
@@ -367,6 +367,36 @@ class ChapterImagePipeline {
       final futures = <Future<ChapterImage>>[];
       for (int i = batchStart; i < batchEnd; i++) {
         futures.add(_wu55Decryptor.decrypt(images[i], i, source));
+      }
+      final batchResults = await Future.wait(futures);
+      decrypted.addAll(batchResults);
+      yield List<ChapterImage>.from(decrypted);
+    }
+  }
+
+  /// Downloads + WASM-unscrambles HanabiManga's chapter images in small
+  /// concurrent batches, yielding the growing decrypted-prefix list after
+  /// each batch (mirrors [_resolveWu55Images]'s batching so the reader can
+  /// display pages progressively).
+  ///
+  /// Batching (rather than a single `Future.wait` over every page) is not
+  /// just about progressive display: HanabiManga's chapter images are all
+  /// signed CDN URLs on `cdn.hanabimanga.top` sharing the same short-lived
+  /// signature window, so firing every page's HTTP request at once for a
+  /// 40-70 page chapter has been observed in practice to overwhelm the CDN
+  /// and cause `DioException [receive timeout]` failures on some pages that
+  /// simply had to wait too long in the connection queue.
+  Stream<List<ChapterImage>> _resolveHanabiImages(
+    List<ChapterImage> images,
+    HanabiManga source,
+  ) async* {
+    final decrypted = <ChapterImage>[];
+    const batchSize = 3;
+    for (int batchStart = 0; batchStart < images.length; batchStart += batchSize) {
+      final batchEnd = (batchStart + batchSize).clamp(0, images.length);
+      final futures = <Future<ChapterImage>>[];
+      for (int i = batchStart; i < batchEnd; i++) {
+        futures.add(_hanabiDecryptor.decrypt(images[i], source));
       }
       final batchResults = await Future.wait(futures);
       decrypted.addAll(batchResults);
