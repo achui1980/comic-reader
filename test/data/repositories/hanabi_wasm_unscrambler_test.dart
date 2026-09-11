@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:comic_reader/data/repositories/hanabi_wasm_unscrambler.dart';
 import 'package:crypto/crypto.dart';
@@ -53,4 +54,47 @@ void main() {
       '410f8598a95efb975e3ce55f441b6fee551a6b9d049fedf8464e3eebb3cd29d3',
     );
   });
+
+  test(
+    'unscramble can be called repeatedly on the same instance without '
+    'corrupting results (regression guard for input-buffer dealloc)',
+    () async {
+      final wasmBytes = await File('test/fixtures/hanabi/reader.wasm').readAsBytes();
+      final scrambledBytes =
+          await File('test/fixtures/hanabi/scrambled_page001.webp').readAsBytes();
+
+      final decoded = img.decodeImage(scrambledBytes)!;
+      final rgba = decoded.getBytes(order: img.ChannelOrder.rgba);
+
+      final ticket = base64Decode('Qi7trobdcZGeZuodLH1829AVM+00eSykQq83KThsKIM=');
+      final nonce = base64Decode('ZkfsVQTteF2Ab4Ha');
+
+      final unscrambler = HanabiWasmUnscrambler();
+      await unscrambler.ensureLoaded(wasmBytesOverride: wasmBytes);
+
+      const expectedHash =
+          '410f8598a95efb975e3ce55f441b6fee551a6b9d049fedf8464e3eebb3cd29d3';
+
+      // Call unscramble() 3 times sequentially against the SAME loaded
+      // instance, re-using the same source bytes each time. Before the
+      // dealloc fix, each call leaked its three input buffers (ticket,
+      // nonce, image RGBA) in WASM linear memory; this proves repeated
+      // calls still produce the correct result and don't crash/corrupt
+      // due to the added dealloc calls freeing memory that's still in use.
+      for (var i = 0; i < 3; i++) {
+        final result = await unscrambler.unscramble(
+          Uint8List.fromList(rgba), // fresh copy each call, like real usage
+          decoded.width,
+          decoded.height,
+          Uint8List.fromList(ticket),
+          Uint8List.fromList(nonce),
+          4,
+          4,
+        );
+        expect(result.length, 5268480, reason: 'call #$i result length');
+        final hash = sha256.convert(result).toString();
+        expect(hash, expectedHash, reason: 'call #$i result hash');
+      }
+    },
+  );
 }

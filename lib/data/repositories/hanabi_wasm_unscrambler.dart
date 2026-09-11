@@ -121,6 +121,19 @@ class HanabiWasmUnscrambler {
     final noncePtr = _writeBytes(nonce);
     final imagePtr = _writeBytes(rgba);
 
+    // NOTE: `ticketPtr`/`noncePtr`/`imagePtr` are deliberately NOT freed
+    // here. The `unscramble` Rust export takes these three buffers by
+    // value (reconstructing owned `Vec<u8>`s via the standard
+    // wasm-bindgen `Vec<u8>`-param convention), so the WASM module already
+    // frees them itself (via Rust's `Drop`) before returning. Verified
+    // empirically: calling `__wbindgen_export2`/dealloc on any one of
+    // these three pointers after this call returns immediately traps with
+    // "wasm trap: unreachable" (Rust's panic-on-double-free, since
+    // panic=abort compiles to `unreachable` on the wasm target) -- even on
+    // the very first call, not just on repeated calls. Only `resultPtr`
+    // below is caller-owned (a fresh `Vec<u8>` the Rust side allocates and
+    // hands back to us) and must be freed by us, which the existing code
+    // already does.
     final retPtr = _addStackFn!.inner(-16) as int;
 
     _unscrambleFn!.inner(
