@@ -1,9 +1,9 @@
-// Task 2-4 会用到以下导入（内嵌 JSON 解析与 DOM 抽取），骨架阶段先注释以保持
-// `flutter analyze` 干净：
+// Task 3 会用到以下导入（详情页 `x-data` 内嵌 JSON 解析），尚无引用者，先注释以
+// 保持 `flutter analyze` 干净：
 // import 'dart:convert';
-//
-// import 'package:html/parser.dart' as html_parser;
-// import 'package:html/dom.dart';
+
+import 'package:html/parser.dart' as html_parser;
+import 'package:html/dom.dart';
 
 import 'package:comic_reader/core/models/fetch_config.dart';
 import 'package:comic_reader/data/sources/manga_source.dart';
@@ -30,8 +30,7 @@ class MyComic extends MangaSource {
       'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
   // CDN 放行的唯一条件：实测 `Referer` 单独即可 200，UA / Cookie 都不需要。
-  // Task 2 起用于 MangaSummary/MangaDetail/ChapterImage 的 headers。
-  // static const Map<String, String> _imageHeaders = {'Referer': '$_baseUrl/'};
+  static const Map<String, String> _imageHeaders = {'Referer': '$_baseUrl/'};
 
   @override
   String get id => sourceId;
@@ -236,14 +235,58 @@ class MyComic extends MangaSource {
     );
   }
 
-  @override
-  List<MangaSummary> parseDiscovery(dynamic response) {
-    throw UnimplementedError('parseDiscovery');
-  }
+  static final RegExp _comicIdPattern = RegExp(r'/comics/(\d+)');
 
   @override
-  List<MangaSummary> parseSearch(dynamic response) {
-    throw UnimplementedError('parseSearch');
+  List<MangaSummary> parseDiscovery(dynamic response) =>
+      _parseList(response as String);
+
+  @override
+  List<MangaSummary> parseSearch(dynamic response) =>
+      _parseList(response as String);
+
+  List<MangaSummary> _parseList(String htmlStr) {
+    final document = html_parser.parse(htmlStr);
+    final results = <MangaSummary>[];
+    final seen = <String>{};
+
+    for (final anchor in document.querySelectorAll('a[href]')) {
+      final match = _comicIdPattern.firstMatch(anchor.attributes['href'] ?? '');
+      if (match == null) continue;
+
+      // 「随机漫画」导航链接不包 img，由此滤除。
+      final img = anchor.querySelector('img');
+      if (img == null) continue;
+      final title = (img.attributes['alt'] ?? '').trim();
+      if (title.isEmpty) continue;
+
+      final id = match.group(1)!;
+      if (!seen.add(id)) continue;
+
+      results.add(MangaSummary(
+        id: id,
+        sourceId: sourceId,
+        title: title,
+        coverUrl: (img.attributes['data-src'] ?? img.attributes['src'] ?? '')
+            .trim(),
+        latestChapter: _latestChapterText(anchor, title),
+        headers: _imageHeaders,
+      ));
+    }
+
+    return results;
+  }
+
+  /// 最新章节徽章：在卡片 `<a>` 内取所有**叶子 div**（无子元素节点），选第一个
+  /// 满足「文本非空、不等于标题、长度 ≤ 20」者。长度上限用于排除简介类长文本。
+  String? _latestChapterText(Element anchor, String title) {
+    for (final div in anchor.querySelectorAll('div')) {
+      if (div.children.isNotEmpty) continue;
+      final text = div.text.trim();
+      if (text.isEmpty || text == title || text.length > 20) continue;
+      return text;
+    }
+    return null;
   }
 
   @override

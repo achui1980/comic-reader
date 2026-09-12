@@ -108,4 +108,55 @@ void main() {
       expect(config.timeout, const Duration(seconds: 60));
     });
   });
+
+  group('MyComic list parsing', () {
+    test('keeps only real cards and drops the random-comic nav anchor', () {
+      final results = source.parseDiscovery(_listFixture);
+
+      expect(results, hasLength(2));
+
+      expect(results[0].id, '55355');
+      expect(results[0].sourceId, 'mycomic');
+      expect(results[0].title, '猎人游戏W');
+      expect(results[0].coverUrl, 'https://biccam.com/comics/55355-9e7018.jpg');
+      expect(results[0].latestChapter, '第07话');
+      expect(results[0].headers?['Referer'], 'https://mycomic.com/');
+
+      expect(results[1].id, '40001');
+      expect(results[1].title, '测试漫画');
+      // data-src 优先于占位 src
+      expect(results[1].coverUrl, 'https://biccam.com/comics/40001-aa11bb.jpg');
+      // 该卡片的 <a> 内没有叶子 div，取不到最新章节
+      expect(results[1].latestChapter, isNull);
+    });
+
+    test('parseSearch shares the list parser', () {
+      expect(source.parseSearch(_listFixture), hasLength(2));
+    });
+  });
 }
+
+/// 列表页夹具：1 个导航「随机漫画」锚点（无 img，须被滤除）+ 2 张真卡片。
+const String _listFixture = '''
+<html><body>
+  <nav>
+    <a href="https://mycomic.com/cn/comics/12345"
+       :href="comicUrl({id: Math.floor(Math.random() * maxComicId)})">随机漫画</a>
+  </nav>
+  <div class="grid grid-cols-3 md:grid-cols-6">
+    <div class="group relative">
+      <a href="https://mycomic.com/cn/comics/55355">
+        <img src="https://biccam.com/comics/55355-9e7018.jpg" alt="猎人游戏W">
+        <div class="absolute inset-x-0 bottom-0"><div>第07话</div></div>
+      </a>
+      <div class="mt-2 text-center"><div data-flux-subheading>猎人游戏W</div></div>
+    </div>
+    <div class="group relative">
+      <a href="https://mycomic.com/cn/comics/40001">
+        <img src="https://biccam.com/img/placeholder.gif"
+             data-src="https://biccam.com/comics/40001-aa11bb.jpg" alt="测试漫画">
+      </a>
+    </div>
+  </div>
+</body></html>
+''';
