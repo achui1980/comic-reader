@@ -136,10 +136,20 @@ void main() {
   });
 }
 
-/// 列表页夹具：1 个导航「随机漫画」锚点（无 img，须被滤除）+ 2 张真卡片。
+/// 列表页夹具：3 个负例锚点（每个只违反一条结构不变量）+ 2 张真卡片。
+///
+/// 负例与被拦截的不变量一一对应，因此 `hasLength(2)` 能证明三条判据都在生效：
+/// - 「随机漫画」导航锚点：href 匹配 `/comics/\d+`，但**无 img** → 只被②拦；
+/// - 站点 logo 锚点：有 img 且 alt 非空，但 **href 不是漫画详情页** → 只被①拦；
+/// - 装饰性/懒加载图片锚点：href 匹配且有 img，但 **alt 为空** → 只被③拦。
+///
+/// 第一张卡片的角标是**单层叶子 div**（贴合站点实测结构），且 `<a>` 内在角标之前
+/// 还有两个必须被 `_latestChapterText` 跳过的叶子 div：一个文本等于标题，一个
+/// 超过 20 字符。
 const String _listFixture = '''
 <html><body>
   <nav>
+    <a href="/cn/about"><img src="/logo.png" alt="MYCOMIC"></a>
     <a href="https://mycomic.com/cn/comics/12345"
        :href="comicUrl({id: Math.floor(Math.random() * maxComicId)})">随机漫画</a>
   </nav>
@@ -147,7 +157,9 @@ const String _listFixture = '''
     <div class="group relative">
       <a href="https://mycomic.com/cn/comics/55355">
         <img src="https://biccam.com/comics/55355-9e7018.jpg" alt="猎人游戏W">
-        <div class="absolute inset-x-0 bottom-0"><div>第07话</div></div>
+        <div class="sr-only">猎人游戏W</div>
+        <div class="line-clamp-2 text-xs">一位普通高中生被卷入了一场以生命为赌注的猎人游戏，规则残酷。</div>
+        <div class="absolute inset-x-0 bottom-0">第07话</div>
       </a>
       <div class="mt-2 text-center"><div data-flux-subheading>猎人游戏W</div></div>
     </div>
@@ -157,6 +169,7 @@ const String _listFixture = '''
              data-src="https://biccam.com/comics/40001-aa11bb.jpg" alt="测试漫画">
       </a>
     </div>
+    <a href="https://mycomic.com/cn/comics/60001"><img src="x.gif" alt=""></a>
   </div>
 </body></html>
 ''';
