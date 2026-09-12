@@ -386,6 +386,8 @@ class MyComic extends MangaSource {
     return items;
   }
 
+  static final RegExp _chaptersArrayStartPattern = RegExp(r'chapters:\s*\[');
+
   /// 起始符靠正则**定位**，数组边界靠引号/转义感知的括号深度扫描**切片**。
   ///
   /// **不要用正则切片。** `chapters:\s*(\[.*?\])` 在章节标题含 `]`（卷名、括注
@@ -395,8 +397,6 @@ class MyComic extends MangaSource {
   /// 文档任意远处抓走一个完全无关的 `[`（无关数组 → 静默 0 章节，推荐位数组 →
   /// 静默产出看起来正常的假章节），比抛错难查得多。故要求 `[` 紧跟在 `chapters:`
   /// 之后（中间只容许空白）。
-  static final RegExp _chaptersArrayStartPattern = RegExp(r'chapters:\s*\[');
-
   String _sliceChaptersJson(String htmlStr) {
     final match = _chaptersArrayStartPattern.firstMatch(htmlStr);
     if (match == null) {
