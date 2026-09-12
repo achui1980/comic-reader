@@ -183,6 +183,9 @@ void main() {
 
       await pumpAndOpenDialog(tester);
 
+      // Anchor: assert the dialog actually opened so the findsNothing
+      // expectations below cannot pass vacuously.
+      expect(find.byType(AlertDialog), findsOneWidget);
       expect(find.text('还没有账号？去注册'), findsNothing);
       expect(find.byIcon(Icons.open_in_new), findsNothing);
     });
@@ -196,6 +199,10 @@ void main() {
 
       expect(find.text('还没有账号？去注册'), findsOneWidget);
       expect(find.byIcon(Icons.open_in_new), findsOneWidget);
+      expect(
+        find.widgetWithText(TextButton, '还没有账号？去注册'),
+        findsOneWidget,
+      );
     });
   });
 }
