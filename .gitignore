@@ -57,3 +57,7 @@ assets/models/**/*.bin
 assets/models/*.bin
 assets/models/manga-ocr/*.json
 assets/models/manga-ocr/*.txt
+
+# wasm_run 预编译动态库（由 tools/prefetch_wasm_run.sh 下载，见 pubspec.yaml
+# 的 hooks.user_defines.wasm_run；不入库以免仓库膨胀）
+native_libs/

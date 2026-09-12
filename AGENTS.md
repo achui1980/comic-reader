@@ -14,6 +14,7 @@
 - A `graphify` knowledge graph exists at `graphify-out/`. `graph.html` is for a **human** to browse interactively; `GRAPH_REPORT.md` is a community index that is not useful for agent cold-start (prefer the architecture map in this file instead). After changing code, run `graphify update .` to refresh it (AST-only, no API cost).
 
 ## Commands
+- **First build after a fresh clone / `git clean`: run `bash tools/prefetch_wasm_run.sh` before any `flutter build`/`flutter run`.** Without it the build dies with `FileSystemException: Could not find binary.` (see "wasm_run Native Libs" below).
 - Install/update Dart deps: `flutter pub get`
 - Full static check: `flutter analyze`
 - Focused static check: `flutter analyze lib/path/to/file.dart`
@@ -98,6 +99,23 @@ This is the most common task in this repo. Steps:
 - Cloudflare handling is platform-specific: native uses `flutter_inappwebview` to capture cookies automatically, while web falls back to the manual cookie-paste flow in `lib/presentation/webview/webview_web.dart`.
 - Persistent app state is JSON in the app documents directory on native (`lib/data/local/local_storage_io.dart`) and `window.localStorage` keys prefixed with `comic_reader_` on web (`lib/data/local/local_storage_web.dart`).
 - Chapter downloads and local image cache are native-only. `ChapterCacheService` is effectively a no-op on web.
+
+## wasm_run Native Libs (`native_libs/`)
+`wasm_run` / `wasm_run_flutter` (used to descramble 花火's `reader.wasm`) ship a native-assets build hook that, in its default `buildMode: fetch`, downloads a prebuilt dylib from GitHub Releases *during* `flutter build`. That hook uses a bare `HttpClient()` — it ignores `HTTPS_PROXY` and has zero retries, so a single TLS hiccup fails the whole build with `HandshakeException: Connection terminated during handshake`.
+- `pubspec.yaml` therefore pins `hooks: user_defines: wasm_run: {buildMode: local, localPath: native_libs/, assetName: $libraryName-dynamic-$target}`. The trailing slash is mandatory (`LocalBuildMode` does `localPath.resolve(assetName)`).
+- **`assetName` must be pinned to `dynamic` or every `--release` build breaks.** The hook's default asset template is `$libraryName-$libraryType-$target`, and `$libraryType` flips to `static` whenever `input.config.linkingEnabled` is true — which Flutter sets for *release* builds. Upstream's GitHub Release publishes **only** dynamic artifacts (18 assets, zero `-static-`), so a release build in the default `fetch` mode dies with `Exception: Sha256 hash for the asset wasm_run_dart-static-<target> was not provided`, and in `local` mode with `Could not find binary` for the same non-existent name. Pinning the template is safe because `buildStatic` only picks *which asset name to look up*: `CodeAsset.linkMode` is hardcoded `DynamicLoadingBundled()` and `LocalBuildMode` always emits the dylib file name, so debug and release share one dynamic library. Verified: `flutter build apk --release --split-per-abi` and `flutter build macos --release` both succeed and bundle the right per-arch library.
+- `tools/prefetch_wasm_run.sh` fetches those binaries via curl (honours `HTTPS_PROXY`, 6 retries, sha256-verified, idempotent). Platform groups: `macos | ios | android | windows | linux`; no args = whatever the current host can build; `--all` = everything.
+- `native_libs/` is gitignored (~46 MB) and survives `flutter clean`. File names must stay exactly `wasm_run_dart-dynamic-<rust-target>` (no extension) — that is the lookup key.
+- In `local` mode there is **no network fallback**: a missing file raises `FileSystemException: Could not find binary.`
+- CI: `.github/workflows/release.yml` runs the script right before each `flutter build` (macOS/Windows/Android jobs).
+- Upgrading `wasm_run` requires updating both `WASM_RUN_RELEASE` and the sha256 table in the script; copy them from `~/.pub-cache/hosted/pub.dev/wasm_run-<ver>/hook/build.dart` (`assetsSha256`).
+- **`flutter test` cannot load the native asset at all** (pre-existing limitation, unrelated to the `local`/`fetch` choice): the test VM doesn't expose code assets, so `flutter_rust_bridge` falls back to `DynamicLibrary.open('wasm_run_dart.framework/wasm_run_dart')` and every 花火 wasm test fails with `Failed to load dynamic library`. To run `test/data/repositories/hanabi_wasm_unscrambler_test.dart`, `hanabi_chapter_decryptor_test.dart`, or `chapter_image_pipeline_hanabi_test.dart` locally, stage the library where that `dlopen` looks, then clean up:
+  ```sh
+  mkdir -p wasm_run_dart.framework
+  cp native_libs/wasm_run_dart-dynamic-aarch64-apple-darwin wasm_run_dart.framework/wasm_run_dart
+  flutter test test/data/repositories/hanabi_wasm_unscrambler_test.dart   # 7/7 pass this way
+  rm -rf wasm_run_dart.framework
+  ```
 
 ## Cloudflare / TLS Fingerprint Sources (manga18.club)
 Some sources sit behind Cloudflare's TLS/JA3 fingerprint check, which rejects Dart/Dio (BoringSSL) and Node/OpenSSL requests with 403 even with valid cookies and a browser UA. `cf_clearance` is bound to TLS fingerprint + UA + exit IP together, so a cookie captured in a real browser is useless from a mismatched TLS stack. Both platforms solve this without changing source code:

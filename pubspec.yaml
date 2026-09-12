@@ -93,6 +93,37 @@ dev_dependencies:
 dependency_overrides:
   flutter_rust_bridge: 2.12.0
 
+# wasm_run 的 native assets 构建 hook 默认是 buildMode=fetch，会在每次 native
+# assets 构建时自己去 GitHub Release 下载预编译动态库。它内部用裸 HttpClient()，
+# 不读 HTTPS_PROXY 也没有任何重试，一次 TLS 握手抖动就会让整个 flutter build 挂掉
+# （HandshakeException: Connection terminated during handshake）。
+#
+# 改成 local 模式：库由 tools/prefetch_wasm_run.sh 用 curl（带重试 + sha256 校验）
+# 预先下载到 native_libs/，构建过程本身完全不联网。
+#
+# 前置条件：构建前 native_libs/ 里必须有对应目标平台的库，否则 hook 会报
+# "Could not find binary."。本机与 CI（.github/workflows/release.yml）都调用
+# tools/prefetch_wasm_run.sh 来准备，native_libs/ 不入库（见 .gitignore）。
+#
+# localPath 末尾的斜杠是必须的：hook 在 local 模式下走 Uri.resolve(assetName)，
+# 没有尾斜杠会把最后一段路径替换掉而不是进入目录。
+#
+# assetName 必须显式写死成 dynamic：hook 默认的资产名模板是
+# `$libraryName-$libraryType-$target`，而 $libraryType 在 release 构建下会变成
+# `static`（input.config.linkingEnabled 为 true 时 buildStatic 就为 true），于是它
+# 会去找 wasm_run_dart-static-<target>。但上游 GitHub Release 只发布了 dynamic 产物，
+# 一个 static 都没有 —— 所以 fetch 模式的 release 构建同样必挂
+# （"Sha256 hash for the asset wasm_run_dart-static-... was not provided"）。
+# 而 hook 里 CodeAsset 的 linkMode 是硬编码的 DynamicLoadingBundled()，LocalBuildMode
+# 也总是把库输出成 dylib 文件名，static 只影响“查哪个资产名”这一步，因此把模板固定成
+# dynamic 是安全的：debug 和 release 都会复用同一份 dynamic 库。
+hooks:
+  user_defines:
+    wasm_run:
+      buildMode: local
+      localPath: native_libs/
+      assetName: $libraryName-dynamic-$target
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 

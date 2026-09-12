@@ -53,6 +53,12 @@ jobs:
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
+      - name: Prefetch wasm_run prebuilt libs
+        # pubspec.yaml 把 wasm_run 的 native assets hook 设为 buildMode=local
+        # （hook 自带的 fetch 模式无重试，一次 TLS 抖动就会让整个构建失败），
+        # 所以构建前必须先把预编译库放进 native_libs/。
+        run: bash tools/prefetch_wasm_run.sh macos
+
       - name: Build macOS
         run: flutter build macos --release --build-name=${{ steps.version.outputs.version }}
 
@@ -136,6 +142,11 @@ jobs:
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
+      - name: Prefetch wasm_run prebuilt libs
+        # 见 build-macos 里同名步骤的说明。
+        shell: bash
+        run: bash tools/prefetch_wasm_run.sh windows
+
       - name: Build Windows
         run: flutter build windows --release --build-name=${{ steps.version.outputs.version }}
 
@@ -179,6 +190,10 @@ jobs:
             VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | cut -d'+' -f1)
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Prefetch wasm_run prebuilt libs
+        # 见 build-macos 里同名步骤的说明。
+        run: bash tools/prefetch_wasm_run.sh android
 
       - name: Build APK (split per ABI)
         # 按架构拆分产出独立 APK，用户只需下载自己手机对应的那一份。
