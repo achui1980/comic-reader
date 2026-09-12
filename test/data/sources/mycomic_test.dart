@@ -192,6 +192,28 @@ void main() {
       expect(detail.latestChapter, isNull);
       expect(detail.title, '未上架作品');
     });
+
+    // 上面 `_trickyChaptersFixture` 里的 `]` 是**成对**的，深度计数即使把字符串
+    // 内的括号也算进去，仍恰好在正确位置归零；只有**落单**的 `]` 才能证明
+    // 「字符串内的括号不参与深度计数」这条规则真的在生效。
+    test('keeps counting depth past an unmatched "]" inside a chapter title', () {
+      final detail = source.parseMangaInfo(_unpairedBracketChaptersFixture, '444');
+
+      expect(detail.chapters.map((c) => c.title), ['第24话', '第25话 【完结]']);
+      expect(detail.latestChapter, '第25话 【完结]');
+    });
+
+    // 同理，`_trickyChaptersFixture` 的 `第\"零\"话` 转义引号是**偶数**个，
+    // 字符串开合次数守恒；只有**奇数**个转义引号才能证明 `\"` 没有被误认成
+    // 字符串的结束引号。
+    test('treats a trailing escaped quote as title text, not the closing quote', () {
+      final detail =
+          source.parseMangaInfo(_oddEscapedQuoteChaptersFixture, '555');
+
+      expect(detail.chapters.single.title, '第08话 “活着的意义"');
+      expect(detail.chapters.single.id, '21');
+      expect(detail.latestChapter, '第08话 “活着的意义"');
+    });
   });
 }
 
@@ -296,4 +318,42 @@ const String _emptyChaptersFixture = '''
 <html><head>
   <meta property="og:title" content="未上架作品 - MYCOMIC - 我的漫画">
 </head><body><div x-data='{ chapters: [], decending: true }'></div></body></html>
+''';
+
+/// 标题里的方括号**落单**：站点上传者把左括号打成了全角 `【`、右括号仍是半角
+/// `]`（中文站常见的混排笔误）。全角括号不参与深度计数，于是整个 JSON 文本里
+/// 多出一个无配对的 `]`。
+///
+/// 若扫描器不忽略字符串内部的括号，读到该 `]` 时深度就提前归零，切出的子串是
+/// 被截断的非法 JSON（`jsonDecode` 抛 `FormatException`）。落单的括号必须只有
+/// 这一个——再补一个落单的 `[` 就会相互抵消，重新变成「碰巧算对」。
+const String _unpairedBracketChaptersFixture = '''
+<html><head>
+  <meta property="og:title" content="括号笔误 - MYCOMIC - 我的漫画">
+</head><body>
+  <div x-data='{
+    chapters: [{"id":903,"title":"第25话 【完结]"},{"id":902,"title":"第24话"}],
+    decending: true
+  }'></div>
+</body></html>
+''';
+
+/// 标题里的引号也**落单**：全角左引号 `“` 配了个半角右引号，于是整段 JSON 文本
+/// 中 `\"` 恰好出现**奇数**次（一次），且它紧贴在字符串真正的结束引号之前。
+///
+/// 若扫描器不处理转义，`\` 会被跳过、随后的 `"` 被当成字符串结束（提前一位），
+/// 真正的结束引号则被当成新字符串的开始——字符串开合的奇偶从此翻转，数组末尾的
+/// `]` 被误认为在字符串内而被跳过，最终抛「内嵌章节 JSON 数组未闭合」。
+///
+/// 必须用 raw 字符串：否则 Dart 会先把 `\"` 解释成自己的转义，喂给扫描器的字节
+/// 里就没有反斜杠了。
+const String _oddEscapedQuoteChaptersFixture = r'''
+<html><head>
+  <meta property="og:title" content="引号笔误 - MYCOMIC - 我的漫画">
+</head><body>
+  <div x-data='{
+    chapters: [{"id":21,"title":"第08话 “活着的意义\""}],
+    decending: true
+  }'></div>
+</body></html>
 ''';
