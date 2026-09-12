@@ -6,11 +6,13 @@ PODS:
     - FlutterMacOS
   - FlutterMacOS (1.0.0)
   - OrderedSet (6.0.3)
+  - wasm_run_flutter (0.0.1)
 
 DEPENDENCIES:
   - flutter_inappwebview_macos (from `Flutter/ephemeral/.symlinks/plugins/flutter_inappwebview_macos/macos`)
   - flutter_secure_storage_macos (from `Flutter/ephemeral/.symlinks/plugins/flutter_secure_storage_macos/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
+  - wasm_run_flutter (from `Flutter/ephemeral/.symlinks/plugins/wasm_run_flutter/macos`)
 
 SPEC REPOS:
   trunk:
@@ -23,12 +25,15 @@ EXTERNAL SOURCES:
     :path: Flutter/ephemeral/.symlinks/plugins/flutter_secure_storage_macos/macos
   FlutterMacOS:
     :path: Flutter/ephemeral
+  wasm_run_flutter:
+    :path: Flutter/ephemeral/.symlinks/plugins/wasm_run_flutter/macos
 
 SPEC CHECKSUMS:
   flutter_inappwebview_macos: c2d68649f9f8f1831bfcd98d73fd6256366d9d1d
   flutter_secure_storage_macos: 7f45e30f838cf2659862a4e4e3ee1c347c2b3b54
   FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
   OrderedSet: e539b66b644ff081c73a262d24ad552a69be3a94
+  wasm_run_flutter: dac33adc4f8930941cfaa95a30565e13665a2aaa
 
 PODFILE CHECKSUM: 429f567d9ab401e946f77b31dd025355fafef34e
 
