@@ -6,6 +6,7 @@ import 'package:comic_reader/data/sources/source_registry.dart';
 import 'package:comic_reader/domain/entities/entities.dart';
 import 'package:comic_reader/presentation/common/login_dialog.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:get_it/get_it.dart';
 import 'package:mocktail/mocktail.dart';
@@ -16,6 +17,7 @@ class MockAuthStore extends Mock implements AuthStore {}
 
 class _FakeAutoLoginSource extends MangaSource {
   bool authenticated = false;
+  String? registerUrlValue;
 
   @override
   String get id => 'fake_auto_login';
@@ -40,6 +42,8 @@ class _FakeAutoLoginSource extends MangaSource {
   String? get autoLoginPassword => 'password';
   @override
   bool get isAuthenticated => authenticated;
+  @override
+  String? get registerUrl => registerUrlValue;
 
   @override
   FetchConfig buildSignInRequest(String email, String password) =>
@@ -154,5 +158,44 @@ void main() {
     );
     final result = await tryAutoLogin(noAutoSource);
     expect(result, isFalse);
+  });
+
+  group('register entry', () {
+    Future<void> pumpAndOpenDialog(WidgetTester tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () => showLoginDialog(context, source),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('is hidden when the source has no registerUrl', (tester) async {
+      source.registerUrlValue = null;
+
+      await pumpAndOpenDialog(tester);
+
+      expect(find.text('还没有账号？去注册'), findsNothing);
+      expect(find.byIcon(Icons.open_in_new), findsNothing);
+    });
+
+    testWidgets('is shown when the source exposes a registerUrl', (
+      tester,
+    ) async {
+      source.registerUrlValue = 'https://example.com/auth/register';
+
+      await pumpAndOpenDialog(tester);
+
+      expect(find.text('还没有账号？去注册'), findsOneWidget);
+      expect(find.byIcon(Icons.open_in_new), findsOneWidget);
+    });
   });
 }
