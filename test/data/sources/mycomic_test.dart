@@ -138,14 +138,16 @@ void main() {
 
 /// 列表页夹具：3 个负例锚点（每个只违反一条结构不变量）+ 2 张真卡片。
 ///
-/// 负例与被拦截的不变量一一对应，因此 `hasLength(2)` 能证明三条判据都在生效：
-/// - 「随机漫画」导航锚点：href 匹配 `/comics/\d+`，但**无 img** → 只被②拦；
+/// 负例与被拦截的不变量一一对应，因此 `hasLength(2)` 能证明三条判据都在生效
+/// （下列顺序与夹具 HTML 中的出现顺序一致）：
 /// - 站点 logo 锚点：有 img 且 alt 非空，但 **href 不是漫画详情页** → 只被①拦；
+/// - 「随机漫画」导航锚点：href 匹配 `/comics/\d+`，但**无 img** → 只被②拦；
 /// - 装饰性/懒加载图片锚点：href 匹配且有 img，但 **alt 为空** → 只被③拦。
 ///
 /// 第一张卡片的角标是**单层叶子 div**（贴合站点实测结构），且 `<a>` 内在角标之前
-/// 还有两个必须被 `_latestChapterText` 跳过的叶子 div：一个文本等于标题，一个
-/// 超过 20 字符。
+/// 还有四个必须被 `_latestChapterText` 跳过的 div，逐一覆盖它的四条跳过分支：
+/// 空的 hover 遮罩层（文本为空）、评分行（**非叶子**，内层用 `<span>` 以免自己
+/// 被 `querySelectorAll('div')` 选中）、文本等于标题的 div、超过 20 字符的简介。
 const String _listFixture = '''
 <html><body>
   <nav>
@@ -157,6 +159,8 @@ const String _listFixture = '''
     <div class="group relative">
       <a href="https://mycomic.com/cn/comics/55355">
         <img src="https://biccam.com/comics/55355-9e7018.jpg" alt="猎人游戏W">
+        <div class="absolute inset-0"></div>
+        <div class="flex items-center gap-1"><span class="text-xs">9.2</span></div>
         <div class="sr-only">猎人游戏W</div>
         <div class="line-clamp-2 text-xs">一位普通高中生被卷入了一场以生命为赌注的猎人游戏，规则残酷。</div>
         <div class="absolute inset-x-0 bottom-0">第07话</div>
