@@ -55,6 +55,11 @@
 | Mangago | 综合漫画 | 科学上网 | [打开](https://www.mangago.me) |
 | 韓漫基地 | 韩漫 | - | [打开](https://hmjd9.com) |
 | 摸摸漫画 | 综合漫画 | - | [打开](https://mmero.com) |
+| 好看漫画 | 国内免费漫画站（MCCMS） | - | [打开](https://www.haokantxt.com) |
+| Bazuo 漫画 | 聚合站，支持日/周/月/年榜 | - | [打开](https://manga.bazuo.link) |
+| 51漫画 | MCCMS 站，章节图 AES 加密 | - | [打开](https://www.51manga.com) |
+| 漫蛙漫画 | MANWA，韩漫/条漫为主 | - | [打开](https://manwari.cc) |
+| 花火漫画 | 仅免费/普通章节 | **需自备账号**（弹窗内可跳转注册） | [打开](https://web.hanabimanga.com) |
 
 ### 阅读体验
 
@@ -76,6 +81,7 @@
 - 主题：浅色 / 深色 / AMOLED / 跟随系统
 - 网络代理配置
 - 插件启用/禁用管理
+- 源账号登录（设置 → 插件管理 → 对应源「验证」）
 
 ---
 
@@ -205,7 +211,12 @@ lib/
 │       ├── vymanga.dart            # VyManga
 │       ├── mangago.dart            # Mangago
 │       ├── hmjd9.dart              # 韓漫基地
-│       └── mmero.dart              # 摸摸漫画
+│       ├── mmero.dart              # 摸摸漫画
+│       ├── haokan_manhua.dart      # 好看漫画
+│       ├── bazuo.dart              # Bazuo 漫画
+│       ├── manga51.dart            # 51漫画
+│       ├── manwaye.dart            # 漫蛙漫画
+│       └── hanabi_manga.dart       # 花火漫画（需登录）
 ├── domain/
 │   ├── entities/           # 领域实体
 │   └── repositories/       # 仓库接口
@@ -247,6 +258,21 @@ Web 端由于浏览器跨域限制，需要本地 CORS 代理：
 
 ---
 
+## 需要登录的源
+
+部分源必须登录后才能取到内容。入口统一在 **设置 → 插件管理 → 对应源「验证」**，也可在发现页切换源时触发（未登录的源会带一个橙色登录标记）。
+
+| 源 | 凭据来源 |
+|----|---------|
+| 哔咔漫画 | 内置演示账号，自动登录，无需操作 |
+| 花火漫画 | **需自备账号**，在弹窗中输入邮箱/密码 |
+
+花火漫画没有账号时，登录弹窗内有「还没有账号？去注册」入口，点击会在系统浏览器打开官方注册页（注册需通过邮箱验证链接完成，故无法在 App 内闭环）。若无法唤起浏览器，会把注册链接复制到剪贴板；剪贴板也不可用时会直接把链接显示出来。
+
+会话（Cookie / token）按源持久化在本地，启动时自动恢复；切换到该源或再次进入验证入口时，若会话临近过期会先尝试静默刷新。
+
+---
+
 ## CI/CD
 
 项目使用 GitHub Actions 自动构建发布：
@@ -282,6 +308,8 @@ git push --tags
 | 加密 | PointyCastle / Encrypt |
 | 图片 | CachedNetworkImage / ExtendedImage |
 | WebView | flutter_inappwebview |
+| WASM 运行时 | wasm_run（花火漫画图片解扰） |
+| 外部链接 | url_launcher |
 
 ---
 
