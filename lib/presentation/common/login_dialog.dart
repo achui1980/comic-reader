@@ -182,9 +182,16 @@ class _LoginDialogState extends State<_LoginDialog> {
     // instead of dead-ending. Uses the dialog's own inline error text rather
     // than a SnackBar: this AlertDialog sits in the Navigator overlay, above
     // the Scaffold that ScaffoldMessenger would render the SnackBar into.
-    await Clipboard.setData(ClipboardData(text: url));
-    if (!mounted) return;
-    setState(() => _error = '无法打开浏览器，注册链接已复制到剪贴板');
+    // The clipboard can refuse too (e.g. web without transient user activation,
+    // or Linux with no clipboard service), so fall back to showing the raw URL.
+    try {
+      await Clipboard.setData(ClipboardData(text: url));
+      if (!mounted) return;
+      setState(() => _error = '无法打开浏览器，注册链接已复制到剪贴板');
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = '无法打开浏览器，请手动访问 $url');
+    }
   }
 
   @override
