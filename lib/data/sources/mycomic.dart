@@ -1,6 +1,4 @@
-// Task 3 会用到以下导入（详情页 `x-data` 内嵌 JSON 解析），尚无引用者，先注释以
-// 保持 `flutter analyze` 干净：
-// import 'dart:convert';
+import 'dart:convert';
 
 import 'package:html/parser.dart' as html_parser;
 import 'package:html/dom.dart';
@@ -289,9 +287,143 @@ class MyComic extends MangaSource {
     return null;
   }
 
+  static const String _siteSuffixMarker = ' - MYCOMIC';
+
+  /// 剥掉 `og:title` 的 ` - MYCOMIC - 我的漫画` 站点后缀。
+  String _stripSiteSuffix(String value) {
+    final text = value.trim();
+    final idx = text.indexOf(_siteSuffixMarker);
+    return idx > 0 ? text.substring(0, idx).trim() : text;
+  }
+
+  String? _meta(Document document, String property) {
+    final element = document.querySelector('meta[property="$property"]') ??
+        document.querySelector('meta[name="$property"]');
+    final content = element?.attributes['content']?.trim();
+    return (content == null || content.isEmpty) ? null : content;
+  }
+
+  /// 收集 href 含指定筛选参数的链接文本（去重、保持文档顺序）。
+  /// 同时容错百分号编码与未编码两种形式。
+  List<String> _filterLinkTexts(Document document, String parameter) {
+    final encoded = 'filter%5B$parameter%5D';
+    final plain = 'filter[$parameter]';
+    final texts = <String>[];
+    for (final anchor in document.querySelectorAll('a[href]')) {
+      final href = anchor.attributes['href'] ?? '';
+      if (!href.contains(encoded) && !href.contains(plain)) continue;
+      final text = anchor.text.trim();
+      if (text.isEmpty || texts.contains(text)) continue;
+      texts.add(text);
+    }
+    return texts;
+  }
+
+  MangaStatus _parseStatus(Document document) {
+    for (final element in document.querySelectorAll('span, div, a, p')) {
+      if (element.children.isNotEmpty) continue;
+      switch (element.text.trim()) {
+        case '连载中':
+          return MangaStatus.ongoing;
+        case '已完结':
+          return MangaStatus.completed;
+      }
+    }
+    return MangaStatus.unknown;
+  }
+
   @override
   MangaDetail parseMangaInfo(dynamic response, String mangaId) {
-    throw UnimplementedError('parseMangaInfo');
+    final htmlStr = response as String;
+    final document = html_parser.parse(htmlStr);
+
+    // 站点为 newest-first。
+    final chapters = _extractChapters(htmlStr, mangaId);
+
+    return MangaDetail(
+      id: mangaId,
+      sourceId: sourceId,
+      title: _stripSiteSuffix(_meta(document, 'og:title') ?? ''),
+      coverUrl: _meta(document, 'og:image') ?? '',
+      // 必须用 og:description：页面内最长文本块是评论区广告垃圾。
+      description: _meta(document, 'og:description'),
+      author: _filterLinkTexts(document, 'author').join(', '),
+      tags: _filterLinkTexts(document, 'tag'),
+      status: _parseStatus(document),
+      latestChapter: chapters.isEmpty ? null : chapters.first.title,
+      headers: _imageHeaders,
+      // 阅读器要 oldest-first。
+      chapters: chapters.reversed.toList(),
+    );
+  }
+
+  /// 从**原始响应字符串**（不经 DOM，避免 HTML 实体解码干扰）提取 Alpine
+  /// `x-data` 里内嵌的章节数组。实测该数组在整页中恰好出现一次，且长篇
+  /// （262 话）也一次性全部内嵌，故无需分页。
+  List<ChapterItem> _extractChapters(String htmlStr, String mangaId) {
+    final decoded = jsonDecode(_sliceChaptersJson(htmlStr));
+    if (decoded is! List) {
+      throw Exception('MyComic: 内嵌章节数据不是 JSON 数组');
+    }
+
+    final items = <ChapterItem>[];
+    for (final entry in decoded) {
+      if (entry is! Map) continue;
+      final id = entry['id'];
+      if (id == null) continue;
+      items.add(ChapterItem(
+        id: '$id',
+        mangaId: mangaId,
+        title: (entry['title'] as String?)?.trim() ?? '$id',
+        href: '$_baseUrl/$_locale/chapters/$id',
+      ));
+    }
+    return items;
+  }
+
+  /// 引号/转义感知的括号深度扫描。
+  ///
+  /// **不要改回正则。** `chapters:\s*(\[.*?\])` 在章节标题含 `]`（卷名、括注
+  /// 很常见）时会静默截断成非法 JSON。
+  String _sliceChaptersJson(String htmlStr) {
+    final marker = htmlStr.indexOf('chapters:');
+    if (marker < 0) {
+      throw Exception('MyComic: 详情页未找到内嵌章节数据（chapters:），站点结构可能已变更');
+    }
+    final start = htmlStr.indexOf('[', marker);
+    if (start < 0) {
+      throw Exception('MyComic: chapters: 之后未找到 JSON 数组起始符');
+    }
+
+    var depth = 0;
+    var inString = false;
+    var escaped = false;
+    for (var i = start; i < htmlStr.length; i++) {
+      final ch = htmlStr[i];
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch == r'\') {
+        escaped = true;
+        continue;
+      }
+      if (inString) {
+        if (ch == '"') inString = false;
+        continue;
+      }
+      if (ch == '"') {
+        inString = true;
+        continue;
+      }
+      if (ch == '[') {
+        depth++;
+      } else if (ch == ']') {
+        depth--;
+        if (depth == 0) return htmlStr.substring(start, i + 1);
+      }
+    }
+    throw Exception('MyComic: 内嵌章节 JSON 数组未闭合');
   }
 
   @override
