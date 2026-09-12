@@ -161,19 +161,14 @@ class MyComic extends MangaSource {
   @override
   List<FilterOption> get searchFilters => const [];
 
-  static const List<String> _filterKeys = [
-    'sort',
-    'filter[tag]',
-    'filter[country]',
-    'filter[end]',
-  ];
-
+  /// 参数名的唯一真相来源是 [discoveryFilters]：这里直接遍历它，避免再维护一份
+  /// 键名常量——那种双真相来源在新增筛选器时会静默丢参数（UI 可选但请求里没有）。
   Map<String, dynamic> _buildQuery(int page, Map<String, String> filters) {
     final query = <String, dynamic>{'page': '$page'};
-    for (final key in _filterKeys) {
-      final value = filters[key];
+    for (final option in discoveryFilters) {
+      final value = filters[option.name];
       if (value != null && value.isNotEmpty) {
-        query[key] = value;
+        query[option.name] = value;
       }
     }
     return query;

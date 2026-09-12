@@ -71,6 +71,12 @@ void main() {
       });
     });
 
+    test('prepareDiscoveryFetch drops keys not declared in discoveryFilters', () {
+      final config = source.prepareDiscoveryFetch(1, const {'unknown': 'x'});
+      expect(config.queryParameters, {'page': '1'});
+      expect(config.queryParameters?.containsKey('unknown'), isFalse);
+    });
+
     test('search reuses the comics endpoint with a q parameter', () {
       final config = source.prepareSearchFetch('猎人', 2, const {});
       expect(config.url, 'https://mycomic.com/cn/comics');
