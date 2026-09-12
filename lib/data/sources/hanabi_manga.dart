@@ -158,6 +158,12 @@ class HanabiManga extends MangaSource {
   @override
   String? get loginDescription => '使用花火漫画账号登录后即可阅读免费章节';
 
+  /// The bare path 308-redirects to the locale-prefixed URL (e.g.
+  /// /zh-CN/auth/register), so let the site pick the locale from
+  /// Accept-Language instead of hardcoding one here.
+  @override
+  String? get registerUrl => '$_baseUrl/auth/register';
+
   @override
   bool get isAuthenticated =>
       extraHeaders.containsKey('Cookie') &&

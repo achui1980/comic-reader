@@ -378,5 +378,10 @@ void main() {
       );
       expect(config.body, jsonEncode({'refresh_token': 'r-123'}));
     });
+
+    test('registerUrl points at the Hanabi sign-up page', () {
+      final source = HanabiManga();
+      expect(source.registerUrl, 'https://web.hanabimanga.com/auth/register');
+    });
   });
 }

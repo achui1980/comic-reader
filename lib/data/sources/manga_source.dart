@@ -160,6 +160,12 @@ abstract class MangaSource {
   /// generic login dialog (see lib/presentation/common/login_dialog.dart).
   String? get loginDescription => null;
 
+  /// Public sign-up page for this source. When non-null, the generic login
+  /// dialog shows a "go register" entry that opens this URL in the user's
+  /// external browser. Null means the source has no self-service
+  /// registration to advertise.
+  String? get registerUrl => null;
+
   /// Build the FetchConfig for signing in with email/password.
   /// Only relevant when [requiresLogin] is true.
   FetchConfig buildSignInRequest(String email, String password) {
