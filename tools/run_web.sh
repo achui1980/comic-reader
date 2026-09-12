@@ -14,7 +14,7 @@
 # challenge, so curl-impersonate alone is not enough — the user must first
 # pass CF in a real browser and paste the cf_clearance cookie (web cookie
 # flow). curl-impersonate then replays requests carrying that cookie.
-CURL_IMPERSONATE_HOSTS="${CURL_IMPERSONATE_HOSTS:-manga18.club,api.comick.dev,vymanga.net,weebcentral.com,www.mangago.me}"
+CURL_IMPERSONATE_HOSTS="${CURL_IMPERSONATE_HOSTS:-manga18.club,api.comick.dev,vymanga.net,weebcentral.com,www.mangago.me,mycomic.com}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
