@@ -435,6 +435,14 @@ class MyComic extends MangaSource {
     throw Exception('MyComic: 内嵌章节 JSON 数组未闭合');
   }
 
+  /// 阅读器页章节标题：`og:title` 形如「第01话 - 猎人游戏W - MYCOMIC - 我的漫画」，
+  /// 先剥站点后缀，再取首个 ` - ` 之前的部分。
+  String _chapterTitle(Document document) {
+    final stripped = _stripSiteSuffix(_meta(document, 'og:title') ?? '');
+    final idx = stripped.indexOf(' - ');
+    return idx > 0 ? stripped.substring(0, idx).trim() : stripped;
+  }
+
   @override
   ChapterResult parseChapter(
     dynamic response,
@@ -442,6 +450,32 @@ class MyComic extends MangaSource {
     String chapterId,
     int page,
   ) {
-    throw UnimplementedError('parseChapter');
+    final document = html_parser.parse(response as String);
+    final images = <ChapterImage>[];
+    final seen = <String>{};
+
+    for (final img in document.querySelectorAll('img.page')) {
+      // lozad 懒加载：真实地址在 data-src，src 是占位图。
+      final url = (img.attributes['data-src'] ?? img.attributes['src'] ?? '')
+          .trim();
+      // 兜底「带 page class 却拿不到章节图地址」的两种形态：既无 src 也无
+      // data-src（模板漏写 / lozad 尚未注入）→ 空串；只有占位 src 而没有
+      // data-src → `??` 回退到 base64 或 /img/placeholder.gif。
+      // 注意国旗图标不靠这里排除，它在 `img.page` 选择器阶段就已被滤掉。
+      if (url.isEmpty || !url.contains('/chapters/')) continue;
+      if (!seen.add(url)) continue;
+      images.add(ChapterImage(url: url, headers: _imageHeaders));
+    }
+
+    return ChapterResult(
+      chapter: Chapter(
+        id: chapterId,
+        mangaId: mangaId,
+        title: _chapterTitle(document),
+        images: images,
+        headers: _imageHeaders,
+      ),
+      canLoadMore: false,
+    );
   }
 }

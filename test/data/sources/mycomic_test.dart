@@ -230,6 +230,33 @@ void main() {
       expect(detail.latestChapter, '第08话 “活着的意义"');
     });
   });
+
+  group('MyComic chapter parsing', () {
+    test('prefers data-src, keeps order, and drops non-page images', () {
+      final result = source.parseChapter(_chapterFixture, '55355', '818144', 1);
+
+      expect(result.canLoadMore, isFalse);
+      expect(result.chapter.id, '818144');
+      expect(result.chapter.mangaId, '55355');
+      expect(result.chapter.title, '第01话');
+      expect(result.chapter.images.map((i) => i.url), [
+        'https://biccam.com/chapters/818144/1-03ef91.jpg',
+        'https://biccam.com/chapters/818144/2-1a2b3c.jpg',
+        'https://biccam.com/chapters/818144/3-4d5e6f.jpg',
+      ]);
+    });
+
+    test('every image carries the CDN Referer and no scrambling', () {
+      final result = source.parseChapter(_chapterFixture, '55355', '818144', 1);
+
+      expect(result.chapter.images, isNotEmpty);
+      for (final image in result.chapter.images) {
+        expect(image.headers?['Referer'], 'https://mycomic.com/');
+        expect(image.scrambleType, ScrambleType.none);
+      }
+      expect(result.chapter.headers?['Referer'], 'https://mycomic.com/');
+    });
+  });
 }
 
 /// 列表页夹具：3 个负例锚点（每个只违反一条结构不变量）+ 2 张真卡片。
@@ -370,5 +397,34 @@ const String _oddEscapedQuoteChaptersFixture = r'''
     chapters: [{"id":21,"title":"第08话 “活着的意义\""}],
     decending: true
   }'></div>
+</body></html>
+''';
+
+/// 阅读器夹具：国旗图标 + 首图仅 src + 两张 lozad 懒加载（data-src 真实、
+/// src 为占位）+ 三个负例，与 `parseChapter` 的三条守卫一一对应。
+///
+/// 国旗 `<img class="flag">` 不匹配 `img.page`，在选择器阶段即被排除；三个负例
+/// 则**都带 `page` class**，以确保它们进入循环、真正打到各自那条守卫：
+/// - 无 src 也无 data-src（模板漏写 / lozad 尚未注入）→ 只被 `url.isEmpty` 拦；
+/// - 仅有占位 src、没有 data-src → 只被 `!url.contains('/chapters/')` 拦；
+/// - 与第 1 张真图同址（站点重复渲染）→ 只被 `seen` 去重拦。
+const String _chapterFixture = '''
+<html><head>
+  <meta property="og:title" content="第01话 - 猎人游戏W - MYCOMIC - 我的漫画">
+</head><body>
+  <img class="flag" src="https://biccam.com/img/flags/cn.png">
+  <img class="page w-full mx-auto"
+       src="https://biccam.com/chapters/818144/1-03ef91.jpg">
+  <img class="page w-full mx-auto lozad"
+       src="data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=="
+       data-src="https://biccam.com/chapters/818144/2-1a2b3c.jpg">
+  <img class="page w-full mx-auto lozad"
+       src="https://biccam.com/img/placeholder.gif"
+       data-src="https://biccam.com/chapters/818144/3-4d5e6f.jpg">
+  <img class="page w-full mx-auto">
+  <img class="page w-full mx-auto lozad"
+       src="https://biccam.com/img/placeholder.gif">
+  <img class="page w-full mx-auto"
+       src="https://biccam.com/chapters/818144/1-03ef91.jpg">
 </body></html>
 ''';
