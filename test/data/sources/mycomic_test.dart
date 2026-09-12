@@ -84,6 +84,14 @@ void main() {
       expect(config.queryParameters?['page'], '2');
     });
 
+    test('search ignores discovery-only filter keys', () {
+      final config = source.prepareSearchFetch('猎人', 1, const {
+        'filter[tag]': 'rexue',
+      });
+      expect(config.queryParameters, {'q': '猎人', 'page': '1'});
+      expect(config.queryParameters?.containsKey('filter[tag]'), isFalse);
+    });
+
     test('manga info targets the numeric comic id', () {
       final config = source.prepareMangaInfoFetch('55355');
       expect(config.url, 'https://mycomic.com/cn/comics/55355');

@@ -161,11 +161,17 @@ class MyComic extends MangaSource {
   @override
   List<FilterOption> get searchFilters => const [];
 
-  /// 参数名的唯一真相来源是 [discoveryFilters]：这里直接遍历它，避免再维护一份
-  /// 键名常量——那种双真相来源在新增筛选器时会静默丢参数（UI 可选但请求里没有）。
-  Map<String, dynamic> _buildQuery(int page, Map<String, String> filters) {
+  /// 参数名由调用方自带的筛选器列表决定（发现页传 [discoveryFilters]，搜索传
+  /// [searchFilters]），因此这里只做「跳过空值后原样透传」。不设共享白名单：任
+  /// 何一份列表新增筛选器都会自动生效，也不会让某条路径拿另一条路径的键名去过
+  /// 滤——那样会静默丢参数（UI 可选但请求里没有）。
+  Map<String, dynamic> _buildQuery(
+    int page,
+    Map<String, String> filters,
+    List<FilterOption> options,
+  ) {
     final query = <String, dynamic>{'page': '$page'};
-    for (final option in discoveryFilters) {
+    for (final option in options) {
       final value = filters[option.name];
       if (value != null && value.isNotEmpty) {
         query[option.name] = value;
@@ -178,7 +184,7 @@ class MyComic extends MangaSource {
   FetchConfig prepareDiscoveryFetch(int page, Map<String, String> filters) {
     return FetchConfig(
       url: '$_baseUrl/$_locale/comics',
-      queryParameters: _buildQuery(page, filters),
+      queryParameters: _buildQuery(page, filters, discoveryFilters),
       timeout: const Duration(seconds: 60),
     );
   }
@@ -192,7 +198,10 @@ class MyComic extends MangaSource {
   ) {
     return FetchConfig(
       url: '$_baseUrl/$_locale/comics',
-      queryParameters: {'q': keyword, ..._buildQuery(page, filters)},
+      queryParameters: {
+        'q': keyword,
+        ..._buildQuery(page, filters, searchFilters),
+      },
       timeout: const Duration(seconds: 60),
     );
   }
