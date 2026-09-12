@@ -357,9 +357,14 @@ class MyComic extends MangaSource {
     );
   }
 
-  /// 从**原始响应字符串**（不经 DOM，避免 HTML 实体解码干扰）提取 Alpine
-  /// `x-data` 里内嵌的章节数组。实测该数组在整页中恰好出现一次，且长篇
-  /// （262 话）也一次性全部内嵌，故无需分页。
+  /// 提取 Alpine `x-data` 里内嵌的章节数组。实测该数组在整页中恰好出现一次，
+  /// 且长篇（262 话）也一次性全部内嵌，故无需分页。
+  ///
+  /// 走**原始响应字符串**而非 DOM 属性：页面上有多个 `[x-data]` 元素（下拉、
+  /// 排序控件都在用 Alpine），用 `chapters:` 文本 marker 定位比猜 CSS 选择器稳。
+  /// 代价是 HTML 实体不会被解码——标题里的 `&amp;` 会原样带进 UI，且若站点某天
+  /// 把 `x-data` 改成双引号包裹（属性值内的 `"` 变成 `&quot;`），本路径会直接
+  /// `FormatException`。Task 6 拿到真实 HTML 后确认是否需要补 unescape。
   List<ChapterItem> _extractChapters(String htmlStr, String mangaId) {
     final decoded = jsonDecode(_sliceChaptersJson(htmlStr));
     if (decoded is! List) {
@@ -381,19 +386,23 @@ class MyComic extends MangaSource {
     return items;
   }
 
-  /// 引号/转义感知的括号深度扫描。
+  /// 起始符靠正则**定位**，数组边界靠引号/转义感知的括号深度扫描**切片**。
   ///
-  /// **不要改回正则。** `chapters:\s*(\[.*?\])` 在章节标题含 `]`（卷名、括注
-  /// 很常见）时会静默截断成非法 JSON。
+  /// **不要用正则切片。** `chapters:\s*(\[.*?\])` 在章节标题含 `]`（卷名、括注
+  /// 很常见）时会静默截断成非法 JSON。用正则*定位*起始 `[` 则是安全的，而且比
+  /// `indexOf('[', marker)` 更严格：后者对「`[` 与 `chapters:` 的距离」毫无约束，
+  /// 站点一旦改版成 `chapters: chapterStore` / `chapters: null`，扫描器会跳到
+  /// 文档任意远处抓走一个完全无关的 `[`（无关数组 → 静默 0 章节，推荐位数组 →
+  /// 静默产出看起来正常的假章节），比抛错难查得多。故要求 `[` 紧跟在 `chapters:`
+  /// 之后（中间只容许空白）。
+  static final RegExp _chaptersArrayStartPattern = RegExp(r'chapters:\s*\[');
+
   String _sliceChaptersJson(String htmlStr) {
-    final marker = htmlStr.indexOf('chapters:');
-    if (marker < 0) {
-      throw Exception('MyComic: 详情页未找到内嵌章节数据（chapters:），站点结构可能已变更');
+    final match = _chaptersArrayStartPattern.firstMatch(htmlStr);
+    if (match == null) {
+      throw Exception('MyComic: 详情页未找到内嵌章节数组（chapters: [），站点结构可能已变更');
     }
-    final start = htmlStr.indexOf('[', marker);
-    if (start < 0) {
-      throw Exception('MyComic: chapters: 之后未找到 JSON 数组起始符');
-    }
+    final start = match.end - 1;
 
     var depth = 0;
     var inString = false;

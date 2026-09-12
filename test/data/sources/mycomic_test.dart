@@ -166,7 +166,7 @@ void main() {
       );
     });
 
-    test('does not truncate titles containing "]" or escaped quotes', () {
+    test('does not truncate titles containing a paired "]"', () {
       final detail = source.parseMangaInfo(_trickyChaptersFixture, '999');
 
       expect(detail.chapters, hasLength(2));
@@ -197,6 +197,14 @@ void main() {
     // 内的括号也算进去，仍恰好在正确位置归零；只有**落单**的 `]` 才能证明
     // 「字符串内的括号不参与深度计数」这条规则真的在生效。
     test('keeps counting depth past an unmatched "]" inside a chapter title', () {
+      // 夹具自检：`]` 必须恰好比 `[` 多一个（净落单一个右括号）。后人补章节时若
+      // 带进第二个落单 `[`（相互抵消）或把这个落单 `]` 写成全角，本测试会静默退化
+      // 成「碰巧算对」，故在此显式锁住夹具性质。补**配对**的 `[...]` 不影响。
+      final open = _unpairedBracketChaptersFixture.split('[').length - 1;
+      final close = _unpairedBracketChaptersFixture.split(']').length - 1;
+      expect(close - open, 1,
+          reason: '夹具已失去「落单 ]」性质，本测试不再验证字符串内括号被忽略');
+
       final detail = source.parseMangaInfo(_unpairedBracketChaptersFixture, '444');
 
       expect(detail.chapters.map((c) => c.title), ['第24话', '第25话 【完结]']);
@@ -207,6 +215,13 @@ void main() {
     // 字符串开合次数守恒；只有**奇数**个转义引号才能证明 `\"` 没有被误认成
     // 字符串的结束引号。
     test('treats a trailing escaped quote as title text, not the closing quote', () {
+      // 夹具自检：`\"` 必须是奇数个，否则字符串开合守恒，转义逻辑不再被检验。
+      expect(
+        RegExp(r'\\"').allMatches(_oddEscapedQuoteChaptersFixture).length.isOdd,
+        isTrue,
+        reason: '夹具的转义引号变成偶数个，本测试不再验证 \\" 未被误判为结束引号',
+      );
+
       final detail =
           source.parseMangaInfo(_oddEscapedQuoteChaptersFixture, '555');
 
