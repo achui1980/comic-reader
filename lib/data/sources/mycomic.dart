@@ -455,12 +455,17 @@ class MyComic extends MangaSource {
     final seen = <String>{};
 
     for (final img in document.querySelectorAll('img.page')) {
-      // lozad 懒加载：真实地址在 data-src，src 是占位图。
+      // 按 data-src → src 取值：实测阅读器页前几张（3 张）图把真实地址直接写在
+      // src 上、根本没有 data-src，第 4 张起才是 lozad 懒加载（data-src 才是真实
+      // 地址、src 是占位图）。两条分支都是承载性路径，不是「主路径 + 兜底」——
+      // 删掉 `?? src` 会让每章前几页静默消失。
       final url = (img.attributes['data-src'] ?? img.attributes['src'] ?? '')
           .trim();
-      // 兜底「带 page class 却拿不到章节图地址」的两种形态：既无 src 也无
-      // data-src（模板漏写 / lozad 尚未注入）→ 空串；只有占位 src 而没有
-      // data-src → `??` 回退到 base64 或 /img/placeholder.gif。
+      // 两条守卫兜住「带 page class 却拿不到章节图地址」的两种残缺形态：既无 src
+      // 也无 data-src（模板漏写 / lozad 尚未注入）→ 空串，被 isEmpty 拦；lozad
+      // 元素只有占位 src 却缺 data-src → `??` 取到 base64 或 /img/placeholder.gif，
+      // 被 `/chapters/` 拦。后者仅指这一种缺 data-src 的形态，取到 src 本身并不
+      // 意味着坏数据。
       // 注意国旗图标不靠这里排除，它在 `img.page` 选择器阶段就已被滤掉。
       if (url.isEmpty || !url.contains('/chapters/')) continue;
       if (!seen.add(url)) continue;
