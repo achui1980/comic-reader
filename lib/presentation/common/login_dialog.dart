@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get_it/get_it.dart';
 import 'package:dio/dio.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:comic_reader/data/local/auth_store.dart';
 import 'package:comic_reader/data/remote/http_client.dart';
@@ -157,6 +159,34 @@ class _LoginDialogState extends State<_LoginDialog> {
     }
   }
 
+  Future<void> _openRegisterPage() async {
+    final url = widget.source.registerUrl;
+    if (url == null) return;
+
+    // Drop any stale message (e.g. a previous failed login) so whatever this
+    // flow ends up showing is the only thing left on screen.
+    if (_error != null) setState(() => _error = null);
+
+    var opened = false;
+    try {
+      opened = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (_) {
+      opened = false;
+    }
+    if (opened) return;
+
+    // No browser available (or the platform refused). Hand the user the URL
+    // instead of dead-ending. Uses the dialog's own inline error text rather
+    // than a SnackBar: this AlertDialog sits in the Navigator overlay, above
+    // the Scaffold that ScaffoldMessenger would render the SnackBar into.
+    await Clipboard.setData(ClipboardData(text: url));
+    if (!mounted) return;
+    setState(() => _error = '无法打开浏览器，注册链接已复制到剪贴板');
+  }
+
   @override
   Widget build(BuildContext context) {
     final source = widget.source;
@@ -209,6 +239,21 @@ class _LoginDialogState extends State<_LoginDialog> {
               enabled: !_loading,
               onSubmitted: (_) => _login(),
             ),
+            if (source.registerUrl != null) ...[
+              const SizedBox(height: 4),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _loading ? null : _openRegisterPage,
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  label: const Text('还没有账号？去注册'),
+                  style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              ),
+            ],
             if (_error != null) ...[
               const SizedBox(height: 12),
               Text(
