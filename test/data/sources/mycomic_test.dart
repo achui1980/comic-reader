@@ -134,6 +134,25 @@ void main() {
     test('parseSearch shares the list parser', () {
       expect(source.parseSearch(_listFixture), hasLength(2));
     });
+
+    // 已完结作品的角标是「章节名 + [完]」两行结构，HTML 缩进让原始文本长达数十
+    // 字符，会被 `length > 20` 的简介守卫误杀（实测真实列表页 30 张卡片里 13 张
+    // 因此丢了 latestChapter）。折叠空白后才既能通过守卫、又保留完整角标文本。
+    test('collapses whitespace in the multi-line completed badge', () {
+      // 夹具自检：角标 div 的**未折叠**文本必须仍超过 20 字符，否则它不再触发那
+      // 条长度守卫，本测试也就不再验证空白折叠。用正则抓第一个不含标签的 div。
+      final badge = RegExp(r'<div[^>]*>([^<]*)</div>')
+          .firstMatch(_completedCardFixture)!
+          .group(1)!;
+      expect(badge.trim().length, greaterThan(20),
+          reason: '夹具已失去「原始文本超长」性质，本测试不再验证空白折叠');
+
+      final results = source.parseDiscovery(_completedCardFixture);
+
+      expect(results, hasLength(1));
+      expect(results.single.id, '55354');
+      expect(results.single.latestChapter, '短篇 [完]');
+    });
   });
 
   group('MyComic manga info parsing', () {
@@ -229,6 +248,19 @@ void main() {
       expect(detail.chapters.single.id, '21');
       expect(detail.latestChapter, '第08话 “活着的意义"');
     });
+
+    // 状态只能从 `[data-flux-badge]` 徽章读：页脚的 `filter[end]` 筛选链接文本
+    // 恰好也是「连载中」/「已完结」，且是叶子 `<a>`，全文档扫描会把**没有徽章**的
+    // 作品误判成 ongoing（页脚「连载中」在「已完结」之前）。
+    test('reports unknown when the status badge is absent', () {
+      // 夹具自检：必须真的没有徽章、且页脚干扰链接还在，否则本测试空转。
+      expect(_noBadgeDetailFixture, isNot(contains('data-flux-badge')));
+      expect(_noBadgeDetailFixture, contains('filter%5Bend%5D=0'));
+
+      final detail = source.parseMangaInfo(_noBadgeDetailFixture, '12321');
+
+      expect(detail.status, MangaStatus.unknown);
+    });
   });
 
   group('MyComic chapter parsing', () {
@@ -255,6 +287,19 @@ void main() {
         expect(image.scrambleType, ScrambleType.none);
       }
       expect(result.chapter.headers?['Referer'], 'https://mycomic.com/');
+    });
+
+    // LD-JSON 是章节名的唯一来源（og:title 只有作品名），但它缺失时也不能让
+    // `Chapter.title` 变成空串 —— 阅读器标题栏与章节分界标签都靠它。
+    test('falls back to og:title when the ld+json breadcrumb is missing', () {
+      // 夹具自检：必须真的没有 LD-JSON，否则测不到回退路径。
+      expect(_chapterNoLdJsonFixture, isNot(contains('application/ld+json')));
+
+      final result =
+          source.parseChapter(_chapterNoLdJsonFixture, '55355', '818144', 1);
+
+      expect(result.chapter.title, '猎人游戏W');
+      expect(result.chapter.images, hasLength(1));
     });
   });
 }
@@ -301,15 +346,45 @@ const String _listFixture = '''
 </body></html>
 ''';
 
+/// 已完结作品卡片（站点实抓，未改一字的结构）：角标 div 里是**两行**内容 ——
+/// 章节名 + `[完]` 标记，中间夹着 HTML 缩进产生的大量空白。
+///
+/// 这就是「未折叠空白」缺陷的根源：`div.text.trim()` 在这里长达数十字符，会被
+/// `length > 20` 的简介守卫误杀，导致所有已完结作品的 latestChapter 变 null。
+/// 外层渐变遮罩 div 有子元素，先被叶子判据跳过；内层角标 div 才是目标。
+const String _completedCardFixture = '''
+<html><body>
+  <div class="group relative">
+    <a href="https://mycomic.com/cn/comics/55354">
+      <img src="data:image/png;base64,iVBOR" data-src="https://biccam.com/comics/55354-3483fc.jpg"
+           alt="1步前进 2步后退" class=" lozad  w-full h-full object-cover">
+      <div class="absolute top-0 left-0 w-full h-full bg-gradient-to-t from-black to-30% flex items-end justify-center px-3">
+        <div class="text-white text-sm pb-3 truncate">
+        短篇
+                                [完]
+                        </div>
+      </div>
+    </a>
+  </div>
+</body></html>
+''';
+
 /// 详情页夹具：OG meta + 状态徽章 + 作者/题材筛选链接 + x-data 内嵌章节 JSON
-/// + 一段评论区垃圾长文本（用于证明简介不是「取最长文本」）。
+/// + 一段评论区垃圾长文本（用于证明简介不是「取最长文本」）+ 页脚状态筛选链接。
+///
+/// 状态徽章保真为站点真实的 `data-flux-badge` 形态，含换行缩进（Flux 组件渲染
+/// 出来的文本是 `\n        连载中\n    `），用于验证 `_parseStatus` 折叠空白。
+/// 页脚那两个 `filter[end]` 链接也是站点真实存在的：它们的文本恰好也是
+/// 「连载中」/「已完结」，是全文档扫描方案的干扰源，必须留在夹具里。
 const String _detailFixture = '''
 <html><head>
   <meta property="og:title" content="猎人游戏W - MYCOMIC - 我的漫画">
   <meta property="og:description" content="被卷入死亡游戏的少年们的故事。">
   <meta property="og:image" content="https://biccam.com/comics/55355-9e7018.jpg">
 </head><body>
-  <span class="badge">连载中</span>
+  <div data-flux-badge="data-flux-badge" class="inline-flex items-center bg-blue-400/20 dark:bg-blue-400/40 mt-2">
+        连载中
+    </div>
   <a href="/cn/comics?filter%5Bauthor%5D=%E6%9F%90%E4%BD%9C%E8%80%85">某作者</a>
   <a href="/cn/comics?filter%5Btag%5D=baihe">百合</a>
   <a href="/cn/comics?filter%5Btag%5D=zhichang">职场</a>
@@ -324,6 +399,33 @@ const String _detailFixture = '''
   <div class="comments">
     <p>【外送茶】加LINE看照片，全套服務，市區叫小姐外送到府，價格實在，安全可靠，歡迎老闆來電諮詢，我們有各種類型的妹妹可以挑選，保證真人實照，不滿意可換人，二十四小時營業，全台都有服務點，還可以指定時間地點，先看照片再決定，不用先付訂金，見面滿意再付款，絕不強迫消費。</p>
   </div>
+  <footer>
+    <ul>
+      <li><a href="https://mycomic.com/cn/comics?filter%5Bend%5D=0" class="text-sm/6">连载中</a></li>
+      <li><a href="https://mycomic.com/cn/comics?filter%5Bend%5D=1" class="text-sm/6">已完结</a></li>
+    </ul>
+  </footer>
+</body></html>
+''';
+
+/// 与 `_detailFixture` 同构，但**没有** `data-flux-badge` 徽章（站点上确实存在
+/// 状态未标注的作品），只保留页脚那两个 `filter[end]` 筛选链接。
+///
+/// 全文档叶子扫描方案会命中页脚顶序更靠前的「连载中」`<a>`（它是叶子元素），把
+/// 状态未知的作品误判成 ongoing；锚定 `[data-flux-badge]` 才会正确返回 unknown。
+const String _noBadgeDetailFixture = '''
+<html><head>
+  <meta property="og:title" content="无徽章作品 - MYCOMIC - 我的漫画">
+  <meta property="og:description" content="站点没给这部作品标状态。">
+  <meta property="og:image" content="https://biccam.com/comics/12321-abcdef.jpg">
+</head><body>
+  <div x-data='{ chapters: [{"id":700001,"title":"第01话"}], decending: true }'></div>
+  <footer>
+    <ul>
+      <li><a href="https://mycomic.com/cn/comics?filter%5Bend%5D=0" class="text-sm/6">连载中</a></li>
+      <li><a href="https://mycomic.com/cn/comics?filter%5Bend%5D=1" class="text-sm/6">已完结</a></li>
+    </ul>
+  </footer>
 </body></html>
 ''';
 
@@ -408,9 +510,19 @@ const String _oddEscapedQuoteChaptersFixture = r'''
 /// - 无 src 也无 data-src（模板漏写 / lozad 尚未注入）→ 只被 `url.isEmpty` 拦；
 /// - 仅有占位 src、没有 data-src → 只被 `!url.contains('/chapters/')` 拦；
 /// - 与第 1 张真图同址（站点重复渲染）→ 只被 `seen` 去重拦。
-const String _chapterFixture = '''
+///
+/// 章节标题部分保真为站点实测形态：`og:title` **只有作品名、不含章节名**，章节名
+/// 的唯一来源是页面上唯一一个 `application/ld+json` 里 breadcrumb 的末项
+/// （`position` 最大者）。`itemListElement` 的三项结构、`position`、`name` 与
+/// `https:\/\/` 的斜杠转义都保真；只精简了 description / image 等无关字段的值。
+///
+/// 必须用 raw 字符串：否则 Dart 会先把 JSON 里的 `\/` 解释成自己的转义（Dart 对
+/// 未识别转义取字符本身），反斜杠会在喂给 `jsonDecode` 之前就消失，夹具也就失去
+/// 了「站点真实写法是转义斜杠」这条性质。
+const String _chapterFixture = r'''
 <html><head>
-  <meta property="og:title" content="第01话 - 猎人游戏W - MYCOMIC - 我的漫画">
+  <meta property="og:title" content="猎人游戏W - MYCOMIC - 我的漫画">
+  <script type="application/ld+json">{"@context":"https:\/\/schema.org","@type":["BreadcrumbList","ComicIssue"],"itemListElement":[{"@type":"ListItem","position":1,"name":"漫画资料库","item":{"@type":"Thing","url":"https:\/\/mycomic.com\/cn\/comics","@id":"https:\/\/mycomic.com\/cn\/comics"}},{"@type":"ListItem","position":2,"name":"猎人游戏W","item":{"@type":"Thing","url":"https:\/\/mycomic.com\/cn\/comics\/55355","@id":"https:\/\/mycomic.com\/cn\/comics\/55355"}},{"@type":"ListItem","position":3,"name":"第01话","item":{"@type":"Thing","url":"https:\/\/mycomic.com\/cn\/chapters\/818144","@id":"https:\/\/mycomic.com\/cn\/chapters\/818144"}}],"issueNumber":1,"audience":{"@type":"Audience","name":"青年"},"author":[{"@type":"Person","name":"晴十ナツメグ"}],"countryOfOrigin":{"@type":"Country","name":"日本"},"datePublished":"2025-06-04T15:00:03+08:00","keywords":["百合","职场"],"position":1,"thumbnailUrl":"https:\/\/biccam.com\/comics\/55355-9e7018.jpg","description":"某段描述","image":"https:\/\/biccam.com\/comics\/55355-9e7018.jpg","name":"猎人游戏W - 第01话","url":"https:\/\/mycomic.com\/cn\/chapters\/818144"}</script>
 </head><body>
   <img class="flag" src="https://biccam.com/img/flags/cn.png">
   <img class="page w-full mx-auto"
@@ -424,6 +536,20 @@ const String _chapterFixture = '''
   <img class="page w-full mx-auto">
   <img class="page w-full mx-auto lozad"
        src="https://biccam.com/img/placeholder.gif">
+  <img class="page w-full mx-auto"
+       src="https://biccam.com/chapters/818144/1-03ef91.jpg">
+</body></html>
+''';
+
+/// 阅读器页缺失 LD-JSON 的降级形态（站点改版 / 结构化数据被裁掉）。
+///
+/// `og:title` 保持站点真实形态（只有作品名），因此回退路径只能给出作品名 ——
+/// 这**不是**理想结果，但必须是个确定的非空值：`Chapter.title` 驱动阅读器标题栏
+/// 与连续阅读的章节分界标签，空串会让 UI 出现无名章节。本测试把这条降级行为钉住。
+const String _chapterNoLdJsonFixture = '''
+<html><head>
+  <meta property="og:title" content="猎人游戏W - MYCOMIC - 我的漫画">
+</head><body>
   <img class="page w-full mx-auto"
        src="https://biccam.com/chapters/818144/1-03ef91.jpg">
 </body></html>

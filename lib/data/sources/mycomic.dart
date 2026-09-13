@@ -275,12 +275,20 @@ class MyComic extends MangaSource {
     return results;
   }
 
+  static final RegExp _whitespacePattern = RegExp(r'\s+');
+
   /// 最新章节徽章：在卡片 `<a>` 内取所有**叶子 div**（无子元素节点），选第一个
   /// 满足「文本非空、不等于标题、长度 ≤ 20」者。长度上限用于排除简介类长文本。
+  ///
+  /// 判长度**之前必须折叠空白**，返回值也用折叠后的文本：站点上已完结作品的角标
+  /// 不是单行章节名，而是「章节名 + `[完]`」两行结构，HTML 缩进会让原始文本长达
+  /// 80 余字符，未折叠时全部撞上 `> 20` 守卫（实测真实列表页 30 张卡片有 13 张因此
+  /// 丢了 latestChapter）。折叠后 `短篇 [完]` 只有 6 字符，而简介折叠后仍 > 20，
+  /// 所以阈值本身依旧有效。
   String? _latestChapterText(Element anchor, String title) {
     for (final div in anchor.querySelectorAll('div')) {
       if (div.children.isNotEmpty) continue;
-      final text = div.text.trim();
+      final text = div.text.replaceAll(_whitespacePattern, ' ').trim();
       if (text.isEmpty || text == title || text.length > 20) continue;
       return text;
     }
@@ -319,10 +327,18 @@ class MyComic extends MangaSource {
     return texts;
   }
 
+  /// 连载状态：**必须**锚定 Flux 的 `[data-flux-badge]` 徽章，不能全文档扫描。
+  ///
+  /// 页脚的状态筛选链接 `?filter[end]=0` / `=1` 文本恰好也是「连载中」/「已完结」，
+  /// 而且是叶子 `<a>`，任何「扫全文档叶子元素、取顶序首个命中」的写法都会撞上它们。
+  /// 有徽章的作品判对纯属侥幸（真徽章位于 ~44K、页脚在 ~252K，顶序更靠前）；**没有
+  /// 徽章**的作品则会命中页脚更靠前的「连载中」而被误判成 ongoing，本应是 unknown。
+  ///
+  /// 徽章内文本带换行缩进（`\n        连载中\n    `），故折叠空白后再全文本比对；
+  /// 属性选择器已把范围收窄到详情页上唯一的那个徽章，无需再加叶子元素守卫。
   MangaStatus _parseStatus(Document document) {
-    for (final element in document.querySelectorAll('span, div, a, p')) {
-      if (element.children.isNotEmpty) continue;
-      switch (element.text.trim()) {
+    for (final element in document.querySelectorAll('[data-flux-badge]')) {
+      switch (element.text.replaceAll(_whitespacePattern, ' ').trim()) {
         case '连载中':
           return MangaStatus.ongoing;
         case '已完结':
@@ -435,12 +451,65 @@ class MyComic extends MangaSource {
     throw Exception('MyComic: 内嵌章节 JSON 数组未闭合');
   }
 
-  /// 阅读器页章节标题：`og:title` 形如「第01话 - 猎人游戏W - MYCOMIC - 我的漫画」，
-  /// 先剥站点后缀，再取首个 ` - ` 之前的部分。
+  /// 阅读器页章节标题：主路径是 `application/ld+json` 里 BreadcrumbList 的末项。
+  ///
+  /// **不能用 `og:title`**：实测阅读器页的 `og:title` 只有 `猎人游戏W - MYCOMIC -
+  /// 我的漫画`，压根不含章节名，走它会让所有章节都显示同一个作品名（`Chapter.title`
+  /// 驱动阅读器顶部标题栏与连续阅读的章节分界标签，等于无法区分章节）。页面上也没有
+  /// h1/h2/h3 或任何可见章节标题元素，`<title>` 同样不含章节名。
+  ///
+  /// 取 breadcrumb **末项**（`position` 最大者）的 `name`，因为它是**纯章节名**
+  /// `第01话`；LD-JSON 顶层还有个同名 `name` 字段，值是 `作品名 - 章节名` 复合格式，
+  /// 用它就得多押一层分隔符假设，故不用。
+  ///
+  /// 保留 `og:title` 作为回退：站点裁掉结构化数据时，退化成作品名总比空标题好
+  /// （空串会让 UI 出现无名章节）。
   String _chapterTitle(Document document) {
+    final fromBreadcrumb = _breadcrumbLeafName(document);
+    if (fromBreadcrumb != null) return fromBreadcrumb;
+
     final stripped = _stripSiteSuffix(_meta(document, 'og:title') ?? '');
     final idx = stripped.indexOf(' - ');
     return idx > 0 ? stripped.substring(0, idx).trim() : stripped;
+  }
+
+  /// 取 `application/ld+json` 里 `itemListElement` 中 `position` 最大那项的 `name`。
+  ///
+  /// `<script>` 在 `package:html` 里是 raw text element，`script.text` 返回未解码
+  /// HTML 实体的原始文本，正是 `jsonDecode` 要的。整段用 try/catch 包住：站点塞进
+  /// 非法 JSON 时只能让本方法返回 null 走回退，不能把整个 [parseChapter] 带崩。
+  String? _breadcrumbLeafName(Document document) {
+    for (final script
+        in document.querySelectorAll('script[type="application/ld+json"]')) {
+      Object? decoded;
+      try {
+        decoded = jsonDecode(script.text);
+      } catch (_) {
+        continue;
+      }
+      if (decoded is! Map) continue;
+
+      final list = decoded['itemListElement'];
+      if (list is! List || list.isEmpty) continue;
+
+      Map<dynamic, dynamic>? leaf;
+      num? leafPosition;
+      for (final entry in list) {
+        if (entry is! Map) continue;
+        final position = entry['position'];
+        final value = position is num ? position : null;
+        if (leaf == null ||
+            (value != null && (leafPosition == null || value > leafPosition))) {
+          leaf = entry;
+          leafPosition = value;
+        }
+      }
+      if (leaf == null) continue;
+
+      final name = leaf['name'];
+      if (name is String && name.trim().isNotEmpty) return name.trim();
+    }
+    return null;
   }
 
   @override
