@@ -397,10 +397,14 @@ class MyComic extends MangaSource {
       if (entry is! Map) continue;
       final id = entry['id'];
       if (id == null) continue;
+      // 用类型**检查**而非 `as String?` 强转：后者只容忍 null，遇到非字符串
+      // （`"title":123`）会抛 TypeError，而 [parseMangaInfo] 全程无 try/catch，
+      // 整个详情页会因此加载失败。退化成 id 才是这里本来的意图。
+      final rawTitle = entry['title'];
       items.add(ChapterItem(
         id: '$id',
         mangaId: mangaId,
-        title: (entry['title'] as String?)?.trim() ?? '$id',
+        title: rawTitle is String ? rawTitle.trim() : '$id',
         href: '$_baseUrl/$_locale/chapters/$id',
       ));
     }
@@ -468,14 +472,15 @@ class MyComic extends MangaSource {
   /// 用它就得多押一层分隔符假设，故不用。
   ///
   /// 保留 `og:title` 作为回退：站点裁掉结构化数据时，退化成作品名总比空标题好
-  /// （空串会让 UI 出现无名章节）。
+  /// （空串会让 UI 出现无名章节）。回退**只剥站点后缀，不再按 ` - ` 二次切分**：
+  /// 既然 og:title 里压根没有章节名可切（见上），那次切分就只剩害处 —— 作品名自带
+  /// ` - ` 时（`Re - Zero 从零开始`）会被截成 `Re`，让「作品名总比空标题好」这条
+  /// 唯一理由反过来不成立。
   String _chapterTitle(Document document) {
     final fromBreadcrumb = _breadcrumbLeafName(document);
     if (fromBreadcrumb != null) return fromBreadcrumb;
 
-    final stripped = _stripSiteSuffix(_meta(document, 'og:title') ?? '');
-    final idx = stripped.indexOf(' - ');
-    return idx > 0 ? stripped.substring(0, idx).trim() : stripped;
+    return _stripSiteSuffix(_meta(document, 'og:title') ?? '');
   }
 
   /// 取 `application/ld+json` 里 `itemListElement` 中 `position` 最大那项的 `name`。
