@@ -261,6 +261,21 @@ void main() {
 
       expect(detail.status, MangaStatus.unknown);
     });
+
+    // `已完结` 分支此前零测试覆盖（把它改成 unknown 后全套件仍全绿）。真站已完结
+    // 作品的徽章文本就是 `已完结`，与连载中版本同构、仅颜色类与文本不同。
+    test('reads completed from the status badge', () {
+      // 夹具自检：徽章必须真的在（否则读到的是 unknown 而非 completed 分支），
+      // 页脚那两个 `filter[end]` 诱饵链接也必须还在（它们是全文档扫描方案的干扰源）。
+      expect(_completedBadgeDetailFixture, contains('data-flux-badge'),
+          reason: '夹具已无状态徽章，本测试测到的是 unknown 而非 completed 分支');
+      expect(_completedBadgeDetailFixture, contains('filter%5Bend%5D=0'),
+          reason: '夹具已丢失页脚诱饵链接，不再体现「文本相同但不是徽章」的干扰源');
+
+      final detail = source.parseMangaInfo(_completedBadgeDetailFixture, '55354');
+
+      expect(detail.status, MangaStatus.completed);
+    });
   });
 
   group('MyComic chapter parsing', () {
@@ -301,6 +316,25 @@ void main() {
       expect(result.chapter.title, '猎人游戏W');
       expect(result.chapter.images, hasLength(1));
     });
+
+    // 回退路径存在的唯一理由是「作品名总比空标题好」，所以它绝不能把作品名再切一刀。
+    // 早期实现在剥站点后缀之后还取首个 ` - ` 之前的部分（那时误以为 og:title 形如
+    // `第01话 - 作品名 - MYCOMIC - 我的漫画`），实测证明 og:title 根本不含章节名，
+    // 于是那次切分只剩害处：作品名自带 ` - ` 时会被截成第一段。
+    test('keeps a work title that itself contains " - " intact', () {
+      // 夹具自检：必须无 LD-JSON（否则走不到回退），且剥掉站点后缀后的作品名必须
+      // 真的含 ` - `（否则截断与不截断结果相同，本测试空转）。
+      expect(_chapterDashTitleNoLdJsonFixture,
+          isNot(contains('application/ld+json')));
+      expect(_chapterDashTitleNoLdJsonFixture,
+          contains('content="Re - Zero 从零开始 - MYCOMIC - 我的漫画"'),
+          reason: '夹具作品名已不含 " - "，本测试不再验证回退路径不截断作品名');
+
+      final result = source.parseChapter(
+          _chapterDashTitleNoLdJsonFixture, '55355', '818144', 1);
+
+      expect(result.chapter.title, 'Re - Zero 从零开始');
+    });
   });
 }
 
@@ -311,6 +345,15 @@ void main() {
 /// - 站点 logo 锚点：有 img 且 alt 非空，但 **href 不是漫画详情页** → 只被①拦；
 /// - 「随机漫画」导航锚点：href 匹配 `/comics/\d+`，但**无 img** → 只被②拦；
 /// - 装饰性/懒加载图片锚点：href 匹配且有 img，但 **alt 为空** → 只被③拦。
+///
+/// 关于第二个负例：**真站的「随机漫画」锚点并不长这样**。实抓形态是
+/// `<a href="1" ... :href="comicUrl({ id: Math.floor(Math.random() * maxComicId) })">`
+/// —— 裸 `href="1"` 压根不匹配 `/comics/\d+`，真站上它是被①（href 正则）拦掉的，
+/// 设计阶段「它也匹配 `/comics/\d+`、必须靠无 img 滤除」的判断有误。
+/// 此处**刻意**把它造成「匹配正则 + 无 img」，因为守卫②需要一个这样的负例才能被
+/// 触发；它作为负例依然有效，只是别拿这段 HTML 去反推真站形态。
+/// 附带实测：真站列表页 30 个匹配锚点里「无 img」「alt 为空」「id 重复」各为 0，
+/// 三条守卫在正常页面上都不会开火，都是防御性的。
 ///
 /// 第一张卡片的角标是**单层叶子 div**（贴合站点实测结构），且 `<a>` 内在角标之前
 /// 还有四个必须被 `_latestChapterText` 跳过的 div，逐一覆盖它的四条跳过分支：
@@ -428,6 +471,33 @@ const String _noBadgeDetailFixture = '''
   <meta property="og:image" content="https://biccam.com/comics/12321-abcdef.jpg">
 </head><body>
   <div x-data='{ chapters: [{"id":700001,"title":"第01话"}], decending: true }'></div>
+  <footer>
+    <ul>
+      <li><a href="https://mycomic.com/cn/comics?filter%5Bend%5D=0" class="text-sm/6">连载中</a></li>
+      <li><a href="https://mycomic.com/cn/comics?filter%5Bend%5D=1" class="text-sm/6">已完结</a></li>
+    </ul>
+  </footer>
+</body></html>
+''';
+
+/// 与 `_noBadgeDetailFixture` 同骨架，但带**已完结**徽章（站点实抓形态：与连载中
+/// 版本同构，仅 Tailwind 颜色类与文本不同，同样带换行缩进）。
+///
+/// 它钉住的是 `_parseStatus` 的 `已完结` → [MangaStatus.completed] 分支 —— 该分支
+/// 此前零覆盖。页脚那两个 `filter[end]` 诱饵链接保留为站点真实位置（`</body>` 前），
+/// 因此本夹具**不**声称验证「徽章优先于诱饵」：徽章在文档顺序上本就早于页脚，全文档
+/// 扫描在这里会侥幸判对。那条选择器约束由 `_noBadgeDetailFixture` 负责钉住（无徽章
+/// 时必须是 unknown，而非命中页脚的「连载中」）。
+const String _completedBadgeDetailFixture = '''
+<html><head>
+  <meta property="og:title" content="1步前进 2步后退 - MYCOMIC - 我的漫画">
+  <meta property="og:description" content="已完结的短篇作品。">
+  <meta property="og:image" content="https://biccam.com/comics/55354-3483fc.jpg">
+</head><body>
+  <div data-flux-badge="data-flux-badge" class="inline-flex items-center text-lime-800 bg-lime-400/25 mt-2">
+        已完结
+    </div>
+  <div x-data='{ chapters: [{"id":700002,"title":"短篇"}], decending: true }'></div>
   <footer>
     <ul>
       <li><a href="https://mycomic.com/cn/comics?filter%5Bend%5D=0" class="text-sm/6">连载中</a></li>
@@ -557,6 +627,21 @@ const String _chapterFixture = r'''
 const String _chapterNoLdJsonFixture = '''
 <html><head>
   <meta property="og:title" content="猎人游戏W - MYCOMIC - 我的漫画">
+</head><body>
+  <img class="page w-full mx-auto"
+       src="https://biccam.com/chapters/818144/1-03ef91.jpg">
+</body></html>
+''';
+
+/// 同为缺 LD-JSON 的降级形态，但**作品名自身含 ` - `**（`Re - Zero 从零开始`）。
+///
+/// 与 `_chapterNoLdJsonFixture` 分开而不合并：那条测试钉的是「降级不产出空串」，
+/// 且它的 og:title 保真为真站实抓值；本条钉的是「回退只剥站点后缀、不再按 ` - `
+/// 二次切分」。作品名含 ` - ` 是可能而非实抓形态，混进同一夹具会既破坏前者的保真
+/// 性、又把两条互不相干的行为压进一组断言。
+const String _chapterDashTitleNoLdJsonFixture = '''
+<html><head>
+  <meta property="og:title" content="Re - Zero 从零开始 - MYCOMIC - 我的漫画">
 </head><body>
   <img class="page w-full mx-auto"
        src="https://biccam.com/chapters/818144/1-03ef91.jpg">
