@@ -331,10 +331,15 @@ class MyComic extends MangaSource {
   ///
   /// 页脚的状态筛选链接 `?filter[end]=0` / `=1` 文本恰好也是「连载中」/「已完结」，
   /// 而且是叶子 `<a>`，任何「扫全文档叶子元素、取顶序首个命中」的写法都会撞上它们。
-  /// 有徽章的作品判对纯属侥幸（真徽章位于 ~44K、页脚在 ~252K，顶序更靠前）；**没有
-  /// 徽章**的作品则会命中页脚更靠前的「连载中」而被误判成 ongoing，本应是 unknown。
+  /// 有徽章的作品判对纯属侥幸（真徽章在文档顶序上早于页脚，两份真实详情页——连载中
+  /// 与已完结——均如此；不写死具体偏移，它会随站点每次改版漂移，且代码里也没有任何
+  /// 依赖该数值的常量）；**没有徽章**的作品则会命中页脚更靠前的「连载中」而被误判成
+  /// ongoing，本应是 unknown。
   ///
-  /// 徽章内文本带换行缩进（`\n        连载中\n    `），故折叠空白后再全文本比对；
+  /// 折叠空白只是**与 [_latestChapterText] 保持一致的防御性归一化**，不是这里的必需
+  /// 品：实测真徽章文本 `\n        连载中\n    ` 单靠 `trim()` 就已干净（`trim` 后
+  /// 恰好 3 字符），而 `连载中` / `已完结` 都无内部空白，折叠前后完全相同。保留它是因为
+  /// 徽章文本形态由 Flux 组件决定、改版后可能夹进内部空白，成本又可忽略。
   /// 属性选择器已把范围收窄到详情页上唯一的那个徽章，无需再加叶子元素守卫。
   MangaStatus _parseStatus(Document document) {
     for (final element in document.querySelectorAll('[data-flux-badge]')) {
@@ -478,6 +483,13 @@ class MyComic extends MangaSource {
   /// `<script>` 在 `package:html` 里是 raw text element，`script.text` 返回未解码
   /// HTML 实体的原始文本，正是 `jsonDecode` 要的。整段用 try/catch 包住：站点塞进
   /// 非法 JSON 时只能让本方法返回 null 走回退，不能把整个 [parseChapter] 带崩。
+  ///
+  /// **没有任何一项带合法 `position` 时返回 null，绝不退化成取列表首项**：
+  /// `itemListElement` 是有序列表、根节点在前叶子在后，首项是站点级根节点（实测真站
+  /// 该位置的值是 `漫画资料库`），拿它当 `Chapter.title` 比回退到 og:title 的作品名
+  /// （`猎人游戏W`）严格更糟。而 `position` 是 schema.org `BreadcrumbList` 对
+  /// `ListItem` 的必填属性，全缺即畸形数据 —— 对畸形数据「弃」而非「猜」，与上面
+  /// try/catch 的取向一致。
   String? _breadcrumbLeafName(Document document) {
     for (final script
         in document.querySelectorAll('script[type="application/ld+json"]')) {
@@ -498,8 +510,7 @@ class MyComic extends MangaSource {
         if (entry is! Map) continue;
         final position = entry['position'];
         final value = position is num ? position : null;
-        if (leaf == null ||
-            (value != null && (leafPosition == null || value > leafPosition))) {
+        if (value != null && (leafPosition == null || value > leafPosition)) {
           leaf = entry;
           leafPosition = value;
         }
