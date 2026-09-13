@@ -2,6 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **实施后勘误（本文是计划时快照，按本仓惯例不回写正文）。** 实现阶段拿到真实 HTML 做离线验收，推翻了本文以下四处内容；正文里那几段可直接复制的实现代码**已被判为缺陷，不要照抄**。**一切以 `lib/data/sources/mycomic.dart` 与 `test/data/sources/mycomic_test.dart` 为准**：
+>
+> 1. **状态解析**：本文给出的 `querySelectorAll('span, div, a, p')` 叶子扫描是缺陷 —— 页脚的 `filter[end]` 筛选链接文本恰好也是「连载中」/「已完结」且是叶子 `<a>`，无徽章的作品会被误判成 ongoing。最终实现锚定 `[data-flux-badge]`。
+> 2. **章节数组定位**：本文的 `indexOf('chapters:')` + `indexOf('[', marker)` 对两者距离毫无约束，站点改成 `chapters: null` 之类时会跳到远处抓走无关数组（静默产出假章节）。最终实现用锚定正则 `chapters:\s*\[`。
+> 3. **章节标题来源**：不是 og:title 剥后缀 + ` - ` 切分。主路径是 `application/ld+json` 里 BreadcrumbList 的末项；og:title 只作回退，且**不做 ` - ` 切分**（作品名自带 ` - ` 时会被截断）。
+> 4. **阅读器页夹具的 og:title**：本文写作 `第01话 - 猎人游戏W - MYCOMIC - 我的漫画`，实抓为 `猎人游戏W - MYCOMIC - 我的漫画`，**不含章节名**。
+
 **Goal:** 为 comic-reader 新增 `mycomic.com`（我的漫画）漫画源，支持发现/筛选、搜索、详情、章节列表与章节图片，并在双平台绕过 Cloudflare TLS 指纹校验。
 
 **Architecture:** 单文件源插件 `lib/data/sources/mycomic.dart`，遵循框架的 prepare/parse 分离契约（源不触碰网络）。主站请求走 WebView-fetch（native）/ curl-impersonate（web）绕过 Cloudflare；图片 CDN `biccam.com` 直连，仅靠 `Referer` 头放行。章节列表不额外发请求——从详情页 `x-data` 属性内嵌的 JSON 中用「引号/转义感知的括号深度扫描」提取。
@@ -45,7 +52,7 @@ flutter analyze lib/data/sources/mycomic.dart
 | `lib/data/sources/mycomic.dart` | 创建 | 源插件全部逻辑（元数据、平台配置、筛选器、prepare/parse、章节 JSON 提取） |
 | `test/data/sources/mycomic_test.dart` | 创建 | 离线 HTML 夹具单测，覆盖 8 个非显然陷阱 |
 | `lib/app/di/injection.dart` | 修改（import 区 + 第 207 行后） | 注册源 |
-| `tools/run_web.sh` | 修改（第 17 行） | web 端把 `mycomic.com` 加入 curl-impersonate 名单 |
+| `tools/run_web.sh` | 修改（`CURL_IMPERSONATE_HOSTS` 默认值） | web 端把 `mycomic.com` 加入 curl-impersonate 名单 |
 | `AGENTS.md` | 修改（第 122 行） | 更正 extra 注入点的文件指向 |
 
 单文件是本仓 40 个源的既定模式（`manga18_club.dart` 473 行），不做拆分。
@@ -1051,7 +1058,7 @@ git commit -m "feat: mycomic 章节图片解析，data-src 优先并过滤国旗
 
 **Files:**
 - Modify: `lib/app/di/injection.dart`（import 区 + 第 207 行后）
-- Modify: `tools/run_web.sh:17`
+- Modify: `tools/run_web.sh`（`CURL_IMPERSONATE_HOSTS` 默认值）
 - Modify: `AGENTS.md:122`
 
 - [ ] **Step 1: 注册源**
@@ -1070,7 +1077,7 @@ import 'package:comic_reader/data/sources/mycomic.dart';
 
 - [ ] **Step 2: web 端加入 curl-impersonate 名单**
 
-`tools/run_web.sh` 第 17 行，把 `mycomic.com` 追加到默认值末尾。**不要加 `biccam.com`**——CDN 需保持直连快速路径。
+`tools/run_web.sh` 的 `CURL_IMPERSONATE_HOSTS` 默认值，把 `mycomic.com` 追加到末尾。**不要加 `biccam.com`**——CDN 需保持直连快速路径。
 
 改前：
 ```sh

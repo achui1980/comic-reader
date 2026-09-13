@@ -1,5 +1,12 @@
 # 我的漫画（mycomic.com）漫画源设计
 
+> **实施后勘误（本文是设计时快照，按本仓惯例不回写正文）。** 实现阶段拿到真实 HTML 做离线验收，推翻了本文以下四处结论；**一切以 `lib/data/sources/mycomic.dart` 与 `test/data/sources/mycomic_test.dart` 为准**：
+>
+> 1. **状态解析**：本文的「叶子元素文本 `连载中`/`已完结`」被判为缺陷 —— 页脚的 `filter[end]` 筛选链接文本恰好也是这两个词且是叶子 `<a>`，无徽章的作品会被误判成 ongoing。最终实现锚定 `[data-flux-badge]`。
+> 2. **章节数组定位**：本文的 `indexOf('chapters:')` + `indexOf('[', idx)` 对两者距离毫无约束，站点改成 `chapters: null` 之类时会跳到远处抓走无关数组（静默产出假章节）。最终实现用锚定正则 `chapters:\s*\[`。
+> 3. **章节标题来源**：不是 og:title 剥后缀。真站阅读器页的 og:title **不含章节名**，主路径是 `application/ld+json` 里 BreadcrumbList 的末项，og:title 只作回退（且回退不做 ` - ` 切分）。
+> 4. **「随机漫画」锚点形态**：它的裸 `href="1"` 不匹配 `/comics/\d+`，本文所述的「陷阱」不存在（正文内已就地标注）。
+
 ## 背景
 
 为 comic-reader 新增漫画源「我的漫画」，站点 `https://mycomic.com/cn`。技术栈为 **Laravel + Alpine.js + Flux UI + Tailwind**，与仓库内已有的 MCCMS 系（`haokan_manhua`、`51manga`）无任何同族关系，需全新实现。
@@ -67,7 +74,7 @@ locale `cn` 是**路径段**而非查询参数：
 </a><div class="mt-2 text-center"><div data-flux-subheading>猎人游戏W</div></div></div>
 ```
 
-**陷阱：导航栏的「随机漫画」链接也匹配 `/comics/\d+`**（`:href="comicUrl({id: Math.floor(Math.random()*maxComicId)})"`）。若不过滤会多出一条脏数据。
+~~**陷阱：导航栏的「随机漫画」链接也匹配 `/comics/\d+`**（`:href="comicUrl({id: Math.floor(Math.random()*maxComicId)})"`）。若不过滤会多出一条脏数据。~~ **（实施中推翻）** 该锚点实抓为 `<a href="1" ... :href="comicUrl({ id: ... })">`，裸 `href="1"` **不匹配** `/comics/\d+`，本就被 href 正则拦掉，这个「陷阱」不存在。
 
 标题优先取 `img` 的 `alt`（与 `data-flux-subheading` 内容相同但更稳）。
 
@@ -172,7 +179,7 @@ class MyComic extends MangaSource {
 双平台绕过分工：
 
 - **native**：`usesWebViewFetch => true` 使 `FetchPipeline.mergeHeaders()`（`fetch_pipeline.dart:21-37`）注入 `extra['useWebViewFetch']` 与 `extra['cloudflareUrl']`，`HttpClient` 转由常驻 headless `flutter_inappwebview` 的 page-context `fetch()` 发请求，复用真实 WebKit TLS 指纹。
-- **web**：`tools/run_web.sh:17` 的 `CURL_IMPERSONATE_HOSTS` 默认值追加 `mycomic.com`，令 CORS 代理对该主机改用 curl-impersonate。
+- **web**：`tools/run_web.sh` 的 `CURL_IMPERSONATE_HOSTS` 默认值追加 `mycomic.com`，令 CORS 代理对该主机改用 curl-impersonate。
 
 **不设 `extra['renderMode']`。** 该开关（`http_client.dart:84`）会让 WebView 以顶层文档加载并返回**渲染后** HTML，而本源的章节 JSON 只存在于**服务端原始 HTML** 的 `x-data` 属性中——渲染后 DOM 里只剩 Alpine 展开的 `<template>`。默认的 in-page fetch 拿到的才是原始 HTML，正是所需。
 
@@ -241,7 +248,7 @@ prepareSearchFetch(keyword, page, filters) →
 1. `href` 匹配 `/comics/(\d+)`
 2. 该 `<a>` 内含 `<img>` 且其 `alt` 非空
 
-「随机漫画」导航链接用 Alpine `:href` 绑定且不包 `img`，被条件 2 自然滤除。这比赌 `div.group.relative` 类名稳。结果按 comic id 去重并保持文档顺序。
+~~「随机漫画」导航链接用 Alpine `:href` 绑定且不包 `img`，被条件 2 自然滤除。~~ **（实施中推翻：**它的裸 `href="1"` 不匹配条件 1 的 `/comics/\d+`，因此被条件 1 滤除，与 `img` 无关。**）** 这比赌 `div.group.relative` 类名稳。结果按 comic id 去重并保持文档顺序。
 
 | 字段 | 取法 |
 |---|---|
@@ -318,7 +325,7 @@ ChapterImage(
 ### 接线
 
 - `lib/app/di/injection.dart`：`import` + 在 `registry.register(...)` 块中加 `registry.register(MyComic())`。
-- `tools/run_web.sh:17`：`CURL_IMPERSONATE_HOSTS` 默认值追加 `mycomic.com`。**`biccam.com` 不加**——CDN 需保持直连快速路径。
+- `tools/run_web.sh`：`CURL_IMPERSONATE_HOSTS` 默认值追加 `mycomic.com`。**`biccam.com` 不加**——CDN 需保持直连快速路径。
 
 ### 文档更正（附带）
 
