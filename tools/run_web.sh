@@ -2,12 +2,13 @@
 # Start CORS proxy and Flutter web in one command.
 # Usage: ./tools/run_web.sh
 #
-# curl-impersonate (opt-in): some sources (e.g. manga18.club, api.comick.dev,
-# vymanga.net, weebcentral.com, www.mangago.me) sit behind a Cloudflare TLS/JA3 fingerprint check that Node's
-# https.request cannot pass (403). Setting CURL_IMPERSONATE_HOSTS routes those
-# exact hosts through curl-impersonate (real Chrome fingerprint) instead. Only
-# the main API hosts are listed; image CDNs (cdn.manga18.club,
-# meo.comick.pictures, cdnxyz.xyz) keep the fast native path.
+# curl-impersonate (opt-in): some sources sit behind a Cloudflare TLS/JA3
+# fingerprint check that Node's https.request cannot pass (403). Setting
+# CURL_IMPERSONATE_HOSTS routes those exact hosts through curl-impersonate (real
+# Chrome fingerprint) instead. The default list below is the source of truth for
+# which hosts need it — don't re-enumerate it in comments. Only main API hosts
+# belong there; image CDNs (cdn.manga18.club, meo.comick.pictures, cdnxyz.xyz,
+# biccam.com) keep the fast native path.
 # Requires: brew install lexiforest/tap/curl-impersonate
 # Override the wrapper via CURL_IMPERSONATE_BIN (default: curl_chrome136).
 # NOTE (vymanga.net): the detail/chapter pages use an interactive CF JS
