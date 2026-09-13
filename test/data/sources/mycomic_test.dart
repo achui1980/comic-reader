@@ -108,6 +108,23 @@ void main() {
       expect(config.url, 'https://mycomic.com/cn/chapters/818144');
       expect(config.timeout, const Duration(seconds: 60));
     });
+
+    // renderMode 是本源能拿到 200 的**唯一**手段：Cloudflare 会对已通过挑战的
+    // 页面上下文里发出的 in-page `fetch()` 重新挑战并返回 403（真机实测），必须
+    // 改走 `fetchRendered` 的顶层导航路径。四条请求路径缺任何一条，线上就是那条
+    // 路径全线 403 —— 而离线解析测试对此毫无反应，故在此显式钉住这份元数据。
+    test('every request opts into renderMode to dodge the cloudflare 403', () {
+      final configs = <String, FetchConfig>{
+        'discovery': source.prepareDiscoveryFetch(1, const {}),
+        'search': source.prepareSearchFetch('猎人', 1, const {}),
+        'info': source.prepareMangaInfoFetch('55355'),
+        'chapter': source.prepareChapterFetch('55355', '818144', 1),
+      };
+
+      configs.forEach((label, config) {
+        expect(config.extra?['renderMode'], isTrue, reason: '$label 未启用 renderMode');
+      });
+    });
   });
 
   group('MyComic list parsing', () {
@@ -275,6 +292,29 @@ void main() {
       final detail = source.parseMangaInfo(_completedBadgeDetailFixture, '55354');
 
       expect(detail.status, MangaStatus.completed);
+    });
+
+    // 线上真正喂进来的是 renderMode 下的 `outerHTML`，属性值里的 `"` 已被转义成
+    // `&quot;`。走原始响应字符串提取时这里必定 `FormatException`；改从 DOM 的
+    // `x-data` 属性取（`package:html` 会解码实体）才两种形态通吃。
+    test('parses the &quot;-escaped x-data of the rendered outerHTML', () {
+      // 夹具自检 ①：x-data 必须真的是 `&quot;` 转义形态，否则测的还是原始串形态。
+      expect(_renderedDetailFixture, contains('chapters: [{&quot;id&quot;:818150'),
+          reason: '夹具已不是 outerHTML 的 &quot; 转义形态，本测试与 _detailFixture 重复');
+      // 夹具自检 ②：章节 x-data **之前**必须有一个不含 chapters 的诱饵 x-data
+      // （真站渲染后详情页有 30 个 `[x-data]`），否则「取首个 x-data」也能通过。
+      final decoy = _renderedDetailFixture.indexOf('x-data="{ sortDesc: true }"');
+      expect(decoy, greaterThanOrEqualTo(0),
+          reason: '夹具已丢失诱饵 x-data，不再要求实现遍历挑选');
+      expect(decoy, lessThan(_renderedDetailFixture.indexOf('chapters:')),
+          reason: '诱饵 x-data 必须在章节 x-data 之前才能拦住「取首个」的写法');
+
+      final detail = source.parseMangaInfo(_renderedDetailFixture, '55355');
+
+      expect(detail.chapters, hasLength(3));
+      expect(detail.chapters.map((c) => c.id), ['818144', '818149', '818150']);
+      expect(detail.chapters.map((c) => c.title), ['第01话', '第06话', '第07话']);
+      expect(detail.latestChapter, '第07话');
     });
   });
 
@@ -456,6 +496,43 @@ const String _detailFixture = '''
       <li><a href="https://mycomic.com/cn/comics?filter%5Bend%5D=1" class="text-sm/6">已完结</a></li>
     </ul>
   </footer>
+</body></html>
+''';
+
+/// 与 `_detailFixture` 是**同一份页面的另一种引号形态**，两者必须并列存在：
+/// - `_detailFixture` 是服务端下发的**原始 HTML**：`x-data='{...}'` 用单引号包裹，
+///   值内的 `"` 原样保留；
+/// - 本夹具是 renderMode 下 `document.documentElement.outerHTML` 的**真实形态**：
+///   浏览器序列化属性时一律用**双引号**包裹属性值，故值内的 `"` 全部被转义成
+///   `&quot;`（真站实抓：`chapters: [{&quot;id&quot;:818150,...`）。
+///
+/// 本源线上走 renderMode（Cloudflare 会对 in-page `fetch()` 重新挑战、返回 403），
+/// 所以喂进 [MyComic.parseMangaInfo] 的**实际就是这一份形态**；原始串形态则由
+/// 既有的一众 `_*ChaptersFixture` 继续覆盖。
+///
+/// 章节 `x-data` **之前**刻意放了一个不含 `chapters` 的诱饵 `x-data`（排序控件）：
+/// 真站渲染后详情页共有 30 个 `[x-data]` 元素（Alpine 在下拉、排序控件上到处用），
+/// 实现必须遍历挑出属性值含 `chapters:` 的那一个，不能取首个、也不能猜单一选择器。
+const String _renderedDetailFixture = '''
+<html><head>
+  <meta property="og:title" content="猎人游戏W - MYCOMIC - 我的漫画">
+  <meta property="og:description" content="被卷入死亡游戏的少年们的故事。">
+  <meta property="og:image" content="https://biccam.com/comics/55355-9e7018.jpg">
+</head><body>
+  <div data-flux-badge="data-flux-badge" class="inline-flex items-center mt-2">
+        连载中
+    </div>
+  <a href="/cn/comics?filter%5Bauthor%5D=%E6%9F%90%E4%BD%9C%E8%80%85">某作者</a>
+  <a href="/cn/comics?filter%5Btag%5D=baihe">百合</a>
+  <a href="/cn/comics?filter%5Btag%5D=zhichang">职场</a>
+  <div x-data="{ sortDesc: true }"><button>排序</button></div>
+  <div x-data="{
+    chapters: [{&quot;id&quot;:818150,&quot;title&quot;:&quot;第07话&quot;},{&quot;id&quot;:818149,&quot;title&quot;:&quot;第06话&quot;},{&quot;id&quot;:818144,&quot;title&quot;:&quot;第01话&quot;}],
+    decending: true,
+    toggleSorting() { this.decending = !this.decending }
+  }">
+    <template x-for="chapter in chapters"><a :href="chapterUrl(chapter)"></a></template>
+  </div>
 </body></html>
 ''';
 

@@ -13,9 +13,23 @@ import 'package:comic_reader/domain/entities/entities.dart';
 /// 1. 主站在 Cloudflare 的 TLS/JA3 指纹校验后面（普通 Dio 请求直接 403 WAF 页），
 ///    因此走 [usesWebViewFetch]；而图片 CDN `biccam.com` 不受该校验，只需
 ///    `Referer` 头即可放行，走直连快速路径。
+///
+///    **仅 [usesWebViewFetch] 还不够**：本站的 Cloudflare 部署连**页面内的
+///    `fetch()` 也会重新挑战** —— 在已通过挑战、cookie 齐备的页面上下文里发出的
+///    in-page fetch 依旧返回 403（真机 macOS 实测：`WebView fetch returned status
+///    403`）。故四条请求路径一律带 `extra: {'renderMode': true}`，改走
+///    `fetchRendered` 的**顶层导航**路径：把目标 URL 当真实页面加载，再取
+///    `document.documentElement.outerHTML`。该失败模式与这条逃生舱的原委见
+///    `lib/data/remote/webview_fetcher_native.dart` 里 `fetchRendered` 的 doc，
+///    开关判定在 `lib/data/remote/http_client.dart` 的 `renderMode`。
 /// 2. 章节列表由 Alpine.js 客户端渲染，DOM 里只有 `<template x-for>`；真正的
-///    数据以 JSON 内嵌在祖先 div 的 `x-data` 属性里，故 [parseMangaInfo] 在
-///    **原始响应字符串**上做括号深度扫描提取，不依赖 DOM。
+///    数据以 JSON 内嵌在祖先 div 的 `x-data` 属性里，故 [parseMangaInfo] 从该
+///    **DOM 属性**取值后做引号感知的括号深度扫描提取。
+///
+///    渲染后取 DOM 属性是安全的：Alpine.js **不会移除** `x-data` 属性，渲染前后
+///    该属性都在，唯一的差别是属性的**引号形态**（原始 HTML 单引号包裹、值内 `"`
+///    原样；`outerHTML` 双引号包裹、值内 `"` 转义成 `&quot;`）——
+///    而这恰恰是必须走 DOM 而非原始字符串的理由，详见 [_extractChapters]。
 ///
 /// Tailwind 工具类不可作为选择器依据（类名长且随构建变化），本实现一律基于
 /// 结构不变量、OG meta 与内嵌 JSON。
@@ -182,6 +196,7 @@ class MyComic extends MangaSource {
     return FetchConfig(
       url: '$_baseUrl/$_locale/comics',
       queryParameters: _buildQuery(page, filters, discoveryFilters),
+      extra: const {'renderMode': true},
       timeout: const Duration(seconds: 60),
     );
   }
@@ -199,6 +214,7 @@ class MyComic extends MangaSource {
         'q': keyword,
         ..._buildQuery(page, filters, searchFilters),
       },
+      extra: const {'renderMode': true},
       timeout: const Duration(seconds: 60),
     );
   }
@@ -207,6 +223,7 @@ class MyComic extends MangaSource {
   FetchConfig prepareMangaInfoFetch(String mangaId) {
     return FetchConfig(
       url: '$_baseUrl/$_locale/comics/$mangaId',
+      extra: const {'renderMode': true},
       timeout: const Duration(seconds: 60),
     );
   }
@@ -229,6 +246,7 @@ class MyComic extends MangaSource {
   }) {
     return FetchConfig(
       url: '$_baseUrl/$_locale/chapters/$chapterId',
+      extra: const {'renderMode': true},
       timeout: const Duration(seconds: 60),
     );
   }
@@ -355,11 +373,10 @@ class MyComic extends MangaSource {
 
   @override
   MangaDetail parseMangaInfo(dynamic response, String mangaId) {
-    final htmlStr = response as String;
-    final document = html_parser.parse(htmlStr);
+    final document = html_parser.parse(response as String);
 
     // 站点为 newest-first。
-    final chapters = _extractChapters(htmlStr, mangaId);
+    final chapters = _extractChapters(document, mangaId);
 
     return MangaDetail(
       id: mangaId,
@@ -378,16 +395,45 @@ class MyComic extends MangaSource {
     );
   }
 
+  /// 只做**定位**：挑出属性值含 `chapters:` 的那个 `x-data`。
+  ///
+  static const String _chaptersKeyMarker = 'chapters:';
+
+  /// 只做**定位**：挑出属性值含 `chapters:` 的那个 `x-data`。
+  ///
+  /// 这里用宽松的文本 marker 而不是 [_chaptersArrayStartPattern]，是为了把职责分开
+  /// —— 本方法负责「哪个元素」，[_sliceChaptersJson] 负责「值合不合法」。若站点改版
+  /// 成 `chapters: chapterStore`，本方法照样选中该元素，随后由 [_sliceChaptersJson]
+  /// 抛出它自己那条更精确的错误；反过来（这里就用严格正则）会让那条守卫变成死代码。
+  ///
+  /// 找不到时**必须抛错**，不能静默返回空章节表：后者会让详情页看起来正常、只是
+  /// 一章都没有，比抛错难查得多。与 [_sliceChaptersJson] 的失败语义保持一致。
+  String _chaptersXData(Document document) {
+    for (final element in document.querySelectorAll('[x-data]')) {
+      final value = element.attributes['x-data'] ?? '';
+      if (value.contains(_chaptersKeyMarker)) return value;
+    }
+    throw Exception('MyComic: 详情页未找到内嵌章节数据（x-data 里的 chapters:），站点结构可能已变更');
+  }
+
   /// 提取 Alpine `x-data` 里内嵌的章节数组。实测该数组在整页中恰好出现一次，
   /// 且长篇（262 话）也一次性全部内嵌，故无需分页。
   ///
-  /// 走**原始响应字符串**而非 DOM 属性：页面上有多个 `[x-data]` 元素（下拉、
-  /// 排序控件都在用 Alpine），用 `chapters:` 文本 marker 定位比猜 CSS 选择器稳。
-  /// 代价是 HTML 实体不会被解码——标题里的 `&amp;` 会原样带进 UI，且若站点某天
-  /// 把 `x-data` 改成双引号包裹（属性值内的 `"` 变成 `&quot;`），本路径会直接
-  /// `FormatException`。Task 6 拿到真实 HTML 后确认是否需要补 unescape。
-  List<ChapterItem> _extractChapters(String htmlStr, String mangaId) {
-    final decoded = jsonDecode(_sliceChaptersJson(htmlStr));
+  /// 走 **DOM 属性**而非原始响应字符串，这是正确性的必要条件、不是风格取舍：本源
+  /// 线上走 renderMode（见类级 doc），拿到的是 `document.documentElement.outerHTML`，
+  /// 而浏览器序列化属性时一律用**双引号**包裹属性值，于是值内原本的 `"` 全部变成
+  /// `&quot;`（真站实抓 `chapters: [{&quot;id&quot;:818150,...`）——
+  /// 把这样的原始串直接喂 `jsonDecode` 必抛 `FormatException`。
+  /// `package:html` 解析属性值时会把 `&quot;` 解码回 `"`，故走 DOM 属性对**两种
+  /// 引号形态都成立**：服务端下发的原始 HTML 用单引号包裹、值内 `"` 原样，此时实体
+  /// 解码是恒等操作，行为与改动前完全相同（既有的一众原始串夹具即为此作证）。
+  ///
+  /// 页面上有多个 `[x-data]` 元素（真站渲染后详情页 30 个，下拉、排序控件都在用
+  /// Alpine），所以由 [_chaptersXData] **遍历**挑出含 `chapters:` 的那一个 ——
+  /// 既保住了原先「用文本 marker 定位比猜 CSS 选择器稳」的性质，又顺带解决了实体
+  /// 解码问题。
+  List<ChapterItem> _extractChapters(Document document, String mangaId) {
+    final decoded = jsonDecode(_sliceChaptersJson(_chaptersXData(document)));
     if (decoded is! List) {
       throw Exception('MyComic: 内嵌章节数据不是 JSON 数组');
     }
